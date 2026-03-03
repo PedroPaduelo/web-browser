@@ -1,0 +1,16 @@
+{
+  "name": "serende-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "MCP server for Serende remote browser control",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "zod": "^3.25.0"
+  }
+}

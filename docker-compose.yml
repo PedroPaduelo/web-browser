@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  mediasoup-server:
+    build: ./mediasoup-server
+    container_name: mediasoup-server
+    ports:
+      - "4443:4443"
+      - "40000-40099:40000-40099/udp"
+    environment:
+      - PUBLIC_IP=${PUBLIC_IP}
+      - MEDIASOUP_PORT=4443
+      - NUM_WORKERS=${NUM_WORKERS:-4}
+    networks:
+      - browser-network
+    restart: unless-stopped
+
+  orchestrator:
+    build: ./orchestrator
+    container_name: orchestrator
+    ports:
+      - "4000:4000"
+    environment:
+      - ORCHESTRATOR_PORT=4000
+      - MEDIASOUP_URL=http://mediasoup-server:4443
+      - MAX_SESSIONS=${MAX_SESSIONS:-100}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${EXTENSIONS_PATH:-./extensions}:/shared/extensions
+    networks:
+      - browser-network
+    depends_on:
+      - mediasoup-server
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: serende-frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      - orchestrator
+      - mediasoup-server
+    restart: unless-stopped
+
+networks:
+  browser-network:
+    name: browser-network
+    driver: bridge
+
+volumes:
+  chrome-profiles:
