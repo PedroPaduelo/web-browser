@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-tenant - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+        <nav class="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+
+        <ul class="nav-menu">
+            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
+            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
+            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="tenants.html" class="nav-link active">🏢 Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
+            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+
+    <main class="content">
+        <h1>🏢 Sistema Multi-tenant</h1>
+
+        <section class="card">
+            <h2>O que é Multi-tenant?</h2>
+            <p>Permite que múltiplas organizações (tenants) usem a mesma instância do Serende com isolamento completo de dados e recursos.</p>
+        </section>
+
+        <section class="card">
+            <h2>Estrutura do Tenant</h2>
+            <pre class="code-block">Tenant {
+  id: UUID
+  name: string
+  apiKey: string (hash SHA-256)
+  apiKeyPlain?: string (apenas criação)
+  createdAt: datetime
+  expiresAt?: datetime
+  metadata?: JSON
+  active: boolean
+}</pre>
+        </section>
+
+        <section class="card">
+            <h2>Isolamento</h2>
+            <ul>
+                <li><strong>API Keys únicas</strong> por tenant</li>
+                <li><strong>IDs de sessão</strong> prefixados com tenant ID</li>
+                <li><strong>Xvfb displays</strong> separados por tenant (opcional)</li>
+                <li><strong>Perfis</strong> isolados no filesystem</li>
+                <li><strong>Limites de uso</strong> configuráveis por tenant</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Fluxo de Isolamento</h2>
+            <pre class="diagram">
+┌─────────────┐      Tenant A API Key       ┌─────────────┐
+│   Tenant A  │ ──────────────────────→    │   Tenant    │
+│   (Org X)   │                            │   Manager   │
+└─────────────┘                            └──────┬──────┘
+                                                │
+                                                │ Valid tenant
+                                                ▼
+                                        ┌────────────────┐
+                                        │  Tenant A      │
+                                        │  isolated data │
+                                        │  + sessions    │
+                                        └────────────────┘
+
+┌─────────────┐      Tenant B API Key       ┌─────────────┐
+│   Tenant B  │ ──────────────────────→    │   Tenant    │
+│   (Org Y)   │                            │   Manager   │
+└─────────────┘                            └──────┬──────┘
+                                                │
+                                                │ Valid tenant
+                                                ▼
+                                        ┌────────────────┐
+                                        │  Tenant B      │
+                                        │  isolated data │
+                                        │  + sessions    │
+                                        └────────────────┘
+            </pre>
+        </section>
+
+        <section class="card">
+            <h2>Origem da Detecção</h2>
+            <p>O tenant é identificado por:</p>
+            <ol>
+                <li><strong>API Key</strong> no Header <code>x-api-key</code> ou body de login</li>
+                <li><strong>Token JWT</strong> contém <code>tenantId</code> no payload</li>
+            </ol>
+        </section>
+
+        <section class="card">
+            <h2>Tenant Manager</h2>
+            <p>Módulo <code>tenant-manager.js</code> gerencia:</p>
+            <ul>
+                <li>CRUD de tenants (criar, listar, editar, deletar)</li>
+                <li>Geração de API Keys (UUIDs)</li>
+                <li>Hash de API Keys (SHA-256)</li>
+                <li>Validação de expiração de API Keys</li>
+                <li>Contadores de uso por tenant</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Endpoints de Tenant</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Método</th>
+                        <th>Rota</th>
+                        <th>Autenticação</th>
+                        <th>Descrição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>GET</td>
+                        <td>/api/tenants</td>
+                        <td>Admin</td>
+                        <td>Listar todos os tenants</td>
+                    </tr>
+                    <tr>
+                        <td>POST</td>
+                        <td>/api/tenants</td>
+                        <td>Admin</td>
+                        <td>Criar novo tenant</td>
+                    </tr>
+                    <tr>
+                        <td>GET</td>
+                        <td>/api/tenants/:id</td>
+                        <td>Admin</td>
+                        <td>Detalhes do tenant</td>
+                    </tr>
+                    <tr>
+                        <td>DELETE</td>
+                        <td>/api/tenants/:id</td>
+                        <td>Admin</td>
+                        <td>Remover tenant</td>
+                    </tr>
+                    <tr>
+                        <td>POST</td>
+                        <td>/api/tenants/:id/keys</td>
+                        <td>Admin</td>
+                        <td>Gerar nova API Key</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Limitações por Tenant</h2>
+            <p>Podem ser configuradas por tenant:</p>
+            <ul>
+                <li><strong>Max sessões simultâneas</strong> (ex: 5)</li>
+                <li><strong>Timeout padrão</strong> para sessões (ex: 30 min)</li>
+                <li><strong>Resolução máxima</strong> permitida (ex: 720p)</li>
+                <li><strong>Rate limits</strong> de API específicos</li>
+                <li><strong>Quota de storage</strong> para profiles</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Pontos de Falha</h2>
+            <ul class="risk-list">
+                <li>🔴 <strong>Feature creep:</strong> Muitos tenants consumindo recursos concorrentemente</li>
+                <li>🟡 <strong>Proteção insuficiente:</strong> Tenants maliciosos podem tentar DoS</li>
+                <li>🟡 <strong>Dados vazados:</strong> Bug de isolamento pode expor dados entre tenants</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+    </main>
+</body>
+</html>

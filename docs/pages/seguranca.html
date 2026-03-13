@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Segurança - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+        <nav class="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+
+        <ul class="nav-menu">
+            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
+            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
+            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link active">🛡️ Segurança</a></li>
+            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+
+    <main class="content">
+        <h1>🛡️ Segurança</h1>
+
+        <section class="card">
+            <h2>Visão Geral</h2>
+            <p>O Serende implementa múltiplas camadas de segurança para proteger dados de tenants e prevenir ataques.</p>
+        </section>
+
+        <section class="card">
+            <h2>Camadas de Segurança</h2>
+            <div class="component-grid">
+                <div class="component">
+                    <h3>🔐 Autenticação</h3>
+                    <ul>
+                        <li>API Keys (SHA-256 hash)</li>
+                        <li>JWT com expiração 24h</li>
+                        <li>Rate limiting (5 req/min)</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                    </ul>
+                </div>
+                <div class="component">
+                    <h3>🔒 Autorização</h3>
+                    <ul>
+                        <li>Isolamento por tenantId</li>
+                        <li>Session ownership validation</li>
+                        <li>Tenant pode acessar apenas seus recursos</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                    </ul>
+                </div>
+                <div class="component">
+                    <h3>🛡️ Rede</h3>
+                    <ul>
+                        <li>HTTPS obrigatório</li>
+                        <li>CORS configurável</li>
+                        <li>WebSocket sobre TLS (WSS)</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                    </ul>
+                </div>
+                <div class="component">
+                    <h3>🔧 Infraestrutura</h3>
+                    <ul>
+                        <li>Chrome --no-sandbox (container)</li>
+                        <li>XVfb isolado por sessão</li>
+                        <li>Sem privilégios de root</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>API Key Security</h2>
+            <ul>
+                <li><strong>Hash:</strong> API keys são hasheadas com SHA-256 antes de存储</li>
+                <li><strong>Validação:</strong> Apenas o hash é guardado, nunca o valor em texto</li>
+                <li><strong>Roação:</strong> Keys podem ser revogadas a qualquer momento</li>
+                <li><strong>Rate limit:</strong> 5 tentativas/minuto/IP</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>JWT Security</h2>
+            <ul>
+                <li><strong>Algoritmo:</strong> HS256 (HMAC-SHA256)</li>
+                <li><strong>Expiração:</strong> 24 horas fixas</li>
+                <li><strong>Secret:</strong> Variável de ambiente (NUNCA commitada)</li>
+                <li><strong>Validação:</strong> server verifica assinatura + expiração em cada request</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Isolamento de Sessões</h2>
+            <pre class="diagram">
+Tenant A (id: tenant-a)          Tenant B (id: tenant-b)
+├─ Sessions: [sess-001]           ├─ Sessions: [sess-xyz]
+├─ Profile: /data/profiles/a      ├─ Profile: /data/profiles/b
+├─ Xvfb: :100                     ├─ Xvfb: :200
+└─ JWT: tenant=a                  └─ JWT: tenant=b
+
+Cross-tenant protection:
+- Session Manager verifica: session.tenantId === req.tenantId
+- Profile Manager verifica: profile.tenantId === req.tenantId
+- WebSocket valida: token.tenantId === session.tenantId
+            </pre>
+        </section>
+
+        <section class="card">
+            <h2>Rate Limiting</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Endpoint</th>
+                        <th>Limite</th>
+                        <th>Janela</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>/api/auth/login</td>
+                        <td>5</td>
+                        <td>1 minuto</td>
+                    </tr>
+                    <tr>
+                        <td>/api/sessions</td>
+                        <td>10</td>
+                        <td>1 minuto</td>
+                    </tr>
+                    <tr>
+                        <td>Outros endpoints</td>
+                        <td>100</td>
+                        <td>1 minuto</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Headers de Segurança</h2>
+            <pre class="code-block">// Recomendado
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+Content-Security-Policy: default-src 'self'; script-src 'self'; ...
+Strict-Transport-Security: max-age=31536000; includeSubDomains</pre>
+        </section>
+
+        <section class="card">
+            <h2>Proteção contra Ataques</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Ataque</th>
+                        <th>Mitigação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Brute Force (API Key)</td>
+                        <td>Rate limiting 5/min + lockout</td>
+                    </tr>
+                    <tr>
+                        <td>Token Hijacking</td>
+                        <td>Expiração 24h + HTTPS only</td>
+                    </tr>
+                    <tr>
+                        <td>Session Hijacking</td>
+                        <td>Validação de ownership em cada WS message</td>
+                    </tr>
+                    <tr>
+                        <td>XSS (Browser Client)</td>
+                        <td>Sanitização de input + CSP</td>
+                    </tr>
+                    <tr>
+                        <td>CSRF</td>
+                        <td>Same-origin policy + CSRF tokens</td>
+                    </tr>
+                    <tr>
+                        <td>DoS (Session Spawn)</td>
+                        <td>Limite de sessões simultâneas por tenant</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Variáveis de Ambiente</h2>
+            <pre class="code-block"># Obrigatórias
+JWT_SECRET=generate-a-strong-random-string
+DATABASE_URL=sqlite:./data/serende.db
+
+# Opcionais
+PORT=3000
+WS_PORT=3001
+XVFB_DISPLAY_BASE=100
+MAX_SESSIONS_PER_TENANT=5
+DEFAULT_TIMEOUT_MS=1800000</pre>
+        </section>
+
+        <section class="card">
+            <h2>Checklist de Produção</h2>
+            <ul>
+                <li>☑️ HTTPS configurado (TLS 1.2+)</li>
+                <li>☑️ JWT_SECRET robusto (min 32 chars)</li>
+                <li>☑️ Rate limiting ativo</li>
+                <li>☑️ CORS restrito a domínios conhecidos</li>
+                <li>☑️ Headers de segurança</li>
+                <li>☑️ Logs de auditoria</li>
+                <li>☑️ Backup do banco SQLite</li>
+                <li>☑️ Monitoramento de anomalias</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+    </main>
+</body>
+</html>

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentação Técnica - Serende</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Mobile Menu Toggle -->
+    <button class="menu-toggle" id="menuToggle" aria-label="Toggle navigation menu">
+        <span></span>
+    </button>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+        <ul class="nav-menu">
+            <li><a href="index.html" class="nav-link active">🏠 Início</a></li>
+            <li><a href="pages/arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
+            <li><a href="pages/autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
+            <li><a href="pages/sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="pages/streaming.html" class="nav-link">🎬 Streaming</a></li>
+            <li><a href="pages/input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
+            <li><a href="pages/profiles.html" class="nav-link">👤 Profiles</a></li>
+            <li><a href="pages/audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="pages/tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
+            <li><a href="pages/api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="pages/websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="pages/seguranca.html" class="nav-link">🛡️ Segurança</a></li>
+            <li><a href="pages/frontend.html" class="nav-link">⚛️ Frontend</a></li>
+            <li><a href="pages/banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
+            <li><a href="pages/riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="pages/fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <nav class="breadcrumb">
+            <span class="breadcrumb-item">Serende</span>
+            <span class="breadcrumb-separator">/</span>
+            <span class="breadcrumb-current">Inicio</span>
+        </nav>
+
+        <section class="index-intro">
+            <h1>Serende – Documentação Técnica</h1>
+            <p>
+                Sistema de navegação remota via browser (VNC over Web).
+                Esta documentação cobre arquitetura, fluxos de dados, integrações,
+                segurança e guias de uso do projeto completo.
+            </p>
+        </section>
+
+        <section>
+            <h2>📚 Documentação</h2>
+            <div class="nav-cards">
+                <a href="pages/arquitetura.html" class="nav-card">
+                    <h3>🏗️ Arquitetura</h3>
+                    <p>Visão geral do sistema, componentes, diagramas e tecnologias.</p>
+                </a>
+                <a href="pages/autenticacao.html" class="nav-card">
+                    <h3>🔐 Autenticação</h3>
+                    <p>API Keys, JWT, middleware, rate limiting.</p>
+                </a>
+                <a href="pages/sessoes.html" class="nav-card">
+                    <h3>💻 Sessões</h3>
+                    <p>Ciclo de vida, configuração, endpoints, profiles.</p>
+                </a>
+                <a href="pages/streaming.html" class="nav-card">
+                    <h3>🎬 Streaming de Vídeo</h3>
+                    <p>FFmpeg, MJPEG, Stream Manager, performance.</p>
+                </a>
+                <a href="pages/input-relay.html" class="nav-card">
+                    <h3>🖱️ Input Relay</h3>
+                    <p>Eventos de mouse/teclado → Python XTest.</p>
+                </a>
+                <a href="pages/profiles.html" class="nav-card">
+                    <h3>👤 Profiles</h3>
+                    <p>Armazenamento, master session, clonagem.</p>
+                </a>
+                <a href="pages/audio.html" class="nav-card">
+                    <h3>🔊 Áudio</h3>
+                    <p>Captura via PulseAudio, PCM streaming.</p>
+                </a>
+                <a href="pages/tenants.html" class="nav-card">
+                    <h3>🏢 Multi-tenant</h3>
+                    <p>Isolamento, Tenant Manager, limites.</p>
+                </a>
+                <a href="pages/api-rest.html" class="nav-card">
+                    <h3>🌐 API REST</h3>
+                    <p>Endpoints, payloads, respostas.</p>
+                </a>
+                <a href="pages/websocket.html" class="nav-card">
+                    <h3>⚡ WebSocket</h3>
+                    <p>Protocolo, mensagens, reconexão, vídeo binário.</p>
+                </a>
+                <a href="pages/seguranca.html" class="nav-card">
+                    <h3>🛡️ Segurança</h3>
+                    <p>Camadas de proteção, headers, rate limits.</p>
+                </a>
+                <a href="pages/frontend.html" class="nav-card">
+                    <h3>⚛️ Frontend</h3>
+                    <p>React, hooks, canvas, audio context.</p>
+                </a>
+                <a href="pages/banco-dados.html" class="nav-card">
+                    <h3>💾 Banco de Dados</h3>
+                    <p>SQLite schema, módulos, backup.</p>
+                </a>
+                <a href="pages/riscos.html" class="nav-card">
+                    <h3>⚠️ Riscos</h3>
+                    <p>Matriz de riscos, vulnerabilidades, mitigação.</p>
+                </a>
+            </div>
+        </section>
+
+        <section class="card" style="margin-top: 24px; background: #dbeafe; border-color: #93c5fd;">
+            <h2 style="color: #1e40af;">ℹ️ Como usar</h2>
+            <ul style="color: #1e40af;">
+                <li>Clique em qualquer card acima para abrir a página da documentação</li>
+                <li>Use o menu lateral para navegação rápida entre tópicos</li>
+                <li>Todas as páginas têm suporte a light/dark mode (claro por padrão)</li>
+            </ul>
+        </section>
+
+        <footer class="footer">
+            <p>Gerado automaticamente - Serende Docs v1.0</p>
+        </footer>
+    </main>
+
+    <script>
+        // Mobile menu toggle functionality
+        const menuToggle = document.getElementById('menuToggle');
+        const sidebar = document.getElementById('sidebar');
+
+        menuToggle.addEventListener('click', () => {
+            menuToggle.classList.toggle('active');
+            sidebar.classList.toggle('open');
+        });
+
+        // Close sidebar when clicking outside on mobile
+        document.addEventListener('click', (e) => {
+            if (window.innerWidth <= 768) {
+                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target) && sidebar.classList.contains('open')) {
+                    menuToggle.classList.remove('active');
+                    sidebar.classList.remove('open');
+                }
+            }
+        });
+
+        // Update breadcrumb based on current page
+        const currentPage = window.location.pathname.split('/').pop() || 'index.html';
+        const pageTitles = {
+            'index.html': 'Inicio',
+            'arquitetura.html': 'Arquitetura',
+            'autenticacao.html': 'Autenticacao',
+            'sessoes.html': 'Sessoes',
+            'streaming.html': 'Streaming',
+            'input-relay.html': 'Input Relay',
+            'profiles.html': 'Profiles',
+            'audio.html': 'Audio',
+            'tenants.html': 'Multi-tenant',
+            'api-rest.html': 'API REST',
+            'websocket.html': 'WebSocket',
+            'seguranca.html': 'Seguranca',
+            'frontend.html': 'Frontend',
+            'banco-dados.html': 'Banco de Dados',
+            'riscos.html': 'Riscos'
+        };
+
+        const breadcrumbCurrent = document.querySelector('.breadcrumb-current');
+        if (currentPage in pageTitles && breadcrumbCurrent) {
+            breadcrumbCurrent.textContent = pageTitles[currentPage];
+        }
+    </script>
+</body>
+</html>

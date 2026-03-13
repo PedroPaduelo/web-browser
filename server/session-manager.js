@@ -1,20 +1,69 @@
 const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
+const profileManager = require('./profile-manager');
+const tenantManager = require('./tenant-manager');
 
-let currentSession = null;
-let starting = false;
+const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS) || 10;
+const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MINUTES || '30') * 60 * 1000;
+const TIMEOUT_WARNING_MS = 2 * 60 * 1000;
 
-const DISPLAY_NUM = 100;
-const DISPLAY = `:${DISPLAY_NUM}`;
-const USER_DATA_DIR = path.join(os.tmpdir(), 'serende-chrome-profile');
+const DISPLAY_MIN = 100;
+const DISPLAY_MAX = 199;
+const CDP_BASE_PORT = 9222;
 
-async function startSession(options = {}) {
-  if (currentSession || starting) {
-    return { error: 'Session already active' };
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const CHROME_BIN = path.join(PROJECT_ROOT, 'chrome-install', 'opt', 'google', 'chrome', 'google-chrome');
+const CHROME_LIB = path.join(PROJECT_ROOT, 'chrome-install', 'opt', 'google', 'chrome');
+const EXTRA_LIB = path.join(PROJECT_ROOT, 'chrome-install', 'usr', 'lib', 'x86_64-linux-gnu');
+
+const sessions = new Map();
+const usedDisplays = new Set();
+const releasingDisplays = new Set();
+let onSessionDiedCallback = null;
+
+function onSessionDied(callback) {
+  onSessionDiedCallback = callback;
+}
+
+function allocateDisplay() {
+  for (let d = DISPLAY_MIN; d <= DISPLAY_MAX; d++) {
+    if (!usedDisplays.has(d) && !releasingDisplays.has(d)) {
+      usedDisplays.add(d);
+      return d;
+    }
   }
-  starting = true;
+  return null;
+}
+
+function releaseDisplay(displayNum) {
+  usedDisplays.delete(displayNum);
+  releasingDisplays.add(displayNum);
+  setTimeout(() => releasingDisplays.delete(displayNum), 2000);
+}
+
+async function startSession(sessionId, tenantId, options = {}) {
+  if (sessions.size >= MAX_SESSIONS) {
+    throw new Error(`Global session limit reached (${MAX_SESSIONS})`);
+  }
+
+  const tenantMaxSessions = options.maxSessions || MAX_SESSIONS;
+  const effectiveMax = Math.min(tenantMaxSessions, MAX_SESSIONS);
+  const tenantCount = getTenantSessionCount(tenantId);
+  if (tenantCount >= effectiveMax) {
+    throw new Error(`Tenant session limit reached (${effectiveMax})`);
+  }
+
+  const displayNum = allocateDisplay();
+  if (displayNum === null) {
+    throw new Error('No display available');
+  }
+
+  const display = `:${displayNum}`;
+  const cdpPort = CDP_BASE_PORT + (displayNum - DISPLAY_MIN);
+
+  tenantManager.ensureTenantDir(tenantId);
+  const userDataDir = tenantManager.copyProfileToSession(tenantId, sessionId);
 
   const {
     resolution = '1280x720',
@@ -24,12 +73,12 @@ async function startSession(options = {}) {
 
   const [width, height] = resolution.split('x').map(Number);
 
-  try { execSync(`pkill -f "Xvfb ${DISPLAY}"`, { stdio: 'ignore' }); } catch {}
-  await sleep(500);
+  try { execSync(`pkill -f "Xvfb ${display}"`, { stdio: 'ignore' }); } catch {}
+  await sleep(300);
 
-  console.log(`[Session] Starting Xvfb on ${DISPLAY} at ${resolution}`);
+  console.log(`[Session:${sessionId}] Starting Xvfb on ${display} at ${resolution}`);
   const xvfb = spawn('Xvfb', [
-    DISPLAY,
+    display,
     '-screen', '0', `${resolution}x24`,
     '-ac',
     '+extension', 'GLX',
@@ -37,12 +86,12 @@ async function startSession(options = {}) {
     '-noreset',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
-  xvfb.stderr.on('data', (d) => console.error('[Xvfb]', d.toString().trim()));
-  xvfb.on('error', (err) => console.error('[Session] Xvfb error:', err.message));
+  xvfb.stderr.on('data', (d) => console.error(`[Xvfb:${sessionId}]`, d.toString().trim()));
+  xvfb.on('error', (err) => console.error(`[Session:${sessionId}] Xvfb error:`, err.message));
 
-  await sleep(1500);
+  await sleep(800);
 
-  fs.mkdirSync(USER_DATA_DIR, { recursive: true });
+  fs.mkdirSync(userDataDir, { recursive: true });
 
   const chromeArgs = [
     '--no-sandbox',
@@ -52,12 +101,22 @@ async function startSession(options = {}) {
     '--no-default-browser-check',
     '--disable-translate',
     '--disable-background-networking',
-    `--user-data-dir=${USER_DATA_DIR}`,
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-ipc-flooding-protection',
+    '--disable-hang-monitor',
+    '--disable-component-update',
+    '--disable-domain-reliability',
+    '--disable-features=TranslateUI',
+    '--metrics-recording-only',
+    '--no-pings',
+    `--user-data-dir=${userDataDir}`,
     `--window-size=${width},${height}`,
     '--window-position=0,0',
     '--autoplay-policy=no-user-gesture-required',
     '--start-maximized',
-    '--remote-debugging-port=9222',
+    `--remote-debugging-port=${cdpPort}`,
     '--remote-debugging-address=127.0.0.1',
   ];
 
@@ -67,25 +126,30 @@ async function startSession(options = {}) {
 
   chromeArgs.push(startUrl);
 
-  console.log(`[Session] Starting Chrome on ${DISPLAY} with user-data-dir=${USER_DATA_DIR}`);
-  const chrome = spawn('google-chrome-stable', chromeArgs, {
-    env: { ...process.env, DISPLAY },
+  console.log(`[Session:${sessionId}] Starting Chrome on ${display} cdpPort=${cdpPort}`);
+  const chromeEnv = {
+    ...process.env,
+    DISPLAY: display,
+    LD_LIBRARY_PATH: [CHROME_LIB, EXTRA_LIB, process.env.LD_LIBRARY_PATH || ''].filter(Boolean).join(':'),
+  };
+  const chrome = spawn(CHROME_BIN, chromeArgs, {
+    env: chromeEnv,
     stdio: ['ignore', 'ignore', 'pipe'],
   });
 
   chrome.stderr.on('data', (d) => {
     const line = d.toString().trim();
     if (line && !line.includes('ERROR:') && !line.includes('WARN:')) return;
-    if (line) console.error('[Chrome]', line);
+    if (line) console.error(`[Chrome:${sessionId}]`, line);
   });
-  chrome.on('error', (err) => console.error('[Session] Chrome error:', err.message));
+  chrome.on('error', (err) => console.error(`[Session:${sessionId}] Chrome error:`, err.message));
 
-  await sleep(3000);
+  await sleep(1500);
 
   let cdpUrl = null;
   for (let i = 0; i < 15; i++) {
     try {
-      const res = await fetch('http://127.0.0.1:9222/json/version');
+      const res = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
       const data = await res.json();
       cdpUrl = data.webSocketDebuggerUrl;
       break;
@@ -97,94 +161,194 @@ async function startSession(options = {}) {
   if (!cdpUrl) {
     killProcess(chrome);
     killProcess(xvfb);
-    starting = false;
+    releaseDisplay(displayNum);
     throw new Error('Chrome CDP not available after 7.5s');
   }
 
-  console.log(`[Session] Chrome CDP ready: ${cdpUrl}`);
+  console.log(`[Session:${sessionId}] Chrome CDP ready: ${cdpUrl}`);
 
   const ffmpegArgs = [
+    '-probesize', '32',
+    '-analyzeduration', '0',
+    '-fflags', 'nobuffer+flush_packets',
+    '-flags', 'low_delay',
     '-f', 'x11grab',
     '-framerate', '30',
     '-video_size', resolution,
     '-draw_mouse', '0',
-    '-i', DISPLAY,
+    '-thread_queue_size', '16',
+    '-i', display,
     '-f', 'mjpeg',
-    '-q:v', '8',
+    '-q:v', '5',
+    '-huffman', 'optimal',
     '-an',
+    '-flush_packets', '1',
     'pipe:1',
   ];
 
-  console.log(`[Session] Starting ffmpeg capture on ${DISPLAY}`);
+  console.log(`[Session:${sessionId}] Starting ffmpeg capture on ${display}`);
   const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
-    env: { ...process.env, DISPLAY },
+    env: { ...process.env, DISPLAY: display },
     stdio: ['ignore', 'pipe', 'ignore'],
   });
 
-  ffmpeg.on('error', (err) => console.error('[Session] ffmpeg error:', err.message));
+  ffmpeg.on('error', (err) => console.error(`[Session:${sessionId}] ffmpeg error:`, err.message));
 
-  currentSession = {
+  chrome.on('exit', (code, signal) => {
+    console.log(`[Session:${sessionId}] Chrome exited unexpectedly (code=${code}, signal=${signal})`);
+    if (sessions.has(sessionId)) {
+      stopSession(sessionId);
+      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
+    }
+  });
+
+  ffmpeg.on('exit', (code, signal) => {
+    if (sessions.has(sessionId)) {
+      console.log(`[Session:${sessionId}] ffmpeg exited unexpectedly (code=${code}, signal=${signal})`);
+    }
+  });
+
+  const sessionData = {
+    sessionId,
+    tenantId,
+    userId: tenantId,
     xvfb,
     chrome,
     ffmpeg,
     cdpUrl,
+    cdpPort,
     resolution: { width, height },
-    display: DISPLAY,
-    displayNum: DISPLAY_NUM,
+    display,
+    displayNum,
+    userDataDir,
     createdAt: new Date(),
     startUrl,
   };
 
-  starting = false;
-  console.log('[Session] Session started successfully');
+  sessions.set(sessionId, sessionData);
+
+  console.log(`[Session:${sessionId}] Session started successfully (total: ${sessions.size})`);
   return {
+    sessionId,
     cdpUrl,
+    cdpPort,
     resolution: { width, height },
-    display: DISPLAY,
+    display,
   };
 }
 
-function stopSession() {
-  if (!currentSession) return false;
+async function stopSession(sessionId, reason = 'manual') {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
 
-  console.log('[Session] Stopping session...');
+  console.log(`[Session:${sessionId}] Stopping session (reason: ${reason})...`);
+  sessions.delete(sessionId);
 
-  const session = currentSession;
-  currentSession = null;
+  if (session.tenantId && reason !== 'timeout') {
+    try {
+      tenantManager.mergeProfileFromSession(session.tenantId, sessionId);
+      await profileManager.saveSessionState(session.tenantId, session.displayNum);
+    } catch (err) {
+      console.error(`[Profile] Failed to save for tenant ${session.tenantId}:`, err.message);
+    }
+    try {
+      tenantManager.cleanupSessionDir(session.tenantId, sessionId);
+    } catch {}
+  }
+
+  // Parar timeout tracker se existir
+  if (session.timeoutId) {
+    clearTimeout(session.timeoutId);
+    session.timeoutId = null;
+  }
 
   killProcess(session.ffmpeg);
   killProcess(session.chrome);
 
   setTimeout(() => {
     killProcess(session.xvfb);
-    console.log('[Session] Session stopped');
+    releaseDisplay(session.displayNum);
+    // NÃO remover userDataDir — é persistente!
+    console.log(`[Session:${sessionId}] Session stopped (total: ${sessions.size})`);
   }, 500);
 
   return true;
 }
 
-function getSession() {
-  if (!currentSession) return null;
+function getSession(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s) return null;
   return {
+    sessionId: s.sessionId,
+    tenantId: s.tenantId,
+    userId: s.tenantId,
     status: 'running',
-    resolution: currentSession.resolution,
-    display: currentSession.display,
-    cdpUrl: currentSession.cdpUrl,
-    createdAt: currentSession.createdAt.toISOString(),
-    uptime: Math.floor((Date.now() - currentSession.createdAt.getTime()) / 1000),
+    resolution: s.resolution,
+    display: s.display,
+    cdpUrl: s.cdpUrl,
+    cdpPort: s.cdpPort,
+    createdAt: s.createdAt.toISOString(),
+    uptime: Math.floor((Date.now() - s.createdAt.getTime()) / 1000),
   };
 }
 
-function getFfmpegStdout() {
-  return currentSession?.ffmpeg?.stdout || null;
+function getSessionRaw(sessionId) {
+  return sessions.get(sessionId) || null;
 }
 
-function getCdpUrl() {
-  return currentSession?.cdpUrl || null;
+function getTenantSessions(tenantId) {
+  const result = [];
+  for (const s of sessions.values()) {
+    if (s.tenantId === tenantId) {
+      result.push({
+        sessionId: s.sessionId,
+        status: 'running',
+        resolution: s.resolution,
+        display: s.display,
+        createdAt: s.createdAt.toISOString(),
+        uptime: Math.floor((Date.now() - s.createdAt.getTime()) / 1000),
+      });
+    }
+  }
+  return result;
 }
 
-function getResolution() {
-  return currentSession?.resolution || { width: 1280, height: 720 };
+const getUserSessions = getTenantSessions;
+
+function getSessionCount() {
+  return sessions.size;
+}
+
+function getTenantSessionCount(tenantId) {
+  let count = 0;
+  for (const s of sessions.values()) {
+    if (s.tenantId === tenantId) count++;
+  }
+  return count;
+}
+
+const getUserSessionCount = getTenantSessionCount;
+
+function getAllSessions() {
+  const result = [];
+  for (const s of sessions.values()) {
+    result.push({
+      sessionId: s.sessionId,
+      tenantId: s.tenantId,
+      status: 'running',
+      resolution: s.resolution,
+      display: s.display,
+      createdAt: s.createdAt.toISOString(),
+      uptime: Math.floor((Date.now() - s.createdAt.getTime()) / 1000),
+    });
+  }
+  return result;
+}
+
+function stopAllSessions() {
+  for (const sessionId of [...sessions.keys()]) {
+    stopSession(sessionId);
+  }
 }
 
 function killProcess(proc) {
@@ -201,8 +365,88 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-function getDisplayNum() {
-  return String(DISPLAY_NUM);
+// --- Timeout de Inatividade ---
+
+function startTimeoutTracker(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  session.lastActivity = Date.now();
+  session.timeoutId = null;
+
+  const checkTimeout = () => {
+    const s = sessions.get(sessionId);
+    if (!s) return;
+
+    const now = Date.now();
+    const inactive = now - s.lastActivity;
+
+    if (inactive >= SESSION_TIMEOUT_MS) {
+      console.log(`[Session:${sessionId}] Timeout after ${Math.round(inactive / 60000)}min inactivity`);
+      if (s.tenantId) {
+        try { tenantManager.mergeProfileFromSession(s.tenantId, sessionId); } catch {}
+      }
+      profileManager.saveSessionState(s.tenantId, s.displayNum).catch(() => {});
+      stopSession(sessionId, 'timeout');
+      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
+      return;
+    }
+
+    if (inactive >= SESSION_TIMEOUT_MS - TIMEOUT_WARNING_MS) {
+      // Enviar warning via WebSocket (precisa do callback)
+      console.log(`[Session:${sessionId}] Timeout warning: ${Math.round((SESSION_TIMEOUT_MS - inactive) / 1000)}s remaining`);
+      if (s.onTimeoutWarning) {
+        s.onTimeoutWarning(SESSION_TIMEOUT_MS - inactive);
+      }
+    }
+
+    s.timeoutId = setTimeout(checkTimeout, 60000); // Check a cada min
+  };
+
+  session.timeoutId = setTimeout(checkTimeout, 60000);
 }
 
-module.exports = { startSession, stopSession, getSession, getFfmpegStdout, getCdpUrl, getResolution, getDisplayNum };
+function updateActivity(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return;
+
+  session.lastActivity = Date.now();
+
+  // Reiniciar timeout tracker
+  if (session.timeoutId) {
+    clearTimeout(session.timeoutId);
+  }
+  startTimeoutTracker(sessionId);
+}
+
+function getSessionTimeout(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+
+  const inactive = Date.now() - session.lastActivity;
+  const remaining = Math.max(0, SESSION_TIMEOUT_MS - inactive);
+  return {
+    inactive,
+    remaining,
+    timeoutMs: SESSION_TIMEOUT_MS,
+    warningSoon: remaining < TIMEOUT_WARNING_MS,
+  };
+}
+
+module.exports = {
+  startSession,
+  stopSession,
+  getSession,
+  getSessionRaw,
+  getTenantSessions,
+  getUserSessions,
+  getSessionCount,
+  getTenantSessionCount,
+  getUserSessionCount,
+  getAllSessions,
+  stopAllSessions,
+  onSessionDied,
+  startTimeoutTracker,
+  updateActivity,
+  getSessionTimeout,
+};

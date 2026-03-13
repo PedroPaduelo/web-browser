@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Banco de Dados - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+        <nav class="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+
+        <ul class="nav-menu">
+            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
+            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
+            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
+            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link active">💾 Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+
+    <main class="content">
+        <h1>💾 Banco de Dados</h1>
+
+        <section class="card">
+            <h2>SQLite</h2>
+            <p>O Serende utiliza <strong>SQLite</strong> como banco de dados primário para armazenamento de metadados.</p>
+            <ul>
+                <li><strong>Local:</strong> <code>./data/serende.db</code></li>
+                <li><strong>Tipo:</strong> Embedded (sem servidor separado)</li>
+                <li><strong>ACID:</strong> Suporte completo a transações</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Schema</h2>
+            <pre class="code-block">-- Tenants
+CREATE TABLE tenants (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME,
+  active INTEGER DEFAULT 1,
+  metadata TEXT
+);
+
+-- API Keys
+CREATE TABLE api_keys (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  key_hash TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME,
+  active INTEGER DEFAULT 1
+);
+
+-- Sessions (opcional - pode ser em memória)
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id),
+  status TEXT DEFAULT 'creating',
+  resolution TEXT,
+  start_url TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME
+);
+
+-- Indexes
+CREATE INDEX idx_api_keys_tenant ON api_keys(tenant_id);
+CREATE INDEX idx_sessions_tenant ON sessions(tenant_id);
+CREATE INDEX idx_sessions_status ON sessions(status);</pre>
+        </section>
+
+        <section class="card">
+            <h2>Tabelas</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tabela</th>
+                        <th>Descrição</th>
+                        <th>Tamanho típico</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>tenants</td>
+                        <td>Organizações/contas</td>
+                        <td>~1 KB (poucos registros)</td>
+                    </tr>
+                    <tr>
+                        <td>api_keys</td>
+                        <td>Chaves de acesso</td>
+                        <td>~1 KB</td>
+                    </tr>
+                    <tr>
+                        <td>sessions</td>
+                        <td>Histórico de sessões</td>
+                        <td>~10 KB (por 1000 sessões)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Módulos de Acesso</h2>
+            <ul>
+                <li><strong>db.js:</strong> Conexão e queries básicas</li>
+                <li><strong>key-store.js:</strong> CRUD de API Keys</li>
+                <li><strong>tenant-manager.js:</strong> CRUD de Tenants</li>
+                <li><strong>session-manager.js:</strong> Gerenciamento de sessões (em memória)</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Backup</h2>
+            <pre class="code-block"># Backup manual
+cp data/serende.db data/serende.db.backup
+
+# Backup automático (cron)
+0 2 * * * cp /path/to/data/serende.db /backup/serende-$(date +\%Y\%m\%d).db</pre>
+        </section>
+
+        <section class="card">
+            <h2>Manutenção</h2>
+            <ul>
+                <li><strong>VACUUM:</strong> Reorganiza o banco periodicamente</li>
+                <li><strong>ANALYZE:</strong> Atualiza estatísticas para queries</li>
+                <li><strong>Cleanup:</strong> Remover sessões expiradas</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+            <pre class="code-block">-- Limpar sessões antigas (> 30 dias)
+DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');
+
+-- VACUUM para recuperar espaço
+VACUUM;
+
+-- Verificar integridade
+PRAGMA integrity_check;</pre>
+        </section>
+
+        <section class="card">
+            <h2>Dados em Memória</h2>
+            <p>Alguns dados são mantidos em memória para performance:</p>
+            <ul>
+                <li><strong>Sessões ativas:</strong> Map em memória (session-manager)</li>
+                <li><strong>Streams ativas:</strong> Referências a processos</li>
+                <li><strong>WebSocket clients:</strong> Lista de clientes conectados</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+            <p>Esses dados são <strong>não-persistentes</strong> — reiniciando o servidor, todas as sessões ativas são perdidas.</p>
+        </section>
+
+        <section class="card">
+            <h2>Perfil (Profile Data)</h2>
+            <p>Dados de perfil (cookies, cache, etc) são armazenados no filesystem, não no SQLite:</p>
+            <pre class="code-block">/data/profiles/
+└── {tenant-id}/
+    └── master/
+        ├── .config/google-chrome/
+        │   └── Default/
+        │       ├── Cookies
+        │       ├── Local Storage/
+        │       └── History
+        └── .cache/
+            └── google-chrome/
+                └── Default/
+                    └── Cache/</pre>
+        </section>
+    </main>
+</body>
+</html>

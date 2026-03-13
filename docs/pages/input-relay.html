@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Input Relay - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+        <nav class="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+
+        <ul class="nav-menu">
+            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
+            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
+            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link active">🖱️ Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
+            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+
+    <main class="content">
+        <h1>🖱️ Sistema de Input Relay</h1>
+
+        <section class="card">
+            <h2>Visão Geral</h2>
+            <p>O sistema de input relay permite que eventos de mouse e teclado capturados no navegador do cliente sejam injetados no Xvfb (display remoto). Utiliza a extensão <strong>XTest</strong> do X11 via Python.</p>
+        </section>
+
+        <section class="card">
+            <h2>Arquitetura do Input</h2>
+            <pre class="diagram">
+┌──────────────────────────────────────────────────────────────────┐
+│                       Browser Client                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │
+│  │ Mouse Event │  │   Keyboard  │  │ Touch Event │                │
+│  │   click     │  │   keydown   │  │             │                │
+│  └─────────────┘  └─────────────┘  └─────────────┘                │
+│         │                │                 │                        │
+│         └────────────────┼─────────────────┘                        │
+│                          ▼                                         │
+│  ┌───────────────────────────────────────────────��────────────┐  │
+│  │              Input Mapper (input-mapper.ts)                │  │
+│  │  - Normalização de coordenadas (display → canvas)          │  │
+│  │  - Mapeamento de botões do mouse                           │  │
+│  │  - Escape de teclas especiais                              │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                          │ JSON                                   │
+│                          ▼                                         │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │              WebSocket Client                             │  │
+│  │  - Envia mensagens para o servidor                        │  │
+│  │  - Tópico: "input"                                        │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                          │ WS Binary/JSON                        │
+└──────────────────────────┼──────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                 Input Handler (Node.js)                           │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │  Recebe JSON → Spawna/Pipe para Python                      │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                          │ stdin (JSON)                          │
+└──────────────────────────┼──────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│              Python Daemon (x11-input.py)                        │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │  - Conecta ao Xvfb via DISPLAY                            │  │
+│  │  - Usa XTest extension para events                        │  │
+│  │  - Processa mouse_move, mouse_click, key_down, key_up     │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                          │ X11 Events                           │
+└──────────────────────────┼──────────────────────────────────────┘
+                           │
+                           ▼
+                    ┌─────────────────┐
+                    │      Xvfb      │
+                    │  (Sistema X11) │
+                    └─────────────────┘
+            </pre>
+        </section>
+
+        <section class="card">
+            <h2>Input Mapper</h2>
+            <p>O <code>input-mapper.ts</code> normaliza os eventos do DOM do navegador para o sistema X11:</p>
+
+            <h3>Transformações</h3>
+            <ul>
+                <li><strong>Coordenadas:</strong> Canvas (CSS pixels) → Display X11 (físico)</li>
+                <li><strong>Botões mouse:</strong> 0=left, 1=middle, 2=right</li>
+                <li><strong>Teclas:</strong> keyCode → keySym do X11</li>
+                <li><strong>Scroll:</strong> wheel → button 4/5</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+
+            <h3>Exemplo de Mapping</h3>
+            <pre class="code-block">// DOM Event → formato interno
+{
+  "type": "mouse_move",
+  "x": 500,     // canvas coordinates
+  "y": 300,
+  "button": 0,
+  "buttons": 1
+}
+
+// Mapeado para X11:
+{
+  "type": "mouse_move",
+  "x": 1000,    // X11 display coords (2x for highDPI)
+  "y": 600,
+  "button": 1   // X11 button 1 = left click
+}</pre>
+        </section>
+
+        <section class="card">
+            <h2>WebSocket Input</h2>
+            <p>Os eventos são enviados via WebSocket (tópico "input") para o servidor:</p>
+            <pre class="code-block">// Exemplo de mensagem enviada
+{
+  "type": "input",
+  "sessionId": "abc123",
+  "data": {
+    "type": "mouse_click",
+    "x": 512,
+    "y": 384,
+    "button": 0
+  }
+}</pre>
+        </section>
+
+        <section class="card">
+            <h2>Input Handler (Node.js)</h2>
+            <p>Recebe mensagens WebSocket com tipo "input" e redireciona para o processo Python:</p>
+            <ul>
+                <li>Mantém um pipe com o daemon Python por sessão</li>
+                <li>Serializa eventos como JSON línea por línea</li>
+                <li>Dá flush após cada evento</li>
+                <li>Log erros caso processo morra</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Python Daemon (x11-input.py)</h2>
+            <p>Processo Python que usa <code>python-xlib</code> para injetar eventos no Xvfb:</p>
+
+            <pre class="code-block">#!/usr/bin/env python3
+import json
+import sys
+from Xlib import X, display
+from Xlib.ext import xtest
+
+DISPLAY = ":99"
+dpy = display.Display(DISPLAY)
+
+def mouse_move(x, y):
+    xtest.fake_input(dpy, X.MotionNotify, x, y)
+
+def mouse_click(button):
+    # button 1 = left, 2 = middle, 3 = right
+    xtest.fake_input(dpy, X.ButtonPress, button)
+    xtest.fake_input(dpy, X.ButtonRelease, button)
+
+def key_down(keysym):
+    keycode = dpy.keysym_to_keycode(keysym)
+    xtest.fake_input(dpy, X.KeyPress, keycode)
+
+def key_up(keysym):
+    keycode = dpy.keysym_to_keycode(keysym)
+    xtest.fake_input(dpy, X.KeyRelease, keycode)
+
+# Loop lendo stdin (JSON)
+for line in sys.stdin:
+    event = json.loads(line)
+    handle_event(event)
+    dpy.sync()</pre>
+        </section>
+
+        <section class="card">
+            <h2>Tipos de Eventos</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tipo</th>
+                        <th>Params</th>
+                        <th>Ação X11</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>mouse_move</code></td>
+                        <td>x, y</td>
+                        <td>MotionNotify</td>
+                    </tr>
+                    <tr>
+                        <td><code>mouse_click</code></td>
+                        <td>button</td>
+                        <td>ButtonPress + ButtonRelease</td>
+                    </tr>
+                    <tr>
+                        <td><code>mouse_down</code></td>
+                        <td>button</td>
+                        <td>ButtonPress</td>
+                    </tr>
+                    <tr>
+                        <td><code>mouse_up</code></td>
+                        <td>button</td>
+                        <td>ButtonRelease</td>
+                    </tr>
+                    <tr>
+                        <td><code>mouse_wheel</code></td>
+                        <td>delta</td>
+                        <td>Button 4 (up) / 5 (down)</td>
+                    </tr>
+                    <tr>
+                        <td><code>key_down</code></td>
+                        <td>key</td>
+                        <td>KeyPress</td>
+                    </tr>
+                    <tr>
+                        <td><code>key_up</code></td>
+                        <td>key</td>
+                        <td>KeyRelease</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Fluxo de Dados</h2>
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    <span class="step-number">1</span>
+                    <span class="step-title">DOM Event</span>
+                    <span class="step-desc">click, keydown, mousemove</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">2</span>
+                    <span class="step-title">Mapper</span>
+                    <span class="step-desc">Normaliza coord & botões</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">3</span>
+                    <span class="step-title">WS Send</span>
+                    <span class="step-desc">Envia JSON via WebSocket</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">4</span>
+                    <span class="step-title">Handler</span>
+                    <span class="step-desc">Recebe e pipe para Python</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">5</span>
+                    <span class="step-title">XTest</span>
+                    <span class="step-desc">Injeta no Xvfb</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Latência</h2>
+            <ul>
+                <li><strong>Browser → WS:</strong> ~10-30ms</li>
+                <li><strong>WS → Python:</strong> ~1-5ms (pipe local)</li>
+                <li><strong>Python → X11:</strong> ~5-15ms (XTest fake input)</li>
+                <li><strong>Total:</strong> ~20-50ms</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Pontos de Falha</h2>
+            <ul class="risk-list">
+                <li>🔴 <strong>python-xlib ausente:</strong> Sistema operacional não tem X11 libs</li>
+                <li>🔴 <strong>Xvfb não acessível:</strong> DISPLAY :99 não existe</li>
+                <li>🟡 <strong>Sincronização:</strong> Eventos podem chegar fora de ordem</li>
+                <li>🟡 <strong>Escala:</strong> Muitos eventos simultâneos podem causar lag</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+    </main>
+</body>
+</html>

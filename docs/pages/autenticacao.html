@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autenticação - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+        <nav class="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+
+        <ul class="nav-menu">
+            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
+            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link active">🔐 Autenticação</a></li>
+            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
+            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+
+    <main class="content">
+        <h1>🔐 Sistema de Autenticação</h1>
+
+        <section class="card">
+            <h2>Visão Geral</h2>
+            <p>O sistema de autenticação do Serende utiliza <strong>API Keys</strong> combinadas com <strong>JWT (JSON Web Tokens)</strong> para prover acesso seguro e multi-tenant ao sistema.</p>
+        </section>
+
+        <section class="card">
+            <h2>Fluxo de Autenticação</h2>
+            <pre class="diagram">
+┌─────────────┐     POST /api/auth/login      ┌─────────────┐
+│   Cliente   │ ──────────────────────────→  │   Servidor  │
+│  (Browser)  │                              │   Express   │
+└─────────────┘                              └──────┬──────┘
+     │                                                │
+     │  { token, tenantId, expiresIn }               │
+     ←───────────────────────────────────────────────┘
+     │
+     │  Authorization: Bearer {token}
+     ▼
+┌─────────────┐
+│  Recursos   │
+│  Protegidos │
+└─────────────┘
+            </pre>
+        </section>
+
+        <section class="card">
+            <h2>API Key</h2>
+            <p>Cada tenant possui uma API Key única que serve como credencial principal de acesso.</p>
+
+            <h3>Características</h3>
+            <ul>
+                <li><strong>Formato:</strong> UUID v4</li>
+                <li><strong>Armazenamento:</strong> Hash SHA-256 no banco SQLite</li>
+                <li><strong>Validade:</strong> Definida por tenant (pode expirar)</li>
+                <li><strong>Rate Limit:</strong> 5 tentativas por minuto por IP</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+
+            <h3>Endpoints de API Key</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Método</th>
+                        <th>Rota</th>
+                        <th>Descrição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>POST</td>
+                        <td>/api/auth/login</td>
+                        <td>Gera JWT a partir de API Key</td>
+                    </tr>
+                    <tr>
+                        <td>POST</td>
+                        <td>/api/keys</td>
+                        <td>Cria nova API Key (admin)</td>
+                    </tr>
+                    <tr>
+                        <td>GET</td>
+                        <td>/api/keys</td>
+                        <td>Lista todas as keys</td>
+                    </tr>
+                    <tr>
+                        <td>DELETE</td>
+                        <td>/api/keys/:id</td>
+                        <td>Revoga API Key</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>JWT (JSON Web Token)</h2>
+            <p>O JWT é gerado após login bem-sucedido e utilizado para autenticar todas as requisições subsequentes.</p>
+
+            <h3>Payload do Token</h3>
+            <pre class="code-block">{
+  "sub": "tenant-id-uuid",
+  "tenantId": "tenant-id-uuid",
+  "iat": 1700000000,
+  "exp": 1700086400
+}</pre>
+
+            <h3>Configurações</h3>
+            <ul>
+                <li><strong>Algoritmo:</strong> HS256</li>
+                <li><strong>Validade:</strong> 24 horas</li>
+                <li><strong>Secret:</strong> Configurado via variável de ambiente JWT_SECRET</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Middleware de Autenticação</h2>
+            <p>O servidor Express utiliza middleware para proteger rotas:</p>
+
+            <pre class="code-block">// Pseudo-código do middleware
+function authMiddleware(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+
+  if (!token) {
+    return res.status(401).json({ error: 'Token required' })
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
+    req.tenantId = decoded.tenantId
+    next()
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token' })
+  }
+}</pre>
+        </section>
+
+        <section class="card">
+            <h2>Rate Limiting</h2>
+            <p>Proteção contra brute-force em endpoints de autenticação:</p>
+            <ul>
+                <li><strong>Limite:</strong> 5 tentativas por minuto</li>
+                <li><strong>Identificação:</strong> IP do cliente</li>
+                <li><strong>Módulo:</strong> @fastify/rate-limit</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Fluxo de Dados</h2>
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    <span class="step-number">1</span>
+                    <span class="step-title">API Key</span>
+                    <span class="step-desc">Cliente envia API Key no body</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">2</span>
+                    <span class="step-title">Validação</span>
+                    <span class="step-desc">Server verifica hash no SQLite</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">3</span>
+                    <span class="step-title">JWT</span>
+                    <span class="step-desc">Gera token com tenantId</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">4</span>
+                    <span class="step-title">Response</span>
+                    <span class="step-desc">Retorna token + tenantId</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Pontos de Falha</h2>
+            <ul class="risk-list">
+                <li>🔴 <strong>JWT_SECRET exposto:</strong> Se a variável de ambiente vazar, atacantes podem gerar tokens válidos</li>
+                <li>🟡 <strong>API Key sem rotação:</strong> Keys antigas não expiram automaticamente se não configurado</li>
+                <li>🟡 <strong>Rate limit por IP:</strong> Pode ser burlado com IP rotativo</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+    </main>
+</body>
+</html>

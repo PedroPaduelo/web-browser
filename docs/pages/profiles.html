@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profiles - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+        <nav class="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+
+        <ul class="nav-menu">
+            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
+            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
+            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link active">👤 Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
+            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+
+    <main class="content">
+        <h1>👤 Gerenciamento de Profiles</h1>
+
+        <section class="card">
+            <h2>O que é um Profile?</h2>
+            <p>Um <strong>profile</strong> armazena dados persistentes de navegação: cookies, localStorage, cache, histórico. Permite que sessões temporárias tenham dados lembrados entre execuções.</p>
+        </section>
+
+        <section class="card">
+            <h2>Master Session</h2>
+            <p>Existe um conceito de <strong>sessão master</strong> por tenant:</p>
+            <ul>
+                <li>Sessão dedicada cujo Xvfb NÃO é destruído</li>
+                <li>Todas as outras sessões podem "clonar" esse profile</li>
+                <li>Ideal para manter logins de sites complexos (ex: Gmail)</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Local de Armazenamento</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tipo</th>
+                        <th>Localização (no Xvfb)</th>
+                        <th>Tamanho</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Cookies</td>
+                        <td>$HOME/.config/google-chrome/Default/Cookies</td>
+                        <td>~2-10 MB</td>
+                    </tr>
+                    <tr>
+                        <td>LocalStorage</td>
+                        <td>$HOME/.config/google-chrome/Local Storage/</td>
+                        <td>~1-5 MB</td>
+                    </tr>
+                    <tr>
+                        <td>Cache</td>
+                        <td>$HOME/.cache/google-chrome/Default/Cache</td>
+                        <td>~50-200 MB</td>
+                    </tr>
+                    <tr>
+                        <td>History</td>
+                        <td>$HOME/.config/google-chrome/Default/History</td>
+                        <td>~10-50 MB</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p><strong>Nota:</strong> Os dados são armazenados dentro do filesystem do Xvbf display e copiados quando necessário para sessões clonadas.</p>
+        </section>
+
+        <section class="card">
+            <h2>Fluxo de Clone de Profile</h2>
+            <pre class="diagram">
+┌─────────────────────────────────────────────────────────────────────┐
+│ Master Session (Xvfb: display :100)                                 │
+│  ┌─────────────┐                                                    │
+│  │  Chrome     │                                                    │
+│  │ Logado com  │                                                    │
+│  │  cookies    │                                                    │
+│  └─────────────┘                                                    │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │ 1. Copy profile files (rsync)
+                            ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Nova Sessão (Xvfb: display :101)                                    │
+│  ┌─────────────┐                                                    │
+│  │  Chrome     │                                                    │
+│  │  Cloneado   │                                                    │
+│  │ c/profile  │                                                    │
+│  └─────────────┘                                                    │
+└─────────────────────────────────────────────────────────────────────┘
+            </pre>
+        </section>
+
+        <section class="card">
+            <h2>Profile Manager</h2>
+            <p>O módulo <code>profile-manager.js</code> gerencia:</p>
+            <ul>
+                <li>Identificação de perfil existente (arquivos Cookies + Local Storage)</li>
+                <li>Criação de "master session" se profile novo</li>
+                <li>Cópia de arquivos entre Xvfb displays</li>
+                <li>Exclusão segura de perfis antigos</li>
+                <li>Migração de dados entre tenants (se necessário)</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Endpoints de Profile</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Método</th>
+                        <th>Rota</th>
+                        <th>Descrição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>GET</td>
+                        <td>/api/profile</td>
+                        <td>Verifica se existe profile salvo</td>
+                    </tr>
+                    <tr>
+                        <td>DELETE</td>
+                        <td>/api/profile</td>
+                        <td>Remove todos os dados do profile</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Response (GET /api/profile)</h3>
+            <pre class="code-block">{
+  "exists": true,
+  "metadata": {
+    "createdAt": "2024-01-15T10:30:00Z",
+    "lastUsed": "2024-01-16T14:20:00Z",
+    "sessionCount": 12,
+    "cookieCount": 47
+  }
+}</pre>
+        </section>
+
+        <section class="card">
+            <h2>Segurança</h2>
+            <ul class="risk-list">
+                <li>🟡 <strong>Isolamento:</strong> Cada tenant tem profile separado</li>
+                <li>🟡 <strong>Cleanup:</strong> Profiles devem ser limpos ao deletar tenant</li>
+                <li>🔴 <strong>Sensitive data:</strong> Cookies podem conter sessões ativas → precisa criptografia at rest</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Comandos de Manutenção</h2>
+            <pre class="code-block"># Listar perfis de todos os tenants
+find /data/profiles -type d -ls
+
+# Limpar profile específico
+rm -rf /data/profiles/{tenantId}/master
+
+# Limpar todos os profiles antigos (> 90 dias)
+find /data/profiles -mtime +90 -type d -exec rm -rf {} \;
+
+# Verificar tamanho por tenant
+du -sh /data/profiles/*/master</pre>
+        </section>
+
+        <section class="card">
+            <h2>Limitações</h2>
+            <ul>
+                <li>Profiles grandes (> 500 MB) podem causar lentidão na cópia</li>
+                <li>Não há versionamento — toda cópia é full</li>
+                <li>Perfil "poluído" por navegação pode afetar sessões clonadas</li>
+                <li>Recomendado: rotacionar profiles a cada X dias</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+    </main>
+</body>
+</html>

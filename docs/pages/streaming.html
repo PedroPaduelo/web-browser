@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streaming de Vídeo - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+        <nav class="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+
+        <ul class="nav-menu">
+            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
+            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
+            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="streaming.html" class="nav-link active">🎬 Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
+            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+
+    <main class="content">
+        <h1>🎬 Sistema de Streaming de Vídeo</h1>
+
+        <section class="card">
+            <h2>Visão Geral</h2>
+            <p>O streaming de vídeo do Serende utiliza <strong>FFmpeg</strong> para capturar a tela do Xvfb via <code>x11grab</code> e codificar em <strong>MJPEG</strong> (Motion JPEG) para transmissão via WebSocket.</p>
+        </section>
+
+        <section class="card">
+            <h2>Arquitetura do Streaming</h2>
+            <pre class="diagram">
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Xvfb (:99)                                   │
+│                         ┌─────────────┐                              │
+│                         │ Chrome      │                              │
+│                         │ Headless    │                              │
+│                         └─────────────┘                              │
+└──────────────────────────┼──────────────────────────────────────────┘
+                           │ X11 Display
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  FFmpeg                                                              │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ ffmpeg -f x11grab -video_size 1920x1080 -i :99               │ │
+│  │   -c:v mjpeg -q:v 2 -update 1 -f mjpeg                        │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────┼──────────────────────────────────────────┘
+                           │ MJPEG Stream (binary)
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Stream Manager                                                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │ SOI Marker  │→ │ JPEG Data   │→ │ EOI Marker  │              │
+│  │ (0xFFD8)    │  │ (frame)     │  │ (0xFFD9)    │              │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+│         │                  │                │                        │
+│         └──────────────────┼────────────────┘                        │
+│                            ▼                                        │
+│                    Broadcast to all WS clients                      │
+└──────────────────────────┼──────────────────────────────────────────┘
+                           │ WebSocket Binary
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Browser Client                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │ WebSocket   │→ │ Parse MJPEG │→ │ Canvas      │              │
+│  │ (binary)   │  │ (SOI/EOI)   │  │ (drawImage) │              │
+│  └──────────────┘  └──────────────┘  └──────────────┘              │
+└─────────────────────────────────────────────────────────────────────┘
+            </pre>
+        </section>
+
+        <section class="card">
+            <h2>Comando FFmpeg</h2>
+            <pre class="code-block">ffmpeg \
+  -f x11grab \
+  -video_size 1920x1080 \
+  -framerate 30 \
+  -i :99 \
+  -c:v mjpeg \
+  -q:v 2 \
+  -update 1 \
+  -f mjpeg \
+  tcp://localhost:5000</pre>
+
+            <h3>Parâmetros</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Parâmetro</th>
+                        <th>Descrição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>-f x11grab</td>
+                        <td>Formato de captura de tela X11</td>
+                    </tr>
+                    <tr>
+                        <td>-video_size</td>
+                        <td>Resolução do capture</td>
+                    </tr>
+                    <tr>
+                        <td>-framerate</td>
+                        <td>Taxa de quadros (30 fps)</td>
+                    </tr>
+                    <tr>
+                        <td>-c:v mjpeg</td>
+                        <td>Codec MJPEG (sem compressão perceptiva)</td>
+                    </tr>
+                    <tr>
+                        <td>-q:v 2</td>
+                        <td>Qualidade JPEG (1-31, menor = melhor)</td>
+                    </tr>
+                    <tr>
+                        <td>-update 1</td>
+                        <td>Atualiza mesma imagem (single-frame)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Stream Manager</h2>
+            <p>O <code>stream-manager.js</code> extrai frames MJPEG e distribui para clientes WebSocket:</p>
+            <ul>
+                <li>Conecta no TCP do FFmpeg via net.Stream</li>
+                <li>Parser de MJPEG com marcadores SOI/EOI</li>
+                <li>Buffers de frame individuais</li>
+                <li>Broadcast para múltiplos clientes</li>
+                <li>Reconexão automática em caso de falha</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Formato MJPEG</h2>
+            <pre class="diagram">
+┌─────────┬─────────┬─────────┬─────────┬─────────┐
+│  SOI   │ APP0   │  DQT   │  SOF0  │  DHT   │  ...  │  EOI  │
+│0xFFD8  │ marker │  table │ frame  │ table  │ data │0xFFD9│
+└─────────┴─────────┴─────────┴─────────┴─────────┘
+   2 bytes  2 bytes       JPEG compressed frame data
+</pre>
+            <ul>
+                <li><strong>SOI</strong> (Start of Image): 0xFFD8</li>
+                <li><strong>EOI</strong> (End of Image): 0xFFD9</li>
+                <li>Cada frame é um JPEG completo e independente</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Fluxo de Dados</h2>
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    <span class="step-number">1</span>
+                    <span class="step-title">FFmpeg</span>
+                    <span class="step-desc">Captura X11 → codifica MJPEG</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">2</span>
+                    <span class="step-title">TCP Stream</span>
+                    <span class="step-desc">Envia frames via TCP</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">3</span>
+                    <span class="step-title">Parser</span>
+                    <span class="step-desc">Extrai JPEG com SOI/EOI</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">4</span>
+                    <span class="step-title">Broadcast</span>
+                    <span class="step-desc">Envia a todos WS clientes</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">5</span>
+                    <span class="step-title">Canvas</span>
+                    <span class="step-desc">drawImage() → renderiza</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Performance</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Métrica</th>
+                        <th>Valor Típico</th>
+                        <th>Notas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Latência</td>
+                        <td>50-150ms</td>
+                        <td>Depende da taxa de quadros</td>
+                    </tr>
+                    <tr>
+                        <td>Bandwidth</td>
+                        <td>1-5 MB/s</td>
+                        <td>Depende da complexidade da página</td>
+                    </tr>
+                    <tr>
+                        <td>CPU (servidor)</td>
+                        <td>10-30%</td>
+                        <td>Para 1 sessão 1080p @ 30fps</td>
+                    </tr>
+                    <tr>
+                        <td>Qualidade</td>
+                        <td>q:v 2</td>
+                        <td>Boa qualidade com compressão leve</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Browser Client (Frontend)</h2>
+            <p>O hook <code>useStream.ts</code> processa o streaming no browser:</p>
+            <pre class="code-block">// Simplified
+wsClient.onBinary((data) => {
+  // data é um ArrayBuffer com o JPEG completo
+  const blob = new Blob([data], { type: 'image/jpeg' })
+  const url = URL.createObjectURL(blob)
+  const img = new Image()
+  img.onload = () => {
+    ctx.drawImage(img, 0, 0)
+    URL.revokeObjectURL(url)
+  }
+  img.src = url
+})</pre>
+        </section>
+
+        <section class="card">
+            <h2>Pontos de Falha</h2>
+            <ul class="risk-list">
+                <li>🔴 <strong>FFmpeg crash:</strong> Se o Xvfb travar, o stream para</li>
+                <li>🔴 <strong>Rede:</strong> Alta latência afeta experiência do usuário</li>
+                <li>🟡 <strong>CPU:</strong> Encoding MJPEG é intensivo</li>
+                <li>🟡 <strong>Qualidade:</strong> q:v baixo = mais bandwidth</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+    </main>
+</body>
+</html>

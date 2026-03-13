@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontend - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+        <nav class="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+
+        <ul class="nav-menu">
+            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
+            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
+            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
+            <li><a href="frontend.html" class="nav-link active">⚛️ Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+
+    <main class="content">
+        <h1>⚛️ Frontend (React)</h1>
+
+        <section class="card">
+            <h2>Visão Geral</h2>
+            <p>Frontend em React + TypeScript com Vite. Responsável pela interface de usuário, exibição de vídeo e captura de eventos de input.</p>
+        </section>
+
+        <section class="card">
+            <h2>Arquitetura</h2>
+            <pre class="diagram">
+src/
+├── App.tsx                 # Componente raiz
+├── main.tsx               # Bootstrap
+├── pages/
+│   ├── AdminPanel.tsx    # Painel admin
+│   └── LoginScreen.tsx   # Login com API Key
+├── components/
+│   ├── BrowserViewer.tsx # Canvas + Audio
+│   ├── ConnectionStatus.tsx
+│   └── SessionControls.tsx
+├── hooks/
+│   ├── useSession.ts     # CRUD de sessões via REST
+│   ├── useStream.ts      # Recepção MJPEG → Canvas
+│   ├── useInputRelay.ts  # Captura eventos → WebSocket
+│   └── useAudio.ts       # AudioContext PCM playback
+├── lib/
+│   ├── auth-client.ts    # Login, token storage
+│   ├── ws-client.ts      # WebSocket com reconnect
+│   └── input-mapper.ts   # Normalização de coordenadas
+└── types/
+    └── index.ts
+            </pre>
+        </section>
+
+        <section class="card">
+            <h2>Use Stream Hook</h2>
+            <pre class="code-block">function useStream(sessionId: string) {
+  const canvasRef = useRef&lt;HTMLCanvasElement&gt;(null)
+
+ Leon: Sneaky》
+  useEffect(() => {
+    const ws = createWsClient()
+    const wsUrl = getAuthWsUrl('/ws/stream', sessionId)
+    ws.connect(wsUrl)
+
+    ws.onBinary((data: ArrayBuffer) => {
+      const ctx = canvasRef.current?.getContext('2d')
+      if (ctx) {
+        const blob = new Blob([data], { type: 'image/jpeg' })
+        const url = URL.createObjectURL(blob)
+        const img = new Image()
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0)
+          URL.revokeObjectURL(url)
+        }
+        img.src = url
+      }
+    })
+
+    return () => ws.disconnect()
+  }, [sessionId])
+
+  return { canvasRef }
+}</pre>
+        </section>
+
+        <section class="card">
+            <h2>Use Input Relay Hook</h2>
+            <pre class="code-block">function useInputRelay(sessionId: string) {
+  const ws = useMemo(() => {
+    const client = createWsClient()
+    client.connect(getAuthWsUrl('/ws/input', sessionId))
+    return client
+  }, [sessionId])
+
+  useEffect(() => {
+    const canvas = document.getElementById('canvas')
+    if (!canvas) return
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+      ws.send({
+        type: 'input',
+        sessionId,
+        data: { type: 'mouse_move', x, y }
+      })
+    }
+
+    canvas.addEventListener('pointermove', handlePointerMove)
+    canvas.addEventListener('pointerdown', handleClick)
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+
+    return () => {
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      // ... outros removes
+    }
+  }, [sessionId, ws])
+
+  return ws
+}</pre>
+        </section>
+
+        <section class="card">
+            <h2>Browser Viewer</h2>
+            <p>Componente principal que combina Canvas (vídeo) + Audio API + Input relay:</p>
+            <pre class="code-block">export default function BrowserViewer({ sessionId }) {
+  const { canvasRef } = useStream(sessionId)
+  useAudio(sessionId)
+  useInputRelay(sessionId)
+
+  return (
+    &lt;div className="viewer-container"&gt;
+      &lt;canvas ref={canvasRef} width={1280} height={720} /&gt;
+      &lt;ConnectionStatus /&gt;
+    &lt;/div&gt;
+  )
+}</pre>
+        </section>
+
+        <section class="card">
+            <h2>Login Screen</h2>
+            <p>Tela de login com validação de API Key:</p>
+            <ul>
+                <li>Input de texto para API Key</li>
+                <li>Validação visual (campo não vazio, formato UUID)</li>
+                <li>Botão "Conectar" chama <code>login(apiKey)</code></li>
+                <li>Erro exibido em vermelho abaixo do input</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+
+        <section class="card">
+            <h2>Performance</h2>
+            <ul>
+                <li>Canvas redraw apenas quando novo frame chega</li>
+                <li>Audio buffers são limpos após reprodução</li>
+                <li>WebSocket reconnect automático (exponential backoff)</li>
+                <li>RequestAnimationFrame opcional para suavização de input</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            </ul>
+        </section>
+    </main>
+</body>
+</html>

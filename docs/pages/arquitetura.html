@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arquitetura do Sistema - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+        <nav class="sidebar">
+        <div class="nav-header">
+            <h1>Serende</h1>
+            <p>Documentação Técnica</p>
+        </div>
+
+        <ul class="nav-menu">
+            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
+            <li><a href="arquitetura.html" class="nav-link active">🏗️ Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
+            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
+            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
+            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
+            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+        </ul>
+    </nav>
+
+
+    <main class="content">
+        <h1>🏗️ Arquitetura do Sistema</h1>
+
+        <section class="card">
+            <h2>Visão Geral</h2>
+            <p>O <strong>Serende</strong> é um sistema de navegador remoto via web, similar a VNC mas utilizando Chrome headless como display server. A arquitetura segue o padrão <strong>multi-tenant</strong> com isolamento por API keys.</p>
+        </section>
+
+        <section class="card">
+            <h2>Diagrama de Arquitetura</h2>
+            <pre class="diagram">
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              CLIENTE (Browser)                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │   React    │  │   Canvas    │  │   WebSocket│  │  Web Audio  │        │
+│  │   App      │  │  (Video)    │  │   Client   │  │    API      │        │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘        │
+│         │                │                │                │                │
+│         └────────────────┼────────────────┼────────────────┘                │
+│                          │           HTTP/WS                                  │
+└──────────────────────────┼─────────────────────────────────────────────────┘
+                           │
+┌──────────────────────────┼─────────────────────────────────────────────────┐
+│                    SERVIDOR (Node.js)                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                        Express Server                               │    │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐            │    │
+│  │  │   Auth   │  │  Rate    │  │  Tenant  │  │ Profile  │            │    │
+│  │  │ Middleware│ │ Limiter │  │ Manager  │  │ Manager  │            │    │
+│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘            │    │
+│  └───────┼────────────┼────────────┼────────────┼────────────────────┘    │
+│          │            │            │            │                          │
+│  ┌───────┴────────────┴────────────┴────────────┴───────────┐            │
+│  │                  Session Manager                          │            │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │            │
+│  │  │  Xvfb   │  │ Chrome   │  │  ffmpeg  │  │   X11   │  │            │
+│  │  │(display)│  │(headless)│  │(streaming)│ │(input)  │  │            │
+│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │            │
+│  └───────────────────────────────────────────────────────────┘            │
+│                                                                             │
+│  ┌──────────────────────┐  ┌──────────────────────────┐                    │
+│  │    WebSocket        │  │     SQLite               │                    │
+│  │    Server           │  │     Database             │                    │
+│  │  (binary+json)      │  │  (keys, tenants, data)   │                    │
+│  └──────────────────────┘  └──────────────────────────┘                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+            </pre>
+        </section>
+
+        <section class="card">
+            <h2>Componentes Principais</h2>
+
+            <div class="component-grid">
+                <div class="component">
+                    <h3>🖥️ Xvfb (X Virtual Framebuffer)</h3>
+                    <p>Servidor X virtual sem necessidade de hardware de vídeo. Permite executar aplicações gráficas em ambiente headless.</p>
+                    <ul>
+                        <li><strong>Porta padrão:</strong> :99</li>
+                        <li><strong>Função:</strong> Display virtual</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                    </ul>
+                </div>
+
+                <div class="component">
+                    <h3>🌐 Chrome Headless</h3>
+                    <p>Navegador Chrome executando em modo headless com CDP (Chrome DevTools Protocol) habilitado.</p>
+                    <ul>
+                        <li><strong>Função:</strong> Renderização de páginas</li>
+                        <li><strong>Debug port:</strong> 9222</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                    </ul>
+                </div>
+
+                <div class="component">
+                    <h3>🎬 FFmpeg</h3>
+                    <p>Captura a tela do Xvfb via x11grab e codifica em MJPEG para streaming.</p>
+                    <ul>
+                        <li><strong>Entrada:</strong> x11grab</li>
+                        <li><strong>Saída:</strong> MJPEG stream</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                    </ul>
+                </div>
+
+                <div class="component">
+                    <h3>🐍 Python X11 Input</h3>
+                    <p>Daemon Python que usa XTest para injetar eventos de mouse e teclado no Xvfb.</p>
+                    <ul>
+                        <li><strong>Biblioteca:</strong> python-xlib</li>
+                        <li><strong>Entrada:</strong> Mensagens JSON via stdin</li>
+            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Fluxo de Dados Principal</h2>
+
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    <span class="step-number">1</span>
+                    <span class="step-title">Requisição HTTP</span>
+                    <span class="step-desc">Usuário inicia sessão via REST API</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">2</span>
+                    <span class="step-title">Session Manager</span>
+                    <span class="step-desc">Spawn de Xvfb + Chrome + FFmpeg</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">3</span>
+                    <span class="step-title">WebSocket</span>
+                    <span class="step-desc">Streaming de vídeo + Input relay</span>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                    <span class="step-number">4</span>
+                    <span class="step-title">Browser Viewer</span>
+                    <span class="step-desc">Renderização no Canvas + Audio</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Tecnologias Utilizadas</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Camada</th>
+                        <th>Tecnologia</th>
+                        <th>Versão</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Runtime</td>
+                        <td>Node.js</td>
+                        <td>18+</td>
+                    </tr>
+                    <tr>
+                        <td>Backend</td>
+                        <td>Express.js</td>
+                        <td>4.x</td>
+                    </tr>
+                    <tr>
+                        <td>Frontend</td>
+                        <td>React + TypeScript</td>
+                        <td>18.x</td>
+                    </tr>
+                    <tr>
+                        <td>Build</td>
+                        <td>Vite</td>
+                        <td>5.x</td>
+                    </tr>
+                    <tr>
+                        <td>Database</td>
+                        <td>SQLite</td>
+                        <td>3.x</td>
+                    </tr>
+                    <tr>
+                        <td>Auth</td>
+                        <td>JWT</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td>Video</td>
+                        <td>FFmpeg</td>
+                        <td>4.x+</td>
+                    </tr>
+                    <tr>
+                        <td>Browser</td>
+                        <td>Chrome Headless</td>
+                        <td>Latest</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Portas Utilizadas</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Porta</th>
+                        <th>Serviço</th>
+                        <th>Descrição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>3000</td>
+                        <td>HTTP Server</td>
+                        <td>API REST + Frontend estático</td>
+                    </tr>
+                    <tr>
+                        <td>3001</td>
+                        <td>WebSocket</td>
+                        <td>Streaming + Input relay</td>
+                    </tr>
+                    <tr>
+                        <td>9222</td>
+                        <td>Chrome Debug</td>
+                        <td>Chrome DevTools Protocol</td>
+                    </tr>
+                    <tr>
+                        <td>:99</td>
+                        <td>Xvfb</td>
+                        <td>Display virtual (unix socket)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+    </main>
+</body>
+</html>
