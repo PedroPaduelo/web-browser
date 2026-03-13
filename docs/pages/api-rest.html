@@ -4,160 +4,188 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API REST - Serende</title>
-    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="../styles.css?v=dark3">
 </head>
 <body>
-        <nav class="sidebar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link active">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link active">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-
-
     <main class="content">
-        <h1>🌐 API REST</h1>
+        <h1>API REST</h1>
 
         <section class="card">
-            <h2>Visão Geral</h2>
-            <p>A API REST do Serende é construída com <strong>Express.js</strong> e segue convenções RESTful. Todos os endpoints (exceto login) exigem autenticação via JWT no header <code>Authorization: Bearer {token}</code>.</p>
+            <h2>Base URL</h2>
+            <p><strong>Producao:</strong> <code>https://serende.ddw1sl.easypanel.host</code></p>
+            <p><strong>Local:</strong> <code>http://localhost:4201</code></p>
+            <p>Header <code>Authorization: Bearer {jwt_token}</code> obrigatorio em todas as rotas (exceto health e login).</p>
         </section>
 
         <section class="card">
-            <h2>Endpoints</h2>
+            <h2>Endpoints Publicos</h2>
+            <h3>GET /api/health</h3>
+            <p>Nao requer autenticacao.</p>
+            <pre class="code-block"><code><span class="comment">// Response</span>
+{
+  <span class="string">"status"</span>: <span class="string">"ok"</span>,
+  <span class="string">"uptime"</span>: <span class="number">12345</span>,
+  <span class="string">"sessions"</span>: { <span class="string">"active"</span>: <span class="number">3</span>, <span class="string">"max"</span>: <span class="number">10</span> },
+  <span class="string">"memory"</span>: { <span class="string">"rss"</span>: <span class="number">150000000</span>, <span class="string">"heap"</span>: <span class="number">80000000</span> },
+  <span class="string">"version"</span>: <span class="string">"2.0.0"</span>
+}</code></pre>
+        </section>
+
+        <section class="card">
+            <h2>Autenticacao</h2>
+            <h3>POST /api/auth/login</h3>
+            <pre class="code-block"><code><span class="comment">// Request</span>
+{ <span class="string">"apiKey"</span>: <span class="string">"sk_..."</span> }
+
+<span class="comment">// Response</span>
+{
+  <span class="string">"token"</span>: <span class="string">"eyJ..."</span>,
+  <span class="string">"tenantId"</span>: <span class="string">"a1b2..."</span>,
+  <span class="string">"userId"</span>: <span class="string">"a1b2..."</span>
+}</code></pre>
+            <h3>GET /api/auth/verify</h3>
+            <pre class="code-block"><code><span class="comment">// Response</span>
+{
+  <span class="string">"valid"</span>: <span class="keyword">true</span>,
+  <span class="string">"tenantId"</span>: <span class="string">"a1b2..."</span>,
+  <span class="string">"userId"</span>: <span class="string">"a1b2..."</span>
+}</code></pre>
+        </section>
+
+        <section class="card">
+            <h2>Sessoes</h2>
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Método</th>
+                        <th>Metodo</th>
                         <th>Rota</th>
-                        <th>Autenticação</th>
-                        <th>Descrição</th>
+                        <th>Descricao</th>
+                        <th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td>POST</td><td>/api/auth/login</td><td>❌</td><td>Login com API Key</td></tr>
-                    <tr><td>GET</td><td>/api/profile</td><td>✅</td><td>Verificar profile existente</td></tr>
-                    <tr><td>DELETE</td><td>/api/profile</td><td>✅</td><td>Limpar profile</td></tr>
-                    <tr><td>POST</td><td>/api/sessions</td><td>✅</td><td>Criar sessão</td></tr>
-                    <tr><td>GET</td><td>/api/sessions</td><td>✅</td><td>Listar sessões ativas</td></tr>
-                    <tr><td>GET</td><td>/api/sessions/:id</td><td>✅</td><td>Info da sessão</td></tr>
-                    <tr><td>POST</td><td>/api/sessions/:id/close</td><td>✅</td><td>Encerrar sessão</td></tr>
-                    <tr><td>GET</td><td>/api/keys</td><td>✅</td><td>Listar API Keys</td></tr>
-                    <tr><td>POST</td><td>/api/keys</td><td>✅</td><td>Criar API Key</td></tr>
-                    <tr><td>DELETE</td><td>/api/keys/:id</td><td>✅</td><td>Revogar API Key</td></tr>
-                    <tr><td>GET</td><td>/api/tenants</td><td>✅</td><td>Listar tenants</td></tr>
-                    <tr><td>POST</td><td>/api/tenants</td><td>✅</td><td>Criar tenant</td></tr>
-                    <tr><td>GET</td><td>/api/health</td><td>❌</td><td>Health check</td></tr>
+                    <tr><td><code>POST</code></td><td><code>/api/session</code></td><td>Criar sessao</td><td>201</td></tr>
+                    <tr><td><code>GET</code></td><td><code>/api/session</code></td><td>Listar sessoes</td><td>200</td></tr>
+                    <tr><td><code>GET</code></td><td><code>/api/session/:id</code></td><td>Detalhe da sessao</td><td>200</td></tr>
+                    <tr><td><code>DELETE</code></td><td><code>/api/session/:id</code></td><td>Encerrar sessao</td><td>200</td></tr>
                 </tbody>
             </table>
         </section>
 
         <section class="card">
-            <h2>Authentication Flow</h2>
-            <pre class="code-block">POST /api/auth/login
-Content-Type: application/json
-
+            <h2>Input</h2>
+            <h3>POST /api/input</h3>
+            <pre class="code-block"><code><span class="comment">// Request</span>
 {
-  "apiKey": "123e4567-e89b-12d3-a456-426614174000"
-}
-
-← 200 OK
-
+  <span class="string">"sessionId"</span>: <span class="string">"abc123"</span>,
+  <span class="string">"type"</span>: <span class="string">"keypress"</span>,
+  <span class="string">"code"</span>: <span class="string">"KeyA"</span>
+}</code></pre>
+            <h3>POST /api/input/batch</h3>
+            <pre class="code-block"><code><span class="comment">// Request</span>
 {
-  "token": "eyJhbGciOiJIUzI1NiIs...",
-  "tenantId": "456e7890-e89b-12d3-a456-426614174001",
-  "expiresIn": 86400
-}</pre>
+  <span class="string">"sessionId"</span>: <span class="string">"abc123"</span>,
+  <span class="string">"actions"</span>: [
+    { <span class="string">"type"</span>: <span class="string">"mousemove"</span>, <span class="string">"x"</span>: <span class="number">640</span>, <span class="string">"y"</span>: <span class="number">360</span> },
+    { <span class="string">"type"</span>: <span class="string">"mousedown"</span>, <span class="string">"button"</span>: <span class="string">"left"</span> },
+    { <span class="string">"type"</span>: <span class="string">"mouseup"</span>, <span class="string">"button"</span>: <span class="string">"left"</span> }
+  ]
+}</code></pre>
         </section>
 
         <section class="card">
-            <h2>Sessions Flow</h2>
-            <pre class="code-block">POST /api/sessions
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-Content-Type: application/json
-
-{
-  "resolution": "1280x720",
-  "startUrl": "https://www.google.com",
-  "timeoutMs": 1800000
-}
-
-← 200 OK
-
-{
-  "sessionId": "abc123def456",
-  "status": "active",
-  "timeout": {
-    "expiresAt": 1701234567890,
-    "remaining": 1800000
-  }
-}
-
-GET /api/sessions/abc123def456
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-
-← 200 OK
-
-{
-  "id": "abc123def456",
-  "status": "active",
-  "resolution": "1280x720",
-  "startUrl": "https://www.google.com"
-}</pre>
+            <h2>Browser Control (CDP)</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Metodo</th>
+                        <th>Rota</th>
+                        <th>Descricao</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>GET</code></td><td><code>/api/screenshot/:sessionId</code></td><td>Retorna image/jpeg</td></tr>
+                    <tr><td><code>GET</code></td><td><code>/api/url/:sessionId</code></td><td>Retorna URL atual <code>{ url }</code></td></tr>
+                    <tr><td><code>POST</code></td><td><code>/api/navigate/:sessionId</code></td><td>Navega para URL <code>{ url }</code> retorna <code>{ ok, url }</code></td></tr>
+                    <tr><td><code>POST</code></td><td><code>/api/evaluate/:sessionId</code></td><td>Executa script <code>{ script }</code> retorna <code>{ result }</code></td></tr>
+                </tbody>
+            </table>
         </section>
 
         <section class="card">
-            <h2>Error Responses</h2>
-            <pre class="code-block">// 401 Unauthorized
-{
-  "error": "Invalid or missing token"
-}
-
-// 403 Forbidden
-{
-  "error": "Tenant inactive or expired"
-}
-
-// 404 Not Found
-{
-  "error": "Session not found"
-}
-
-// 429 Too Many Requests
-{
-  "error": "Rate limit exceeded"
-}
-
-// 500 Internal Server Error
-{
-  "error": "Failed to create session",
-  "code": "SESSION_CREATE_FAILED"
-}</pre>
+            <h2>Admin</h2>
+            <p>Requer header <code>x-admin-secret</code> para autenticacao de administrador.</p>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Metodo</th>
+                        <th>Rota</th>
+                        <th>Descricao</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>POST</code></td><td><code>/api/admin/keys</code></td><td>Criar API key</td></tr>
+                    <tr><td><code>GET</code></td><td><code>/api/admin/keys</code></td><td>Listar API keys</td></tr>
+                    <tr><td><code>PATCH</code></td><td><code>/api/admin/keys/:id</code></td><td>Atualizar API key</td></tr>
+                    <tr><td><code>DELETE</code></td><td><code>/api/admin/keys/:id</code></td><td>Revogar API key</td></tr>
+                    <tr><td><code>GET</code></td><td><code>/api/admin/sessions</code></td><td>Listar todas as sessoes</td></tr>
+                    <tr><td><code>GET</code></td><td><code>/api/admin/stats</code></td><td>Estatisticas do sistema</td></tr>
+                </tbody>
+            </table>
         </section>
 
         <section class="card">
-            <h2>Cors</h2>
-            <p>API permite CORS específico para domínios configurados. Use <code>cors()</code> do Express com whitelist.</p>
+            <h2>Codigos de Erro</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Significado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>400</code></td><td>Bad Request (payload invalido)</td></tr>
+                    <tr><td><code>401</code></td><td>Unauthorized (token invalido/ausente)</td></tr>
+                    <tr><td><code>403</code></td><td>Forbidden (sessao nao pertence ao tenant)</td></tr>
+                    <tr><td><code>404</code></td><td>Not Found (sessao/recurso inexistente)</td></tr>
+                    <tr><td><code>429</code></td><td>Too Many Requests (rate limit excedido)</td></tr>
+                    <tr><td><code>500</code></td><td>Internal Server Error</td></tr>
+                </tbody>
+            </table>
         </section>
+
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
     </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
 </body>
 </html>

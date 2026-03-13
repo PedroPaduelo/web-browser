@@ -1,349 +1,360 @@
-    <nav class="sidebar">
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fluxo Completo - Serende</title>
+    <link rel="stylesheet" href="../styles.css?v=dark3">
+</head>
+<body>
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link active">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link active">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-       <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link active">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
-        </ul>
+    <main class="content">
+        <h1>&#128260; Fluxo Completo</h1>
+
+        <!-- 1. Fluxo: Login > Sessao > Uso > Encerramento -->
+        <section class="card">
+            <h2>Fluxo: Login &rarr; Sessao &rarr; Uso &rarr; Encerramento</h2>
+            <p>Ciclo de vida completo de uma sessao Serende, do login ao cleanup final.</p>
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-title">Login</div>
+                    <div class="step-desc">Usuario insere API key no frontend (LoginScreen)</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-title">Auth</div>
+                    <div class="step-desc">POST /api/auth/login valida key, retorna JWT com tenantId</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-title">Criar Sessao</div>
+                    <div class="step-desc">POST /api/session com resolution e startUrl</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-title">Spawn</div>
+                    <div class="step-desc">Xvfb + Chrome + FFmpeg iniciados em sequencia</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">5</div>
+                    <div class="step-title">Conectar</div>
+                    <div class="step-desc">WS /ws/stream + /ws/input com token JWT</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">6</div>
+                    <div class="step-title">Streaming</div>
+                    <div class="step-desc">Frames JPEG renderizados no canvas, inputs via WS</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">7</div>
+                    <div class="step-title">Uso</div>
+                    <div class="step-desc">Navegar, clicar, digitar, scroll no browser remoto</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">8</div>
+                    <div class="step-title">Encerrar</div>
+                    <div class="step-desc">DELETE /api/session, save profile, cleanup processos</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. Fluxo de Dados Detalhado -->
+        <section class="card">
+            <h2>Fluxo de Dados Detalhado</h2>
+            <pre class="diagram">
+&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;
+&#9474;                     FLUXO DE DADOS                          &#9474;
+&#9500;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9508;
+&#9474;                                                              &#9474;
+&#9474;  [Usuario]                                                   &#9474;
+&#9474;     &#9474;                                                        &#9474;
+&#9474;     &#9500;&#9472;&#9472;&#9472; API Key &#9472;&#9472;&#9654; POST /api/auth/login &#9472;&#9472;&#9654; JWT Token     &#9474;
+&#9474;     &#9474;                                                        &#9474;
+&#9474;     &#9500;&#9472;&#9472;&#9472; JWT &#9472;&#9472;&#9654; POST /api/session &#9472;&#9472;&#9654; sessionId        &#9474;
+&#9474;     &#9474;                 &#9474;                                      &#9474;
+&#9474;     &#9474;                 &#9660;                                      &#9474;
+&#9474;     &#9474;          &#9484;&#9472;&#9472;&#9472; Session Manager &#9472;&#9472;&#9472;&#9488;                    &#9474;
+&#9474;     &#9474;          &#9474;  1. Aloca display     &#9474;                    &#9474;
+&#9474;     &#9474;          &#9474;  2. Copia profile     &#9474;                    &#9474;
+&#9474;     &#9474;          &#9474;  3. Spawn Xvfb       &#9474;                    &#9474;
+&#9474;     &#9474;          &#9474;  4. Spawn Chrome     &#9474;                    &#9474;
+&#9474;     &#9474;          &#9474;  5. Spawn FFmpeg     &#9474;                    &#9474;
+&#9474;     &#9474;          &#9474;  6. Start timeout    &#9474;                    &#9474;
+&#9474;     &#9474;          &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;                    &#9474;
+&#9474;     &#9474;                                                        &#9474;
+&#9474;     &#9500;&#9472;&#9472;&#9472; WS Connect &#9472;&#9472;&#9654; /ws/stream?token=X&amp;sessionId=Y     &#9474;
+&#9474;     &#9474;                        &#9474;                               &#9474;
+&#9474;     &#9474;                        &#9660;                               &#9474;
+&#9474;     &#9474;              &#9484;&#9472;&#9472;&#9472; StreamManager &#9472;&#9472;&#9472;&#9488;                  &#9474;
+&#9474;     &#9474;              &#9474;  FFmpeg stdout      &#9474;                  &#9474;
+&#9474;     &#9474;              &#9474;  &#9654; Parse JPEG       &#9474;                  &#9474;
+&#9474;     &#9474;              &#9474;  &#9654; Broadcast WS     &#9474;                  &#9474;
+&#9474;     &#9474;              &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;                  &#9474;
+&#9474;     &#9474;                        &#9474;                               &#9474;
+&#9474;     &#9474;&#9668;&#9472;&#9472; JPEG frames &#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;                               &#9474;
+&#9474;     &#9474;                                                        &#9474;
+&#9474;     &#9500;&#9472;&#9472;&#9472; Mouse/Teclado &#9472;&#9472;&#9654; /ws/input &#9472;&#9472;&#9654; InputHandler   &#9474;
+&#9474;     &#9474;                                        &#9474;               &#9474;
+&#9474;     &#9474;                                        &#9660;               &#9474;
+&#9474;     &#9474;                                  Python x11-input.py   &#9474;
+&#9474;     &#9474;                                        &#9474;               &#9474;
+&#9474;     &#9474;                                        &#9660;               &#9474;
+&#9474;     &#9474;                                  Xvfb Display (:100+) &#9474;
+&#9474;     &#9474;                                        &#9474;               &#9474;
+&#9474;     &#9474;                                        &#9660;               &#9474;
+&#9474;     &#9474;                                  Chrome processa       &#9474;
+&#9474;     &#9474;                                                        &#9474;
+&#9474;     &#9500;&#9472;&#9472;&#9472; DELETE /api/session/:id                             &#9474;
+&#9474;     &#9474;         &#9474;                                                &#9474;
+&#9474;     &#9474;         &#9660;                                                &#9474;
+&#9474;     &#9474;    1. Salva profile (merge master)                     &#9474;
+&#9474;     &#9474;    2. Mata Chrome + FFmpeg + Xvfb                     &#9474;
+&#9474;     &#9474;    3. Libera display + CDP port                       &#9474;
+&#9474;     &#9474;    4. Remove recursos do Map                          &#9474;
+&#9474;     &#9474;                                                        &#9474;
+&#9474;     &#9492;&#9472;&#9472;&#9472; Sessao encerrada                                   &#9474;
+&#9474;                                                              &#9474;
+&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;</pre>
+        </section>
+
+        <!-- 3. Fluxo de Autenticacao WebSocket -->
+        <section class="card">
+            <h2>Fluxo de Autenticacao WebSocket</h2>
+            <p>Sequencia detalhada do handshake e validacao ao conectar via WebSocket:</p>
+            <pre class="code-block">1. Client: GET /ws/stream?token=JWT&amp;sessionId=ID
+2. Server: Parse URL, extrai token e sessionId dos query params
+3. Server: verifyToken(token) &#9654; payload { tenantId, iat, exp }
+4. Server: getSession(sessionId) &#9654; session object
+5. Server: session.userId === tenantId? Sim &#9654; prossegue
+6. Server: wss.handleUpgrade(req, socket, head, ws)
+7. Server: ws._socket.setNoDelay(true)  // desabilita Nagle
+8. Server: streamManager.addClient(ws) ou inputHandler.addClient(ws)
+9. Server: Registra em activeWsConnections para token check periodico</pre>
+            <p>Se qualquer etapa falhar (token invalido, sessao inexistente, ownership incorreto), o socket e destruido imediatamente sem completar o upgrade.</p>
+        </section>
+
+        <!-- 4. Fluxo de Timeout -->
+        <section class="card">
+            <h2>Fluxo de Timeout</h2>
+            <p>Mecanismo de timeout por inatividade que protege contra sessoes abandonadas.</p>
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-title">Inatividade</div>
+                    <div class="step-desc">30 minutos sem input de mouse/teclado ou request HTTP</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-title">Warning</div>
+                    <div class="step-desc">2 minutos antes do timeout, notifica via timer no frontend</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-title">Timeout</div>
+                    <div class="step-desc">Salva profile (merge com master), destroi sessao</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-title">Cleanup</div>
+                    <div class="step-desc">Mata processos Chrome/FFmpeg/Xvfb, libera display e portas</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. Resumo dos Endpoints -->
+        <section class="card">
+            <h2>Resumo dos Endpoints</h2>
+            <p>Tabela completa de todos os endpoints disponibilizados pelo Serende:</p>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Metodo</th>
+                        <th>Rota</th>
+                        <th>Auth</th>
+                        <th>Descricao</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/health</td>
+                        <td>Nao</td>
+                        <td>Status do sistema (uptime, sessoes ativas, memoria)</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td>/api/auth/login</td>
+                        <td>Nao</td>
+                        <td>Login com API key, retorna JWT</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/auth/verify</td>
+                        <td>JWT</td>
+                        <td>Verificar validade do token atual</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td>/api/session</td>
+                        <td>JWT</td>
+                        <td>Criar nova sessao (resolution, startUrl)</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/session</td>
+                        <td>JWT</td>
+                        <td>Listar sessoes do tenant autenticado</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/session/:id</td>
+                        <td>JWT</td>
+                        <td>Detalhe de uma sessao especifica</td>
+                    </tr>
+                    <tr>
+                        <td><code>DELETE</code></td>
+                        <td>/api/session/:id</td>
+                        <td>JWT</td>
+                        <td>Encerrar sessao (save profile + cleanup)</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td>/api/input</td>
+                        <td>JWT</td>
+                        <td>Enviar evento de input (mouse/teclado)</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td>/api/input/batch</td>
+                        <td>JWT</td>
+                        <td>Enviar multiplos inputs em batch</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/screenshot/:id</td>
+                        <td>JWT</td>
+                        <td>Capturar screenshot da sessao (JPEG)</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/url/:id</td>
+                        <td>JWT</td>
+                        <td>Obter URL atual do Chrome na sessao</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td>/api/navigate/:id</td>
+                        <td>JWT</td>
+                        <td>Navegar para URL especifica</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td>/api/evaluate/:id</td>
+                        <td>JWT</td>
+                        <td>Executar JavaScript no contexto da pagina</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/profile</td>
+                        <td>JWT</td>
+                        <td>Info do profile do tenant (tamanho, ultima sessao)</td>
+                    </tr>
+                    <tr>
+                        <td><code>DELETE</code></td>
+                        <td>/api/profile</td>
+                        <td>JWT</td>
+                        <td>Limpar profile do tenant (cookies, cache, etc)</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td>/api/admin/keys</td>
+                        <td>Admin</td>
+                        <td>Criar nova API key</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/admin/keys</td>
+                        <td>Admin</td>
+                        <td>Listar todas as API keys</td>
+                    </tr>
+                    <tr>
+                        <td><code>PATCH</code></td>
+                        <td>/api/admin/keys/:id</td>
+                        <td>Admin</td>
+                        <td>Atualizar configuracoes de uma key</td>
+                    </tr>
+                    <tr>
+                        <td><code>POST</code></td>
+                        <td>/api/admin/keys/:id/regenerate</td>
+                        <td>Admin</td>
+                        <td>Regenerar API key (novo valor, mesmo tenant)</td>
+                    </tr>
+                    <tr>
+                        <td><code>DELETE</code></td>
+                        <td>/api/admin/keys/:id</td>
+                        <td>Admin</td>
+                        <td>Revogar API key (enabled=0)</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/admin/sessions</td>
+                        <td>Admin</td>
+                        <td>Listar todas as sessoes de todos os tenants</td>
+                    </tr>
+                    <tr>
+                        <td><code>GET</code></td>
+                        <td>/api/admin/stats</td>
+                        <td>Admin</td>
+                        <td>Estatisticas do sistema (CPU, memoria, sessoes)</td>
+                    </tr>
+                    <tr>
+                        <td><code>WS</code></td>
+                        <td>/ws/stream</td>
+                        <td>Query</td>
+                        <td>Stream de video (frames JPEG binarios)</td>
+                    </tr>
+                    <tr>
+                        <td><code>WS</code></td>
+                        <td>/ws/input</td>
+                        <td>Query</td>
+                        <td>Input relay (mouse/teclado via JSON)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
+    </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
+</body>
+</html>

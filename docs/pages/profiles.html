@@ -3,200 +3,164 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Profiles - Serende</title>
-    <link rel="stylesheet" href="../styles.css">
+    <title>Profiles Persistentes - Serende</title>
+    <link rel="stylesheet" href="../styles.css?v=dark3">
 </head>
 <body>
-        <nav class="sidebar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link active">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link active">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-
-
     <main class="content">
-        <h1>👤 Gerenciamento de Profiles</h1>
+        <h1>Profiles Persistentes</h1>
 
         <section class="card">
-            <h2>O que é um Profile?</h2>
-            <p>Um <strong>profile</strong> armazena dados persistentes de navegação: cookies, localStorage, cache, histórico. Permite que sessões temporárias tenham dados lembrados entre execuções.</p>
+            <h2>Visao Geral</h2>
+            <p>Cada tenant possui um <strong>"master profile"</strong> do Chrome que persiste entre sessoes. Quando uma sessao inicia, o profile master e copiado para a sessao. Quando a sessao encerra, as mudancas sao mescladas de volta ao master.</p>
+            <p>Isso garante que cookies, logins salvos, preferencias e bookmarks sejam mantidos entre sessoes diferentes do mesmo tenant.</p>
         </section>
 
         <section class="card">
-            <h2>Master Session</h2>
-            <p>Existe um conceito de <strong>sessão master</strong> por tenant:</p>
-            <ul>
-                <li>Sessão dedicada cujo Xvfb NÃO é destruído</li>
-                <li>Todas as outras sessões podem "clonar" esse profile</li>
-                <li>Ideal para manter logins de sites complexos (ex: Gmail)</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
+            <h2>Arquitetura de Profiles</h2>
+            <pre class="diagram">/data/tenants/{tenantId}/
+<span class="arrow">|--</span> <span class="highlight">profile-master/</span>           <span class="comment">&lt;-- Profile persistente (merge de todas as sessoes)</span>
+<span class="arrow">|   </span><span class="arrow">|--</span> Default/
+<span class="arrow">|       |--</span> Cookies
+<span class="arrow">|       |--</span> Preferences
+<span class="arrow">|       |--</span> Bookmarks
+<span class="arrow">|       |--</span> Login Data
+<span class="arrow">|       |--</span> Web Data
+<span class="arrow">|       |--</span> Local State
+<span class="arrow">|--</span> <span class="highlight">sessions/</span>
+<span class="arrow">|   </span><span class="arrow">|--</span> {sessionId}/
+<span class="arrow">|       </span><span class="arrow">|--</span> profile/          <span class="comment">&lt;-- Copia isolada por sessao</span>
+<span class="arrow">|           </span><span class="arrow">|--</span> Default/
+<span class="arrow">|--</span> <span class="label">metadata.json</span>             <span class="comment">&lt;-- Metadados do tenant</span></pre>
         </section>
 
         <section class="card">
-            <h2>Local de Armazenamento</h2>
+            <h2>Ciclo de Vida do Profile</h2>
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-title">Sessao Criada</div>
+                    <div class="step-desc">Copia master para session/profile</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-title">Sessao Ativa</div>
+                    <div class="step-desc">Chrome usa session/profile isolado</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-title">Sessao Encerra</div>
+                    <div class="step-desc">Merge session de volta ao master</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-title">Proxima Sessao</div>
+                    <div class="step-desc">Comeca com master atualizado</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Arquivos Sincronizados</h2>
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Tipo</th>
-                        <th>Localização (no Xvfb)</th>
-                        <th>Tamanho</th>
+                        <th>Arquivo</th>
+                        <th>Conteudo</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td>Cookies</td>
-                        <td>$HOME/.config/google-chrome/Default/Cookies</td>
-                        <td>~2-10 MB</td>
-                    </tr>
-                    <tr>
-                        <td>LocalStorage</td>
-                        <td>$HOME/.config/google-chrome/Local Storage/</td>
-                        <td>~1-5 MB</td>
-                    </tr>
-                    <tr>
-                        <td>Cache</td>
-                        <td>$HOME/.cache/google-chrome/Default/Cache</td>
-                        <td>~50-200 MB</td>
-                    </tr>
-                    <tr>
-                        <td>History</td>
-                        <td>$HOME/.config/google-chrome/Default/History</td>
-                        <td>~10-50 MB</td>
-                    </tr>
+                    <tr><td><code>Cookies</code></td><td>Cookies de sessao e persistentes</td></tr>
+                    <tr><td><code>Preferences</code></td><td>Configuracoes do Chrome</td></tr>
+                    <tr><td><code>Bookmarks</code></td><td>Favoritos</td></tr>
+                    <tr><td><code>Login Data</code></td><td>Senhas salvas (criptografado pelo Chrome)</td></tr>
+                    <tr><td><code>Web Data</code></td><td>Formularios auto-complete</td></tr>
+                    <tr><td><code>Local State</code></td><td>Estado global do Chrome</td></tr>
                 </tbody>
             </table>
-            <p><strong>Nota:</strong> Os dados são armazenados dentro do filesystem do Xvbf display e copiados quando necessário para sessões clonadas.</p>
         </section>
 
         <section class="card">
-            <h2>Fluxo de Clone de Profile</h2>
-            <pre class="diagram">
-┌─────────────────────────────────────────────────────────────────────┐
-│ Master Session (Xvfb: display :100)                                 │
-│  ┌─────────────┐                                                    │
-│  │  Chrome     │                                                    │
-│  │ Logado com  │                                                    │
-│  │  cookies    │                                                    │
-│  └─────────────┘                                                    │
-└───────────────────────────┬─────────────────────────────────────────┘
-                            │ 1. Copy profile files (rsync)
-                            ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Nova Sessão (Xvfb: display :101)                                    │
-│  ┌─────────────┐                                                    │
-│  │  Chrome     │                                                    │
-│  │  Cloneado   │                                                    │
-│  │ c/profile  │                                                    │
-│  └─────────────┘                                                    │
-└─────────────────────────────────────────────────────────────────────┘
-            </pre>
+            <h2>API de Profile</h2>
+            <h3>GET /api/profile</h3>
+            <pre class="code-block"><code>{
+  "exists": true,
+  "metadata": {
+    "tenantId": "a1b2c3d4e5f6g7h8",
+    "savedAt": "2025-03-10T14:30:00Z",
+    "version": "2.0",
+    "lastActivity": "2025-03-12T09:15:00Z"
+  }
+}</code></pre>
+            <h3>DELETE /api/profile</h3>
+            <p>Limpa todo o profile do tenant (master + sessions). Retorna <code>{ ok: true }</code>.</p>
         </section>
 
         <section class="card">
             <h2>Profile Manager</h2>
-            <p>O módulo <code>profile-manager.js</code> gerencia:</p>
+            <p>Classe <strong>ProfileManager</strong> (<code>profile-manager.js</code>) responsavel pela gestao de profiles persistentes.</p>
+            <h3>Metodos</h3>
             <ul>
-                <li>Identificação de perfil existente (arquivos Cookies + Local Storage)</li>
-                <li>Criação de "master session" se profile novo</li>
-                <li>Cópia de arquivos entre Xvfb displays</li>
-                <li>Exclusão segura de perfis antigos</li>
-                <li>Migração de dados entre tenants (se necessário)</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><code>hasProfile(tenantId)</code> -- Verifica se existe profile salvo</li>
+                <li><code>loadMetadata(tenantId)</code> -- Carrega metadados do profile</li>
+                <li><code>saveMetadata(tenantId, extra)</code> -- Salva/atualiza metadados</li>
+                <li><code>cleanProfile(tenantId)</code> -- Remove profile completo do tenant</li>
             </ul>
+            <h3>Metadata v2.0</h3>
+            <pre class="code-block"><code>{
+  "tenantId": "a1b2c3d4e5f6g7h8",
+  "savedAt": "2025-03-10T14:30:00Z",
+  "version": "2.0",
+  "lastDisplay": ":101",
+  "lastActivity": "2025-03-12T09:15:00Z"
+}</code></pre>
         </section>
 
         <section class="card">
-            <h2>Endpoints de Profile</h2>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Método</th>
-                        <th>Rota</th>
-                        <th>Descrição</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>GET</td>
-                        <td>/api/profile</td>
-                        <td>Verifica se existe profile salvo</td>
-                    </tr>
-                    <tr>
-                        <td>DELETE</td>
-                        <td>/api/profile</td>
-                        <td>Remove todos os dados do profile</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h3>Response (GET /api/profile)</h3>
-            <pre class="code-block">{
-  "exists": true,
-  "metadata": {
-    "createdAt": "2024-01-15T10:30:00Z",
-    "lastUsed": "2024-01-16T14:20:00Z",
-    "sessionCount": 12,
-    "cookieCount": 47
-  }
-}</pre>
-        </section>
-
-        <section class="card">
-            <h2>Segurança</h2>
-            <ul class="risk-list">
-                <li>🟡 <strong>Isolamento:</strong> Cada tenant tem profile separado</li>
-                <li>🟡 <strong>Cleanup:</strong> Profiles devem ser limpos ao deletar tenant</li>
-                <li>🔴 <strong>Sensitive data:</strong> Cookies podem conter sessões ativas → precisa criptografia at rest</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
-        </section>
-
-        <section class="card">
-            <h2>Comandos de Manutenção</h2>
-            <pre class="code-block"># Listar perfis de todos os tenants
-find /data/profiles -type d -ls
-
-# Limpar profile específico
-rm -rf /data/profiles/{tenantId}/master
-
-# Limpar todos os profiles antigos (> 90 dias)
-find /data/profiles -mtime +90 -type d -exec rm -rf {} \;
-
-# Verificar tamanho por tenant
-du -sh /data/profiles/*/master</pre>
-        </section>
-
-        <section class="card">
-            <h2>Limitações</h2>
+            <h2>Tenant Manager (Profile)</h2>
+            <p>Funcoes do <code>tenant-manager.js</code> relacionadas a profiles:</p>
             <ul>
-                <li>Profiles grandes (> 500 MB) podem causar lentidão na cópia</li>
-                <li>Não há versionamento — toda cópia é full</li>
-                <li>Perfil "poluído" por navegação pode afetar sessões clonadas</li>
-                <li>Recomendado: rotacionar profiles a cada X dias</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><code>ensureTenantDir(tenantId)</code> -- Cria estrutura de diretorios do tenant</li>
+                <li><code>getProfileMasterDir(tenantId)</code> -- Retorna caminho do profile master</li>
+                <li><code>copyProfileToSession(tenantId, sessionId)</code> -- Copia master para sessao</li>
+                <li><code>mergeProfileFromSession(tenantId, sessionId)</code> -- Merge sessao de volta ao master</li>
+                <li><code>cleanupSessionDir(tenantId, sessionId)</code> -- Remove diretorio da sessao</li>
             </ul>
+            <p><strong>Importante:</strong> O merge e seletivo -- apenas arquivos essenciais (Cookies, Preferences, Bookmarks, Login Data, Web Data, Local State) sao copiados, nao todo o profile.</p>
         </section>
+
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
     </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
 </body>
 </html>

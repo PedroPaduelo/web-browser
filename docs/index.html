@@ -4,13 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Documentação Técnica - Serende</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=dark3">
 </head>
 <body>
-    <!-- Mobile Menu Toggle -->
-    <button class="menu-toggle" id="menuToggle" aria-label="Toggle navigation menu">
-        <span></span>
-    </button>
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
 
     <nav class="sidebar" id="sidebar">
         <div class="nav-header">
@@ -38,141 +35,111 @@
     </nav>
 
     <main class="content">
-        <nav class="breadcrumb">
-            <span class="breadcrumb-item">Serende</span>
-            <span class="breadcrumb-separator">/</span>
-            <span class="breadcrumb-current">Inicio</span>
-        </nav>
-
         <section class="index-intro">
-            <h1>Serende – Documentação Técnica</h1>
+            <h1>Serende</h1>
             <p>
-                Sistema de navegação remota via browser (VNC over Web).
-                Esta documentação cobre arquitetura, fluxos de dados, integrações,
-                segurança e guias de uso do projeto completo.
+                Sistema de navegação remota via browser — VNC over Web.<br>
+                Chrome headless + Xvfb + FFmpeg + WebSocket = acesso remoto a um navegador real via qualquer browser moderno.
             </p>
         </section>
 
         <section>
-            <h2>📚 Documentação</h2>
+            <h2>📚 Documentação Completa</h2>
             <div class="nav-cards">
                 <a href="pages/arquitetura.html" class="nav-card">
                     <h3>🏗️ Arquitetura</h3>
-                    <p>Visão geral do sistema, componentes, diagramas e tecnologias.</p>
+                    <p>Diagrama de componentes, tecnologias, portas, fluxo de dados principal.</p>
                 </a>
                 <a href="pages/autenticacao.html" class="nav-card">
                     <h3>🔐 Autenticação</h3>
-                    <p>API Keys, JWT, middleware, rate limiting.</p>
+                    <p>API Keys (SHA256), JWT (HS256, 24h), rate limiting (5/min login), admin routes.</p>
                 </a>
                 <a href="pages/sessoes.html" class="nav-card">
                     <h3>💻 Sessões</h3>
-                    <p>Ciclo de vida, configuração, endpoints, profiles.</p>
+                    <p>Ciclo de vida completo: alocação de display, spawn de processos, timeout, encerramento.</p>
                 </a>
                 <a href="pages/streaming.html" class="nav-card">
                     <h3>🎬 Streaming de Vídeo</h3>
-                    <p>FFmpeg, MJPEG, Stream Manager, performance.</p>
+                    <p>Pipeline FFmpeg → MJPEG → WebSocket binário → Canvas. 30 FPS, backpressure.</p>
                 </a>
                 <a href="pages/input-relay.html" class="nav-card">
                     <h3>🖱️ Input Relay</h3>
-                    <p>Eventos de mouse/teclado → Python XTest.</p>
+                    <p>DOM events → JSON → WebSocket → Python x11-input.py → XTest → Xvfb.</p>
                 </a>
                 <a href="pages/profiles.html" class="nav-card">
                     <h3>👤 Profiles</h3>
-                    <p>Armazenamento, master session, clonagem.</p>
+                    <p>Chrome profile persistente por tenant. Master → sessão → merge. Cookies, logins, bookmarks.</p>
                 </a>
                 <a href="pages/audio.html" class="nav-card">
                     <h3>🔊 Áudio</h3>
-                    <p>Captura via PulseAudio, PCM streaming.</p>
+                    <p>PulseAudio virtual → PCM s16le → WebSocket → Web Audio API.</p>
                 </a>
                 <a href="pages/tenants.html" class="nav-card">
                     <h3>🏢 Multi-tenant</h3>
-                    <p>Isolamento, Tenant Manager, limites.</p>
+                    <p>Isolamento por API key. TenantId = SHA256. Limites independentes por tenant.</p>
                 </a>
                 <a href="pages/api-rest.html" class="nav-card">
                     <h3>🌐 API REST</h3>
-                    <p>Endpoints, payloads, respostas.</p>
+                    <p>24 endpoints: auth, session CRUD, input, CDP control, profile, admin.</p>
                 </a>
                 <a href="pages/websocket.html" class="nav-card">
                     <h3>⚡ WebSocket</h3>
-                    <p>Protocolo, mensagens, reconexão, vídeo binário.</p>
+                    <p>2 canais: /ws/stream (JPEG binário) e /ws/input (JSON). Reconexão automática.</p>
                 </a>
                 <a href="pages/seguranca.html" class="nav-card">
                     <h3>🛡️ Segurança</h3>
-                    <p>Camadas de proteção, headers, rate limits.</p>
+                    <p>6 camadas: Helmet, Rate Limit, JWT, API Keys, CORS, Trust Proxy.</p>
                 </a>
                 <a href="pages/frontend.html" class="nav-card">
                     <h3>⚛️ Frontend</h3>
-                    <p>React, hooks, canvas, audio context.</p>
+                    <p>React 18 + TypeScript + Vite. Canvas rendering, WsClient, auth hooks.</p>
                 </a>
                 <a href="pages/banco-dados.html" class="nav-card">
                     <h3>💾 Banco de Dados</h3>
-                    <p>SQLite schema, módulos, backup.</p>
+                    <p>SQLite WAL mode. Tabela api_keys. Key store CRUD. Dados em memória.</p>
                 </a>
                 <a href="pages/riscos.html" class="nav-card">
                     <h3>⚠️ Riscos</h3>
-                    <p>Matriz de riscos, vulnerabilidades, mitigação.</p>
+                    <p>Matriz completa: 2 críticos, 3 altos, 3 médios, 2 baixos. Mitigações implementadas.</p>
+                </a>
+                <a href="pages/fluxo-completo.html" class="nav-card">
+                    <h3>🔄 Fluxo Completo</h3>
+                    <p>End-to-end: login → sessão → streaming → uso → encerramento. Todos os endpoints.</p>
                 </a>
             </div>
         </section>
 
-        <section class="card" style="margin-top: 24px; background: #dbeafe; border-color: #93c5fd;">
-            <h2 style="color: #1e40af;">ℹ️ Como usar</h2>
-            <ul style="color: #1e40af;">
-                <li>Clique em qualquer card acima para abrir a página da documentação</li>
-                <li>Use o menu lateral para navegação rápida entre tópicos</li>
-                <li>Todas as páginas têm suporte a light/dark mode (claro por padrão)</li>
-            </ul>
+        <section class="card" style="background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3);">
+            <h2 style="color: var(--color-primary-light);">Visão Rápida</h2>
+            <div class="component-grid">
+                <div class="component component-info">
+                    <h3>Porta Principal</h3>
+                    <p>4201 — API + Frontend + WebSocket</p>
+                </div>
+                <div class="component component-success">
+                    <h3>Max Sessões</h3>
+                    <p>10 simultâneas (configurável)</p>
+                </div>
+                <div class="component component-warning">
+                    <h3>Timeout</h3>
+                    <p>30 min inatividade (auto-destroy)</p>
+                </div>
+                <div class="component component-danger">
+                    <h3>Displays</h3>
+                    <p>:100 a :199 (Xvfb virtual)</p>
+                </div>
+            </div>
         </section>
 
         <footer class="footer">
-            <p>Gerado automaticamente - Serende Docs v1.0</p>
+            <p>Serende Docs v2.0 — Documentação gerada a partir do código-fonte real</p>
         </footer>
     </main>
 
     <script>
-        // Mobile menu toggle functionality
-        const menuToggle = document.getElementById('menuToggle');
-        const sidebar = document.getElementById('sidebar');
-
-        menuToggle.addEventListener('click', () => {
-            menuToggle.classList.toggle('active');
-            sidebar.classList.toggle('open');
-        });
-
-        // Close sidebar when clicking outside on mobile
-        document.addEventListener('click', (e) => {
-            if (window.innerWidth <= 768) {
-                if (!sidebar.contains(e.target) && !menuToggle.contains(e.target) && sidebar.classList.contains('open')) {
-                    menuToggle.classList.remove('active');
-                    sidebar.classList.remove('open');
-                }
-            }
-        });
-
-        // Update breadcrumb based on current page
-        const currentPage = window.location.pathname.split('/').pop() || 'index.html';
-        const pageTitles = {
-            'index.html': 'Inicio',
-            'arquitetura.html': 'Arquitetura',
-            'autenticacao.html': 'Autenticacao',
-            'sessoes.html': 'Sessoes',
-            'streaming.html': 'Streaming',
-            'input-relay.html': 'Input Relay',
-            'profiles.html': 'Profiles',
-            'audio.html': 'Audio',
-            'tenants.html': 'Multi-tenant',
-            'api-rest.html': 'API REST',
-            'websocket.html': 'WebSocket',
-            'seguranca.html': 'Seguranca',
-            'frontend.html': 'Frontend',
-            'banco-dados.html': 'Banco de Dados',
-            'riscos.html': 'Riscos'
-        };
-
-        const breadcrumbCurrent = document.querySelector('.breadcrumb-current');
-        if (currentPage in pageTitles && breadcrumbCurrent) {
-            breadcrumbCurrent.textContent = pageTitles[currentPage];
-        }
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
     </script>
 </body>
 </html>

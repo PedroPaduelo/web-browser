@@ -3,266 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sessões - Serende</title>
-    <link rel="stylesheet" href="../styles.css">
+    <title>Gerenciamento de Sessoes - Serende</title>
+    <link rel="stylesheet" href="../styles.css?v=dark3">
 </head>
 <body>
-        <nav class="sidebar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link active">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link active">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-
-
     <main class="content">
-        <h1>💻 Gerenciamento de Sessões</h1>
+        <h1>Gerenciamento de Sessoes</h1>
 
-        <section class="card">
-            <h2>O que é uma Sessão?</h2>
-            <p>Uma <strong>sessão</strong> representa uma instância isolada de navegador rodando remotamente. Cada sessão inclui:</p>
-            <ul>
-                <li>Display virtual (Xvfb)</li>
-                <li>Processo Chrome headless</li>
-                <li>Stream de vídeo (ffmpeg)</li>
-                <li>Processo de input (python-xlib)</li>
-                <li>Perfil de usuário (opcional)</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
-        </section>
+        <div class="card">
+            <h2>Visao Geral</h2>
+            <p>Cada sessao e uma instancia isolada de Chrome rodando em um display virtual Xvfb, com streaming de video via FFmpeg e input via Python X11. O limite maximo e de 10 sessoes simultaneas (configuravel via <code>MAX_SESSIONS</code>).</p>
+        </div>
 
-        <section class="card">
-            <h2>Ciclo de Vida da Sessão</h2>
-            <pre class="diagram">
-┌─────────────┐         POST /api/sessions         ┌─────────────┐
-│   Cliente   │ ───────────────────────────────→ │   Servidor  │
-│             │                                  │             │
-└─────────────┘                                  └─────┬───────┘
-                                                     │
-                                                     │ 1. Valida request
-                                                     │ 2. Spawn Xvfb
-                                                     │ 3. Spawn Chrome
-                                                     │ 4. Spawn FFmpeg
-                                                     │ 5. Spawn Python Input
-                                                     ▼
-                                            ┌────────────────┐
-                                            │ Sessão Ativa   │
-                                            │ { sessionId }  │
-                                            └────────┬───────┘
-                                                     │
-                                     WebSocket     │ HTTP
-                                     (input+video) │ (status)
-                                         │         │
-                                         ▼         ▼
-┌─────────────┐                  ┌─────────────────────┐
-│   Browser   │ ←←←←←←←←←←←←←← │  Stream Manager     │
-│   Viewer    │       MJPEG      │  & Input Handler    │
-└─────────────┘                  └─────────────────────┘
-            </pre>
-        </section>
+        <h2>Ciclo de Vida</h2>
+        <div class="flow-diagram">
+            <div class="flow-step">
+                <div class="step-number">1</div>
+                <div class="step-title">POST /api/session</div>
+                <div class="step-desc">Validacao de limites globais e por tenant (maxSessions da API key)</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">2</div>
+                <div class="step-title">Alocacao</div>
+                <div class="step-desc">Display :100-:199 e CDP port 9222+ sao alocados (primeiro disponivel)</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">3</div>
+                <div class="step-title">Spawn Xvfb</div>
+                <div class="step-desc">Display virtual X11 criado com a resolucao solicitada</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">4</div>
+                <div class="step-title">Spawn Chrome</div>
+                <div class="step-desc">Chrome headless com --remote-debugging-port e --user-data-dir</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">5</div>
+                <div class="step-title">Spawn FFmpeg</div>
+                <div class="step-desc">Captura x11grab do display, codifica MJPEG e envia para stdout</div>
+            </div>
+            <div class="flow-step">
+                <div class="step-number">6</div>
+                <div class="step-title">Ativo</div>
+                <div class="step-desc">StreamManager + InputHandler + Timeout tracker monitorando a sessao</div>
+            </div>
+        </div>
 
-        <section class="card">
-            <h2>Configurações da Sessão</h2>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Parâmetro</th>
-                        <th>Descrição</th>
-                        <th>Padrão</th>
-                        <th>Exemplo</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>resolution</td>
-                        <td>Resolução do display virtual</td>
-                        <td>1280x720</td>
-                        <td>1920x1080</td>
-                    </tr>
-                    <tr>
-                        <td>startUrl</td>
-                        <td>URL inicial do Chrome</td>
-                        <td>https://google.com</td>
-                        <td>https://exemplo.com</td>
-                    </tr>
-                    <tr>
-                        <td>timeout</td>
-                        <td>Tempo de auto-destruição (ms)</td>
-                        <td>1800000 (30 min)</td>
-                        <td>3600000</td>
-                    </tr>
-                </tbody>
-            </table>
-        </section>
+        <div class="card">
+            <h2>Criacao de Sessao</h2>
+            <div class="code-block">
+<pre>POST /api/session
+Authorization: Bearer {token}
 
-        <section class="card">
-            <h2>Request Body (POST /api/sessions)</h2>
-            <pre class="code-block">{
-  "resolution": "1920x1080",
-  "startUrl": "https://example.com",
-  "timeoutMs": 1800000,
-  "copyProfile": true  // se houver profile salvo
+{
+  "resolution": "1280x720",
+  "startUrl": "https://www.google.com",
+  "extensionPath": null
+}
+
+Response 201:
+{
+  "sessionId": "uuid-v4",
+  "status": "active",
+  "resolution": "1280x720"
 }</pre>
-        </section>
+            </div>
+        </div>
 
-        <section class="card">
-            <h2>Response Body</h2>
-            <pre class="code-block">{
-  "sessionId": "abc123def456",
-  "playwrightWsUrl": "ws://localhost:3001/ws?sessionId=abc123...",
-  "timeout": {
-    "expiresAt": 1700000000000,
-    "remaining": 1800000
-  },
-  "status": "active"
-}</pre>
-        </section>
-
-        <section class="card">
-            <h2>Status da Sessão</h2>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Status</th>
-                        <th>Descrição</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><code>creating</code></td>
-                        <td>Processos estão sendo spawnados</td>
-                    </tr>
-                    <tr>
-                        <td><code>active</code></td>
-                        <td>Sessão funcionando normalmente</td>
-                    </tr>
-                    <tr>
-                        <td><code>destroying</code></td>
-                        <td>Processos estão sendo encerrados</td>
-                    </tr>
-                    <tr>
-                        <td><code>error</code></td>
-                        <td>Erro ao criar ou manter a sessão</td>
-                    </tr>
-                    <tr>
-                        <td><code>idle</code></td>
-                        <td>Nenhuma sessão ativa</td>
-                    </tr>
-                </tbody>
-            </table>
-        </section>
-
-        <section class="card">
-            <h2>Session Manager</h2>
-            <p>O <code>session-manager.js</code> é responsável por controlar o ciclo de vida das sessões:</p>
+        <div class="card">
+            <h2>Timeout de Inatividade</h2>
             <ul>
-                <li>Spawn de Xvfb com display virtual</li>
-                <li>Spawn de Chrome com CDP ativado</li>
-                <li>Spawn de FFmpeg para captura via x11grab</li>
-                <li>Spawn do daemon Python para input</li>
-                <li>Timeout e auto-destruição</li>
-                <li>Cleanup de processos filhos</li>
-                <li>Gerenciamento de perfil (master-session)</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><strong>Default:</strong> 30 minutos (configuravel via <code>SESSION_TIMEOUT_MINUTES</code>)</li>
+                <li><strong>Verificacao:</strong> A cada 60 segundos por interval</li>
+                <li><strong>Atividade atualizada em:</strong> HTTP requests, WebSocket messages, input events</li>
+                <li><strong>Warning:</strong> Notificacao 2 minutos antes do timeout</li>
+                <li><strong>Acao no timeout:</strong> Salva profile, destroi sessao e libera recursos</li>
+                <li><strong>Timer na UI:</strong> Exibido no formato MM:SS no frontend</li>
             </ul>
-        </section>
+        </div>
 
-        <section class="card">
-            <h2>Perfis de Usuário (Profiles)</h2>
-            <ul>
-                <li><strong>Master Session:</strong> Sessão dedicada que acumula cookies, logins, histórico</li>
-                <li><strong>Clone:</strong> Novas sessões podem copiar profile da master</li>
-                <li><strong>Isolamento:</strong> Cada sessão mantém seu próprio Xvfb independente</li>
-                <li><strong>Persistence:</strong> Dados do profile armazenados em SQLite</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
-        </section>
+        <div class="card">
+            <h2>Encerramento</h2>
+            <p>Ao encerrar uma sessao (DELETE /api/session/:sessionId), o sistema executa os seguintes passos em ordem:</p>
+            <ol>
+                <li>Salva profile do Chrome (merge com master)</li>
+                <li>Mata processos: Chrome, FFmpeg, Xvfb, Python</li>
+                <li>Libera display e CDP port</li>
+                <li>Remove do Map de recursos</li>
+                <li>Limpa pool CDP</li>
+            </ol>
+        </div>
 
-        <section class="card">
-            <h2>Endpoints de Sessão</h2>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Método</th>
-                        <th>Rota</th>
-                        <th>Autenticação</th>
-                        <th>Descrição</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>POST</td>
-                        <td>/api/sessions</td>
-                        <td>Sim</td>
-                        <td>Criar nova sessão</td>
-                    </tr>
-                    <tr>
-                        <td>GET</td>
-                        <td>/api/sessions</td>
-                        <td>Sim</td>
-                        <td>Listar sessões ativas</td>
-                    </tr>
-                    <tr>
-                        <td>GET</td>
-                        <td>/api/sessions/:id</td>
-                        <td>Sim</td>
-                        <td>Obter info da sessão</td>
-                    </tr>
-                    <tr>
-                        <td>POST</td>
-                        <td>/api/sessions/:id/close</td>
-                        <td>Sim</td>
-                        <td>Encerrar sessão</td>
-                    </tr>
-                </tbody>
-            </table>
-        </section>
+        <h2>Alocacao de Recursos</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Recurso</th>
+                    <th>Range</th>
+                    <th>Formula</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Display</td><td>:100 a :199</td><td>Primeiro disponivel</td></tr>
+                <tr><td>CDP Port</td><td>9222 a 9321</td><td>9222 + (displayNum - 100)</td></tr>
+                <tr><td>Resolucao</td><td>854x480, 1280x720, 1920x1080</td><td>Escolha do usuario</td></tr>
+                <tr><td>Profile Dir</td><td>/data/tenants/{tenantId}/sessions/{sessionId}/profile</td><td>Copia do master</td></tr>
+            </tbody>
+        </table>
 
-        <section class="card">
-            <h2>Limitações</h2>
-            <ul class="risk-list">
-                <li>🔴 <strong>Memória:</strong> Cada Xvfb + Chrome consome ~300-500MB RAM</li>
-                <li>🔴 <strong>CPU:</strong> FFmpeg encoding em tempo real usa CPU intensivamente</li>
-                <li>🟡 <strong>Concorrência:</strong> Limitada pela capacidade do servidor</li>
-                <li>🟡 <strong>Portas:</strong> Cada Chrome usa uma porta de debug aleatória</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
-        </section>
+        <h2>Endpoints</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Metodo</th>
+                    <th>Rota</th>
+                    <th>Descricao</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>POST</td><td>/api/session</td><td>Criar sessao</td></tr>
+                <tr><td>GET</td><td>/api/session</td><td>Listar sessoes do tenant</td></tr>
+                <tr><td>GET</td><td>/api/session/:id</td><td>Detalhes da sessao</td></tr>
+                <tr><td>DELETE</td><td>/api/session/:id</td><td>Encerrar sessao</td></tr>
+            </tbody>
+        </table>
 
-        <section class="card">
-            <h2>Configuração via CDP</h2>
-            <p>O Chrome é iniciado com Chrome DevTools Protocol ativado para controle avançado:</p>
-            <pre class="code-block">{
-  "args": [
-    "--headless=new",
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-software-rasterizer",
-    "--remote-debugging-port=9222",
-    "--window-size=1920,1080"
-  ]
-}</pre>
-        </section>
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
     </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
 </body>
 </html>

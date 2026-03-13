@@ -3,151 +3,102 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Áudio - Serende</title>
-    <link rel="stylesheet" href="../styles.css">
+    <title>Sistema de Audio - Serende</title>
+    <link rel="stylesheet" href="../styles.css?v=dark3">
 </head>
 <body>
-        <nav class="sidebar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link active">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link active">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-
-
     <main class="content">
-        <h1>🔊 Sistema de Áudio</h1>
+        <h1>Sistema de Audio</h1>
 
         <section class="card">
-            <h2>Visão Geral</h2>
-            <p>O sistema de áudio captura som do Xvfb (PulseAudio) e transmite via WebSocket em formato <strong>PCM raw</strong>, sendo reproduzido no browser via <strong>Web Audio API</strong>.</p>
+            <h2>Visao Geral</h2>
+            <p>O audio do Chrome no Xvfb e capturado via <strong>PulseAudio virtual</strong> e transmitido como <strong>PCM raw</strong> via WebSocket para o browser, onde e reproduzido pela <strong>Web Audio API</strong>.</p>
         </section>
 
         <section class="card">
-            <h2>Arquitetura do Áudio</h2>
-            <pre class="diagram">
-┌─────────────────────────┐
-│  Chrome (Xvfb)          │
-│  Toca áudio de sites    │
-│  (YouTube, Spotify)     │
-└──────────┬──────────────┘
-           │ PulseAudio (virtual sink)
-           ▼
-┌─────────────────────────┐
-│  Audio Manager          │
-│  (audio-manager.js)     │
-│  FFmpeg captura pulse   │
-│  -f pulse -i default    │
-│  Codifica PCM s16le     │
-│  Mono 44100 Hz          │
-└──────────┬──────────────┘
-           │ Binary (PCM)
-           ▼
-┌─────────────────────────┐
-│  WebSocket Server       │
-│  Broadcast binário      │
-│  para todos os clientes │
-└──────────┬──────────────┘
-           │ WS Binary
-           ▼
-┌─────────────────────────┐
-│  Browser Client         │
-│  useAudio.ts            │
-│  AudioContext API        │
-│  Float32Array → buffer  │
-│  → AudioBufferSource    │
-└─────────────────────────┘
-            </pre>
+            <h2>Pipeline de Audio</h2>
+            <pre class="diagram"><span class="highlight">Chrome (Xvfb)</span>
+    <span class="arrow">|</span>  Audio via PulseAudio
+    <span class="arrow">v</span>
+<span class="highlight">PulseAudio (Virtual Sink)</span>
+    <span class="arrow">|</span>  <span class="label">parec --format=s16le --rate=44100 --channels=2</span>
+    <span class="arrow">v</span>
+<span class="highlight">WebSocket /ws/audio (binario)</span>
+    <span class="arrow">|</span>  PCM raw frames (s16le, 44100Hz, stereo)
+    <span class="arrow">v</span>
+<span class="highlight">Web Audio API (Browser)</span>
+    <span class="arrow">|</span>  AudioContext.decodeAudioData()
+    <span class="arrow">|</span>  ou AudioWorklet (baixa latencia)
+    <span class="arrow">v</span>
+<span class="label">Speaker output</span></pre>
         </section>
 
         <section class="card">
-            <h2>Captura (Servidor)</h2>
-            <p>O <code>audio-manager.js</code> usa FFmpeg para capturar áudio do PulseAudio:</p>
-            <pre class="code-block">ffmpeg \
-  -f pulse \
-  -i default \
-  -ac 1 \           # Mono
-  -ar 44100 \       # 44.1 kHz
-  -f s16le \        # PCM signed 16-bit little-endian
-  -acodec pcm_s16le \
-  pipe:1            # Output para stdout</pre>
-        </section>
-
-        <section class="card">
-            <h2>Reprodução (Browser)</h2>
-            <p>O hook <code>useAudio.ts</code> recebe chunks PCM via WebSocket e reproduz via Web Audio API:</p>
-            <pre class="code-block">// Simplificado
-const audioCtx = new AudioContext({ sampleRate: 44100 })
-
-ws.onBinary((data: ArrayBuffer) => {
-  // Converte Int16 → Float32
-  const int16 = new Int16Array(data)
-  const float32 = new Float32Array(int16.length)
-  for (let i = 0; i < int16.length; i++) {
-    float32[i] = int16[i] / 32768.0
-  }
-
-  // Cria buffer de áudio
-  const buffer = audioCtx.createBuffer(1, float32.length, 44100)
-  buffer.getChannelData(0).set(float32)
-
-  // Reproduz
-  const source = audioCtx.createBufferSource()
-  source.buffer = buffer
-  source.connect(audioCtx.destination)
-  source.start()
-})</pre>
-        </section>
-
-        <section class="card">
-            <h2>Formato PCM</h2>
+            <h2>Configuracao</h2>
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Propriedade</th>
+                        <th>Parametro</th>
                         <th>Valor</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td>Encoding</td><td>PCM signed 16-bit little-endian (s16le)</td></tr>
-                    <tr><td>Canais</td><td>1 (Mono)</td></tr>
+                    <tr><td>Formato</td><td>PCM signed 16-bit little-endian (s16le)</td></tr>
                     <tr><td>Sample Rate</td><td>44100 Hz</td></tr>
-                    <tr><td>Bit Depth</td><td>16 bits</td></tr>
-                    <tr><td>Chunk Size</td><td>~4096 bytes (2048 samples)</td></tr>
-                    <tr><td>Latência</td><td>~50-100ms</td></tr>
+                    <tr><td>Canais</td><td>2 (stereo)</td></tr>
+                    <tr><td>Transporte</td><td>WebSocket binario</td></tr>
+                    <tr><td>Latencia alvo</td><td>&lt; 200ms</td></tr>
                 </tbody>
             </table>
         </section>
 
         <section class="card">
-            <h2>Pontos de Falha</h2>
-            <ul class="risk-list">
-                <li>🔴 <strong>PulseAudio não disponível:</strong> Sem áudio se não houver sink virtual</li>
-                <li>🟡 <strong>Buffer underrun:</strong> Atrasos na rede causam silêncio ou cliques</li>
-                <li>🟡 <strong>AutoPlay bloqueado:</strong> Browsers exigem interação antes de tocar áudio</li>
-                <li>🟡 <strong>Sincronização A/V:</strong> Áudio e vídeo podem dessincronizar</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
+            <h2>Status da Implementacao</h2>
+            <div class="component-grid">
+                <div class="component component-warning">
+                    <h3>Implementacao Parcial</h3>
+                    <ul>
+                        <li>Audio esta implementado parcialmente</li>
+                        <li>PulseAudio precisa estar configurado no container</li>
+                        <li>Web Audio API requer interacao do usuario para iniciar (autoplay policy)</li>
+                        <li>Fallback: sem audio se PulseAudio nao disponivel</li>
+                    </ul>
+                </div>
+            </div>
         </section>
+
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
     </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
 </body>
 </html>

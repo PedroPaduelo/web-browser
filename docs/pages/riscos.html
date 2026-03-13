@@ -3,135 +3,200 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Riscos - Serende</title>
-    <link rel="stylesheet" href="../styles.css">
+    <title>Riscos e Vulnerabilidades - Serende</title>
+    <link rel="stylesheet" href="../styles.css?v=dark3">
 </head>
 <body>
-        <nav class="sidebar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link active">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link active">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-
-
     <main class="content">
-        <h1>⚠️ Matriz de Riscos</h1>
+        <h1>&#9888;&#65039; Riscos e Vulnerabilidades</h1>
 
+        <!-- 1. Matriz de Riscos -->
         <section class="card">
-            <h2>Riscos Técnicos</h2>
+            <h2>Matriz de Riscos</h2>
+
+            <h3>Critico</h3>
+            <ul class="risk-list">
+                <li>
+                    <span class="risk-badge critical">!</span>
+                    <div class="risk-content">
+                        <strong>Acesso ao sistema de arquivos do servidor</strong>
+                        <span>Chrome rodando no mesmo container pode acessar arquivos locais via <code>file://</code>. Mitigacao: Chrome sandbox habilitado, flag <code>--no-remote</code>, extensoes desabilitadas via <code>--disable-extensions</code>.</span>
+                    </div>
+                </li>
+                <li>
+                    <span class="risk-badge critical">!</span>
+                    <div class="risk-content">
+                        <strong>Vazamento de memoria em sessoes longas</strong>
+                        <span>FFmpeg + Chrome acumulam memoria ao longo do tempo sem liberacao adequada. Mitigacao: timeout de inatividade de 30 minutos forca destruicao da sessao e cleanup de todos os processos.</span>
+                    </div>
+                </li>
+            </ul>
+
+            <h3>Alto</h3>
+            <ul class="risk-list">
+                <li>
+                    <span class="risk-badge high">!</span>
+                    <div class="risk-content">
+                        <strong>DDoS no WebSocket</strong>
+                        <span>Multiplas conexoes WebSocket simultaneas de um mesmo IP podem sobrecarregar o servidor. Mitigacao: rate limiting no upgrade + limite maximo de conexoes por tenant.</span>
+                    </div>
+                </li>
+                <li>
+                    <span class="risk-badge high">!</span>
+                    <div class="risk-content">
+                        <strong>Chrome exploit</strong>
+                        <span>Vulnerabilidade zero-day no Chrome pode comprometer o servidor inteiro, ja que Chrome roda no mesmo container. Mitigacao: manter Chrome sempre atualizado, sandbox habilitado.</span>
+                    </div>
+                </li>
+                <li>
+                    <span class="risk-badge high">!</span>
+                    <div class="risk-content">
+                        <strong>Profile cross-contamination</strong>
+                        <span>Bug no merge de profiles pode misturar dados de navegacao entre tenants diferentes. Mitigacao: tenantId como chave de diretorio (<code>/data/tenants/{tenantId}/</code>), validacao de ownership em cada operacao.</span>
+                    </div>
+                </li>
+            </ul>
+
+            <h3>Medio</h3>
+            <ul class="risk-list">
+                <li>
+                    <span class="risk-badge medium">!</span>
+                    <div class="risk-content">
+                        <strong>JWT em localStorage</strong>
+                        <span>Tokens armazenados no localStorage sao vulneraveis a ataques XSS. Mitigacao atual: expiracao de 24h. Futuro: migrar para HttpOnly cookies.</span>
+                    </div>
+                </li>
+                <li>
+                    <span class="risk-badge medium">!</span>
+                    <div class="risk-content">
+                        <strong>SQLite single-writer</strong>
+                        <span>WAL mode melhora leitura concorrente, mas escritas sao serializadas. Pode haver contencao sob carga. Mitigacao: operacoes de escrita sao raras (login, admin) -- a maioria dos requests e read-only.</span>
+                    </div>
+                </li>
+                <li>
+                    <span class="risk-badge medium">!</span>
+                    <div class="risk-content">
+                        <strong>Sem HTTPS forcado internamente</strong>
+                        <span>O servidor Node.js nao termina TLS -- confia no reverse proxy (EasyPanel) para HTTPS. Mitigacao: <code>trust proxy</code> habilitado + header HSTS com max-age de 180 dias.</span>
+                    </div>
+                </li>
+            </ul>
+
+            <h3>Baixo</h3>
+            <ul class="risk-list">
+                <li>
+                    <span class="risk-badge low">!</span>
+                    <div class="risk-content">
+                        <strong>Rate limiter in-memory</strong>
+                        <span>Contadores de rate limiting sao perdidos ao reiniciar o processo. Mitigacao: baixo impacto na pratica, contadores resetam naturalmente apos a janela de tempo.</span>
+                    </div>
+                </li>
+                <li>
+                    <span class="risk-badge low">!</span>
+                    <div class="risk-content">
+                        <strong>Sessoes orfas</strong>
+                        <span>Se o servidor crashar, processos Xvfb/Chrome/FFmpeg podem ficar rodando sem controle. Mitigacao: callback <code>onSessionDied</code> + rotina de cleanup no startup que mata processos orfaos.</span>
+                    </div>
+                </li>
+            </ul>
+        </section>
+
+        <!-- 2. Mitigacoes Implementadas -->
+        <section class="card">
+            <h2>Mitigacoes Implementadas</h2>
             <table class="data-table">
                 <thead>
                     <tr>
                         <th>Risco</th>
-                        <th>Severidade</th>
-                        <th>Probabilidade</th>
-                        <th>Mitigação</th>
+                        <th>Mitigacao</th>
+                        <th>Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td>Vazamento de dados entre tenants</td>
-                        <td>🔴 Crítico</td>
-                        <td>Baixa</td>
-                        <td>Validação de ownership em cada request</td>
+                        <td>Brute force login</td>
+                        <td>Rate limiter 5/min/IP</td>
+                        <td>Implementado</td>
                     </tr>
                     <tr>
-                        <td>Escalation de privilégios via JWT fake</td>
-                        <td>🔴 Crítico</td>
-                        <td>Média</td>
-                        <td>Verificação rigorosa de JWT secret + expires</td>
+                        <td>Token expirado em WS</td>
+                        <td>Checker 60s + close code 4001</td>
+                        <td>Implementado</td>
                     </tr>
                     <tr>
-                        <td>Chrome/Xvfb crash → sessão não termina</td>
-                        <td>🟡 Médio</td>
-                        <td>Média</td>
-                        <td>Watchdog de processos + timeout auto-kill</td>
+                        <td>Headers de seguranca</td>
+                        <td>Helmet completo (exceto CSP)</td>
+                        <td>Implementado</td>
                     </tr>
                     <tr>
-                        <td>Memory leak em sessões longas</td>
-                        <td>🟡 Médio</td>
-                        <td>Alta</td>
-                        <td>Auto-destroy após timeout; limitar sessões simultâneas</td>
+                        <td>CORS aberto</td>
+                        <td>Whitelist configuravel via env</td>
+                        <td>Implementado</td>
                     </tr>
                     <tr>
-                        <td>DoS por many-sessions</td>
-                        <td>🔴 Crítico</td>
-                        <td>Alta</td>
-                        <td>Limite por tenant + monitoramento</td>
+                        <td>Admin sem protecao</td>
+                        <td>timing-safe comparison do secret</td>
+                        <td>Implementado</td>
                     </tr>
                     <tr>
-                        <td>Vírus/Malware baixado pelo Xvfb</td>
-                        <td>🟡 Médio</td>
-                        <td>Baixa</td>
-                        <td>Não executar binários; jail container</td>
+                        <td>Session hijacking</td>
+                        <td>JWT + ownership validation por tenant</td>
+                        <td>Implementado</td>
                     </tr>
                     <tr>
-                        <td>Perfil roubado (cookies sensíveis)</td>
-                        <td>🔴 Crítico</td>
-                        <td>Média</td>
-                        <td>Criptografar profile at rest</td>
-                    </tr>
-                    <tr>
-                        <td>Sincronização vídeo/áudio dessincronizada</td>
-                        <td>🟢 Baixo</td>
-                        <td>Alta</td>
-                        <td>Timestamping; NTP synchronization</td>
+                        <td>Memory leak</td>
+                        <td>Timeout 30min + cleanup de processos</td>
+                        <td>Implementado</td>
                     </tr>
                 </tbody>
             </table>
         </section>
 
+        <!-- 3. Recomendacoes Futuras -->
         <section class="card">
-            <h2>Riscos Operacionais</h2>
+            <h2>Recomendacoes Futuras</h2>
             <ul>
-                <li><strong>Alta carga de CPU:</strong> Multiplas sessões 1080p — precisa monitoração</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-                <li><strong>Espaço em disco:</strong> Perfiles crescem sem limpeza — precisa rotacionar</li>
-                <li><strong>Ataques XSS via browser:</strong> Site acessado pode tentar roubar token — usar sandboxed iframe no frontend</li>
-                <li><strong>Latência:</strong> Rede instável resulta em choppy streaming</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><strong>CSP estrito:</strong> Implementar Content-Security-Policy restritivo. Atualmente desabilitado porque o streaming de JPEG via WebSocket requer politicas relaxadas.</li>
+                <li><strong>HttpOnly cookies:</strong> Migrar JWT de localStorage para cookies HttpOnly para eliminar vetor de ataque XSS.</li>
+                <li><strong>Seccomp sandbox:</strong> Adicionar perfil seccomp mais restritivo no Chrome para limitar syscalls disponiveis.</li>
+                <li><strong>Audit log:</strong> Implementar log de auditoria para operacoes administrativas (criacao/revogacao de keys, listagem de sessoes).</li>
+                <li><strong>Rate limiting distribuido:</strong> Migrar de in-memory para Redis para suportar multiplas instancias do servidor.</li>
+                <li><strong>Backup automatizado:</strong> Configurar cron job para backup periodico do SQLite usando o comando <code>.backup</code>.</li>
             </ul>
         </section>
 
-        <section class="card">
-            <h2>Checklist de Mitigação</h2>
-            <pre class="code-block">[ ] All requests validated: tenantId, ownership
-[ ] JWT secret é forte (64+ chars) e em vault
-[ ] HTTPS/TLS configurado com cipher forte
-[ ] Rate limiter por tenant
-[ ] Login WAF/Log monitor
-[ ] Backup automático do DB
-[ ] Watchdog de processos Xvfb/Chrome
-[ ] Log de auditoria (quem acessou o quê)
-[ ] CORS configurado corretamente
-[ ] Content-Security-Policy headers
-[ ] SQLite VACUUM semanal
-[ ] Profiles criptografados (opcional)
-[ ] Limite de sessões por tenant (configurável)
-[ ] Monitoramento de memória/cpu por sessão
-[ ] Alertas para crash de sessões
-[ ] Secret rotation policy (JWT_SECRET)</pre>
-        </section>
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
     </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
 </body>
 </html>

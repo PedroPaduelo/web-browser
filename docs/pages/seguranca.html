@@ -3,231 +3,188 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Segurança - Serende</title>
-    <link rel="stylesheet" href="../styles.css">
+    <title>Seguranca - Serende</title>
+    <link rel="stylesheet" href="../styles.css?v=dark3">
 </head>
 <body>
-        <nav class="sidebar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link active">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link active">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-
-
     <main class="content">
-        <h1>🛡️ Segurança</h1>
+        <h1>&#128737;&#65039; Seguranca</h1>
 
+        <!-- 1. Camadas de Seguranca -->
         <section class="card">
-            <h2>Visão Geral</h2>
-            <p>O Serende implementa múltiplas camadas de segurança para proteger dados de tenants e prevenir ataques.</p>
-        </section>
-
-        <section class="card">
-            <h2>Camadas de Segurança</h2>
+            <h2>Camadas de Seguranca</h2>
+            <p>O Serende implementa 6 camadas de seguranca independentes que atuam em sequencia para proteger cada request.</p>
             <div class="component-grid">
-                <div class="component">
-                    <h3>🔐 Autenticação</h3>
-                    <ul>
-                        <li>API Keys (SHA-256 hash)</li>
-                        <li>JWT com expiração 24h</li>
-                        <li>Rate limiting (5 req/min)</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-                    </ul>
+                <div class="component component-info">
+                    <h3>Helmet</h3>
+                    <p>Headers de seguranca automaticos: X-Frame-Options, X-Content-Type-Options, Referrer-Policy, HSTS. CSP esta desabilitado intencionalmente pois o streaming de JPEG via WebSocket requer politicas relaxadas de content loading.</p>
                 </div>
-                <div class="component">
-                    <h3>🔒 Autorização</h3>
-                    <ul>
-                        <li>Isolamento por tenantId</li>
-                        <li>Session ownership validation</li>
-                        <li>Tenant pode acessar apenas seus recursos</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-                    </ul>
+                <div class="component component-warning">
+                    <h3>Rate Limiting</h3>
+                    <p>Limite global de 100 requests/min por IP. Login restrito a 5 tentativas/min por IP. Implementado com express-rate-limit usando store in-memory. Suficiente para single-instance.</p>
                 </div>
-                <div class="component">
-                    <h3>🛡️ Rede</h3>
-                    <ul>
-                        <li>HTTPS obrigatório</li>
-                        <li>CORS configurável</li>
-                        <li>WebSocket sobre TLS (WSS)</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-                    </ul>
+                <div class="component component-success">
+                    <h3>JWT</h3>
+                    <p>Algoritmo HS256 com secret de 128 caracteres. Expiracao fixa de 24 horas. Token verificado em cada request autenticado. Payload contem tenantId para isolamento.</p>
                 </div>
-                <div class="component">
-                    <h3>🔧 Infraestrutura</h3>
-                    <ul>
-                        <li>Chrome --no-sandbox (container)</li>
-                        <li>XVfb isolado por sessão</li>
-                        <li>Sem privilégios de root</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-                    </ul>
+                <div class="component component-success">
+                    <h3>API Keys</h3>
+                    <p>Armazenadas como SHA256 hash no SQLite. Prefixo <code>sk_</code> para identificacao visual. Valor plaintext nunca persiste no banco -- so retornado uma vez na criacao.</p>
+                </div>
+                <div class="component component-info">
+                    <h3>CORS</h3>
+                    <p>Whitelist de origins configuravel via variavel de ambiente. Credentials habilitadas para permitir cookies e headers de autorizacao cross-origin.</p>
+                </div>
+                <div class="component component-warning">
+                    <h3>Trust Proxy</h3>
+                    <p><code>app.set('trust proxy', 1)</code> habilitado para funcionar atras do reverse proxy do EasyPanel. Garante que o IP real do cliente seja usado no rate limiting.</p>
                 </div>
             </div>
         </section>
 
+        <!-- 2. Fluxo de Seguranca por Request -->
         <section class="card">
-            <h2>API Key Security</h2>
+            <h2>Fluxo de Seguranca por Request</h2>
+            <p>Cada request HTTP passa por 5 camadas de verificacao antes de atingir o handler da rota.</p>
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-title">Helmet</div>
+                    <div class="step-desc">Request chega. Helmet adiciona headers de seguranca na resposta automaticamente.</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-title">CORS</div>
+                    <div class="step-desc">Verifica origin do request contra whitelist configurada. Rejeita origens nao autorizadas.</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-title">Rate Limiter</div>
+                    <div class="step-desc">Verifica limites por IP. 100/min global, 5/min para login. Retorna 429 se excedido.</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-title">Auth Middleware</div>
+                    <div class="step-desc">Valida token JWT do header Authorization. Extrai tenantId do payload. Rejeita tokens expirados.</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">5</div>
+                    <div class="step-title">Ownership</div>
+                    <div class="step-desc">Verifica se o recurso acessado pertence ao tenant autenticado. Impede cross-tenant access.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. Admin Secret -->
+        <section class="card">
+            <h2>Admin Secret</h2>
+            <p>Rotas administrativas (<code>/api/admin/*</code>) sao protegidas por um secret separado do JWT, transmitido via header HTTP.</p>
             <ul>
-                <li><strong>Hash:</strong> API keys são hasheadas com SHA-256 antes de存储</li>
-                <li><strong>Validação:</strong> Apenas o hash é guardado, nunca o valor em texto</li>
-                <li><strong>Roação:</strong> Keys podem ser revogadas a qualquer momento</li>
-                <li><strong>Rate limit:</strong> 5 tentativas/minuto/IP</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><strong>Header:</strong> <code>x-admin-secret</code></li>
+                <li><strong>Comparacao:</strong> Utiliza <code>crypto.timingSafeEqual()</code> para prevenir timing attacks. A comparacao leva tempo constante independente de quantos bytes sao iguais.</li>
+                <li><strong>Secret:</strong> Configurado via variavel de ambiente <code>ADMIN_SECRET</code> (64 caracteres hexadecimais recomendados)</li>
+                <li><strong>Escopo:</strong> CRUD de API keys, listagem de todas as sessoes, estatisticas do sistema</li>
             </ul>
         </section>
 
+        <!-- 4. WebSocket Security -->
         <section class="card">
-            <h2>JWT Security</h2>
+            <h2>WebSocket Security</h2>
+            <p>A autenticacao WebSocket requer cuidados especiais pois headers customizados nao sao suportados no handshake do browser.</p>
             <ul>
-                <li><strong>Algoritmo:</strong> HS256 (HMAC-SHA256)</li>
-                <li><strong>Expiração:</strong> 24 horas fixas</li>
-                <li><strong>Secret:</strong> Variável de ambiente (NUNCA commitada)</li>
-                <li><strong>Validação:</strong> server verifica assinatura + expiração em cada request</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><strong>Token via query param:</strong> JWT passado na URL de conexao (<code>/ws/stream?token=JWT&sessionId=ID</code>)</li>
+                <li><strong>Ownership no upgrade:</strong> Servidor verifica que <code>session.userId === token.tenantId</code> antes de aceitar o upgrade HTTP</li>
+                <li><strong>Token checker periodico:</strong> A cada 60 segundos, o servidor itera sobre todas as conexoes ativas e desconecta aquelas cujo token expirou (close code 4001)</li>
+                <li><strong>Separacao binario/JSON:</strong> Stream de video envia dados binarios (JPEG frames), input relay usa JSON. O servidor diferencia pelo tipo da mensagem WebSocket.</li>
             </ul>
         </section>
 
+        <!-- 5. Armazenamento de Credenciais -->
         <section class="card">
-            <h2>Isolamento de Sessões</h2>
-            <pre class="diagram">
-Tenant A (id: tenant-a)          Tenant B (id: tenant-b)
-├─ Sessions: [sess-001]           ├─ Sessions: [sess-xyz]
-├─ Profile: /data/profiles/a      ├─ Profile: /data/profiles/b
-├─ Xvfb: :100                     ├─ Xvfb: :200
-└─ JWT: tenant=a                  └─ JWT: tenant=b
-
-Cross-tenant protection:
-- Session Manager verifica: session.tenantId === req.tenantId
-- Profile Manager verifica: profile.tenantId === req.tenantId
-- WebSocket valida: token.tenantId === session.tenantId
-            </pre>
-        </section>
-
-        <section class="card">
-            <h2>Rate Limiting</h2>
+            <h2>Armazenamento de Credenciais</h2>
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Endpoint</th>
-                        <th>Limite</th>
-                        <th>Janela</th>
+                        <th>Dado</th>
+                        <th>Armazenamento</th>
+                        <th>Protecao</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td>/api/auth/login</td>
-                        <td>5</td>
-                        <td>1 minuto</td>
+                        <td>API Keys</td>
+                        <td>SHA256 hash no SQLite</td>
+                        <td>Nunca plaintext no banco</td>
                     </tr>
                     <tr>
-                        <td>/api/sessions</td>
-                        <td>10</td>
-                        <td>1 minuto</td>
+                        <td>JWT Secret</td>
+                        <td>.env file</td>
+                        <td>128 caracteres aleatorios</td>
                     </tr>
                     <tr>
-                        <td>Outros endpoints</td>
-                        <td>100</td>
-                        <td>1 minuto</td>
+                        <td>Admin Secret</td>
+                        <td>.env file</td>
+                        <td>64 caracteres hex</td>
+                    </tr>
+                    <tr>
+                        <td>Passwords</td>
+                        <td>N/A (usa API keys)</td>
+                        <td>N/A</td>
+                    </tr>
+                    <tr>
+                        <td>Tokens JWT</td>
+                        <td>Client localStorage</td>
+                        <td>24h expiry</td>
                     </tr>
                 </tbody>
             </table>
         </section>
 
+        <!-- 6. Headers de Seguranca -->
         <section class="card">
-            <h2>Headers de Segurança</h2>
-            <pre class="code-block">// Recomendado
-X-Content-Type-Options: nosniff
-X-Frame-Options: DENY
-X-XSS-Protection: 1; mode=block
-Content-Security-Policy: default-src 'self'; script-src 'self'; ...
-Strict-Transport-Security: max-age=31536000; includeSubDomains</pre>
+            <h2>Headers de Seguranca</h2>
+            <p>Headers adicionados automaticamente pelo Helmet em cada resposta HTTP:</p>
+            <pre class="code-block">X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+X-XSS-Protection: 0
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=15552000
+X-Request-Id: abc123 (rastreamento)</pre>
+            <p><strong>Nota:</strong> O header <code>X-XSS-Protection: 0</code> segue a recomendacao moderna de desabilitar o filtro XSS do browser, que pode introduzir vulnerabilidades. O <code>X-Request-Id</code> e gerado por request para rastreamento em logs.</p>
         </section>
 
-        <section class="card">
-            <h2>Proteção contra Ataques</h2>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Ataque</th>
-                        <th>Mitigação</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>Brute Force (API Key)</td>
-                        <td>Rate limiting 5/min + lockout</td>
-                    </tr>
-                    <tr>
-                        <td>Token Hijacking</td>
-                        <td>Expiração 24h + HTTPS only</td>
-                    </tr>
-                    <tr>
-                        <td>Session Hijacking</td>
-                        <td>Validação de ownership em cada WS message</td>
-                    </tr>
-                    <tr>
-                        <td>XSS (Browser Client)</td>
-                        <td>Sanitização de input + CSP</td>
-                    </tr>
-                    <tr>
-                        <td>CSRF</td>
-                        <td>Same-origin policy + CSRF tokens</td>
-                    </tr>
-                    <tr>
-                        <td>DoS (Session Spawn)</td>
-                        <td>Limite de sessões simultâneas por tenant</td>
-                    </tr>
-                </tbody>
-            </table>
-        </section>
-
-        <section class="card">
-            <h2>Variáveis de Ambiente</h2>
-            <pre class="code-block"># Obrigatórias
-JWT_SECRET=generate-a-strong-random-string
-DATABASE_URL=sqlite:./data/serende.db
-
-# Opcionais
-PORT=3000
-WS_PORT=3001
-XVFB_DISPLAY_BASE=100
-MAX_SESSIONS_PER_TENANT=5
-DEFAULT_TIMEOUT_MS=1800000</pre>
-        </section>
-
-        <section class="card">
-            <h2>Checklist de Produção</h2>
-            <ul>
-                <li>☑️ HTTPS configurado (TLS 1.2+)</li>
-                <li>☑️ JWT_SECRET robusto (min 32 chars)</li>
-                <li>☑️ Rate limiting ativo</li>
-                <li>☑️ CORS restrito a domínios conhecidos</li>
-                <li>☑️ Headers de segurança</li>
-                <li>☑️ Logs de auditoria</li>
-                <li>☑️ Backup do banco SQLite</li>
-                <li>☑️ Monitoramento de anomalias</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
-        </section>
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
     </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
 </body>
 </html>

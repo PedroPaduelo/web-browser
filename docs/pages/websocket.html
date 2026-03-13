@@ -4,214 +4,154 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebSocket - Serende</title>
-    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="../styles.css?v=dark3">
 </head>
 <body>
-        <nav class="sidebar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link active">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link active">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-
-
     <main class="content">
-        <h1>⚡ Comunicação WebSocket</h1>
+        <h1>WebSocket</h1>
 
         <section class="card">
-            <h2>Visão Geral</h2>
-            <p>O WebSocket é o canal principal de comunicação em tempo real entre cliente e servidor, transportando:</p>
+            <h2>Visao Geral</h2>
+            <p>O Serende usa WebSocket para dois canais de comunicacao em tempo real: <strong>streaming de video</strong> (binario) e <strong>relay de input</strong> (JSON).</p>
+        </section>
+
+        <section class="card">
+            <h2>Endpoints</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Endpoint</th>
+                        <th>Autenticacao</th>
+                        <th>Tipo de Dados</th>
+                        <th>Direcao</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>/ws/stream?token=JWT&amp;sessionId=ID</code></td>
+                        <td>Query param</td>
+                        <td>Binario (JPEG)</td>
+                        <td>Server &rarr; Client</td>
+                    </tr>
+                    <tr>
+                        <td><code>/ws/input?token=JWT&amp;sessionId=ID</code></td>
+                        <td>Query param</td>
+                        <td>JSON</td>
+                        <td>Client &rarr; Server</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Protocolo de Conexao</h2>
+            <div class="flow-diagram">
+                <div class="flow-step">
+                    <div class="step-number">1</div>
+                    <div class="step-title">HTTP Upgrade</div>
+                    <div class="step-desc">ws://host/ws/stream?token=X&amp;sessionId=Y</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">2</div>
+                    <div class="step-title">Validacao</div>
+                    <div class="step-desc">Token JWT + ownership da sessao verificados</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">3</div>
+                    <div class="step-title">Handshake</div>
+                    <div class="step-desc">WebSocket connection established</div>
+                </div>
+                <div class="flow-step">
+                    <div class="step-number">4</div>
+                    <div class="step-title">Streaming</div>
+                    <div class="step-desc">Frames binarios (stream) ou JSON messages (input)</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Stream WebSocket</h2>
             <ul>
-                <li><strong>Vídeo:</strong> frames MJPEG binários (stream unidirecional server → client)</li>
-                <li><strong>Input:</strong> eventos de mouse/teclado JSON (client → server)</li>
-                <li><strong>Controle:</strong> commands e status da sessão (ambas direções)</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><strong>Dados:</strong> JPEG frames raw (sem wrapper)</li>
+                <li><strong>Tamanho:</strong> Variavel, tipico 20-100KB por frame</li>
+                <li><strong>Taxa:</strong> ~30 FPS</li>
+                <li><strong>Backpressure:</strong> Frame descartado se <code>bufferedAmount &gt; 128KB</code></li>
+                <li><strong>Primeiro frame:</strong> Ultimo frame disponivel enviado na conexao</li>
             </ul>
         </section>
 
         <section class="card">
-            <h2>Arquitetura</h2>
-            <pre class="diagram">
-┌─────────────────┐
-│   Browser App   │
-│  (React)        │
-│  ┌────────────┐ │
-│  │ WS Client  │◄────────────────────┐
-│  └────────────┘                     │
-└────────┬────────────────────────────┘
-         │ WS Message
-         ▼
-┌─────────────────┐
-│ Express WS      │
-│ Handler         │
-└────────┬────────┘
-         │
-    ┌────┴────┬──────────────┬─────────────┐
-    │         │              │             │
-    ▼         ▼              ▼             ▼
-┌───────┐ ┌───────┐   ┌──────────┐ ┌──────────┐
-│Stream │ │ Input │   │  Session │ │   Auth   │
-│Manager│ │Handler│   │ Manager  │ │   WS     │
-└───────┘ └───────┘   └──────────┘ └──────────┘
-            </pre>
+            <h2>Input WebSocket</h2>
+            <p>Mensagens JSON enviadas pelo cliente:</p>
+            <pre class="code-block"><code><span class="comment">// Movimentacao do mouse</span>
+{ <span class="string">"type"</span>: <span class="string">"mousemove"</span>, <span class="string">"x"</span>: <span class="number">640</span>, <span class="string">"y"</span>: <span class="number">360</span> }
+
+<span class="comment">// Clique</span>
+{ <span class="string">"type"</span>: <span class="string">"mousedown"</span>, <span class="string">"button"</span>: <span class="string">"left"</span> }
+{ <span class="string">"type"</span>: <span class="string">"mouseup"</span>, <span class="string">"button"</span>: <span class="string">"left"</span> }
+
+<span class="comment">// Scroll</span>
+{ <span class="string">"type"</span>: <span class="string">"wheel"</span>, <span class="string">"deltaY"</span>: <span class="number">-120</span> }
+
+<span class="comment">// Tecla</span>
+{ <span class="string">"type"</span>: <span class="string">"keypress"</span>, <span class="string">"code"</span>: <span class="string">"KeyA"</span>, <span class="string">"shift"</span>: <span class="keyword">false</span>, <span class="string">"ctrl"</span>: <span class="keyword">false</span> }
+
+<span class="comment">// Digitacao de texto</span>
+{ <span class="string">"type"</span>: <span class="string">"type"</span>, <span class="string">"text"</span>: <span class="string">"hello"</span> }</code></pre>
         </section>
 
         <section class="card">
-            <h2>Cliente (ws-client.ts)</h2>
-            <pre class="code-block">class WsClient {
-  private state: ConnectionState = 'disconnected'
-  private messageListeners: Set&lt;(data:any)=&gt;void&gt; = new Set()
-  private binaryListeners: Set&lt;(data:ArrayBuffer)=&gt;void&gt; = new Set()
-  private reconnectTimer: ReturnType&lt;typeof setTimeout&gt; | null = null
-
-  connect(url: string) { ... }
-
-  send(data: any) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(typeof data === 'string' ? data : JSON.stringify(data))
-    }
-  }
-
-  onMessage(fn: (data: any) => void) { ... }
-  onBinary(fn: (data: ArrayBuffer) => void) { ... }
-  disconnect() { ... }
-}</pre>
+            <h2>Reconexao</h2>
             <ul>
-                <li>Auto-reconnect com exponential backoff (1s, 2s, 4s, ..., máx 5s)</li>
-                <li>Max 10 tentativas de reconexão</li>
-                <li>Eventos de state change (conectando, conectado, reconectando, desconectado)</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><strong>WsClient</strong> (frontend) tenta reconectar automaticamente</li>
+                <li><strong>Max tentativas:</strong> 10</li>
+                <li><strong>Backoff exponencial:</strong> 1s a 5s</li>
+                <li><strong>Code 4001:</strong> Token expirado &rarr; para de reconectar, dispara <code>authFail</code></li>
+                <li><strong>Ao reconectar:</strong> recebe ultimo frame disponivel imediatamente</li>
             </ul>
         </section>
 
         <section class="card">
-            <h2>Servidor WebSocket</h2>
-            <p>Integrado ao Express:</p>
-            <pre class="code-block">const wsServer = new WebSocket.Server({ server, port: 3001 })
-
-wsServer.on('connection', (ws, req) => {
-  const params = new URLSearchParams(req.url.split('?')[1])
-  const token = params.get('token')
-  const sessionId = params.get('sessionId')
-
-  // Valida token
-  jwt.verify(token, ...)
-
-  // Registra cliente no Session Manager
-  sessionManager.addWsClient(sessionId, ws)
-
-  ws.on('message', (msg) => {
-    // JSON: input events
-    // Binário: (não usado; vídeo vem do Stream Manager)
-  })
-
-  ws.on('close', () => {
-    sessionManager.removeWsClient(sessionId, ws)
-  })
-})</pre>
-        </section>
-
-        <section class="card">
-            <h2>Mensagens</h2>
-
-            <h3>Input Event (Client → Server)</h3>
-            <pre class="code-block">{
-  "type": "input",
-  "sessionId": "abc123",
-  "data": {
-    "type": "mouse_click",
-    "x": 512,
-    "y": 384,
-    "button": 0,
-    "timestamp": 1701234567890
-  }
-}</pre>
-
-            <h3>Session Start (Server → Client)</h3>
-            <pre class="code-block">{
-  "type": "session_start",
-  "sessionId": "abc123",
-  "streamUrl": "ws://...:3001/stream",
-  "status": "active"
-}</pre>
-
-            <h3>Session End (Server → Client)</h3>
-            <pre class="code-block">{
-  "type": "session_ended",
-  "sessionId": "abc123",
-  "reason": "timeout"
-}</pre>
-        </section>
-
-        <section class="card">
-            <h2>Binary Stream (Video)</h2>
-            <p>Frames MJPEG são enviados como objetos <code>ArrayBuffer</code> via WebSocket binário:</p>
+            <h2>Token Expiry</h2>
             <ul>
-                <li>Nenhum cabeçalho — o array contém JPEG completo</li>
-                <li>SOI (0xFFD8) e EOI (0xFFD9) marcam início/fim</li>
-                <li>Cliente usa <code>Blob</code> + <code>URL.createObjectURL</code> → draw no Canvas</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
-            <pre class="code-block">wsClient.onBinary((data: ArrayBuffer) => {
-  const blob = new Blob([data], { type: 'image/jpeg' })
-  const url = URL.createObjectURL(blob)
-  const img = new Image()
-  img.onload = () => {
-    ctx.drawImage(img, 0, 0)
-    URL.revokeObjectURL(url)
-  }
-  img.src = url
-})</pre>
-        </section>
-
-        <section class="card">
-            <h2>Handshake e Auth</h2>
-            <p>A conexão WebSocket inclui token JWT e sessionId na query string:</p>
-            <pre class="code-block">ws://serende.ddw1sl.easypanel.host/ws?token=eyJhbGc...&sessionId=abc123</pre>
-            <ul>
-                <li>Server valida JWT e extrai tenantId</li>
-                <li>Verifica se sessionId pertence ao tenant</li>
-                <li>Se inválido → close code 4001</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li>Servidor verifica tokens WS a cada <strong>60s</strong> (interval)</li>
+                <li>Token expirado &rarr; <code>ws.close(4001, 'Token expired')</code></li>
+                <li>Frontend trata code 4001: para reconexao, dispara evento <code>authFail</code></li>
             </ul>
         </section>
 
-        <section class="card">
-            <h2>Keepalive</h2>
-            <p>Client envia keepalive a cada 30s:</p>
-            <pre class="code-block">{ "type": "keepalive" }</pre>
-            <p>Se server não receber keepalive por 60s, desconecta cliente.</p>
-        </section>
-
-        <section class="card">
-            <h2>Escalabilidade</h2>
-            <ul>
-                <li>Cada sessão tem 1+ clientes conectados (broadcast)</li>
-                <li>Multi-sessões paralelas são suportadas</li>
-                <li>Limite prático: ~50-100 clientes simultâneos por servidor</li>
-                <li>Para escalar, use balanceador com sticky sessions por sessionId</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
-        </section>
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
     </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
 </body>
 </html>

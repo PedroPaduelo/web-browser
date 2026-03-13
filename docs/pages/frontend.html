@@ -4,181 +4,168 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Frontend - Serende</title>
-    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="../styles.css?v=dark3">
 </head>
 <body>
-        <nav class="sidebar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link active">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link active">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-
-
     <main class="content">
-        <h1>⚛️ Frontend (React)</h1>
+        <h1>&#9883;&#65039; Frontend</h1>
 
+        <!-- 1. Stack -->
         <section class="card">
-            <h2>Visão Geral</h2>
-            <p>Frontend em React + TypeScript com Vite. Responsável pela interface de usuário, exibição de vídeo e captura de eventos de input.</p>
+            <h2>Stack</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tecnologia</th>
+                        <th>Versao</th>
+                        <th>Funcao</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>React</td>
+                        <td>18.x</td>
+                        <td>UI Framework</td>
+                    </tr>
+                    <tr>
+                        <td>TypeScript</td>
+                        <td>5.x</td>
+                        <td>Tipagem estatica</td>
+                    </tr>
+                    <tr>
+                        <td>Vite</td>
+                        <td>5.x</td>
+                        <td>Build tool + Dev Server (HMR)</td>
+                    </tr>
+                    <tr>
+                        <td>React Router DOM</td>
+                        <td>7.x</td>
+                        <td>Roteamento client-side</td>
+                    </tr>
+                </tbody>
+            </table>
         </section>
 
+        <!-- 2. Componentes -->
         <section class="card">
-            <h2>Arquitetura</h2>
-            <pre class="diagram">
-src/
-├── App.tsx                 # Componente raiz
-├── main.tsx               # Bootstrap
-├── pages/
-│   ├── AdminPanel.tsx    # Painel admin
-│   └── LoginScreen.tsx   # Login com API Key
-├── components/
-│   ├── BrowserViewer.tsx # Canvas + Audio
-│   ├── ConnectionStatus.tsx
-│   └── SessionControls.tsx
-├── hooks/
-│   ├── useSession.ts     # CRUD de sessões via REST
-│   ├── useStream.ts      # Recepção MJPEG → Canvas
-│   ├── useInputRelay.ts  # Captura eventos → WebSocket
-│   └── useAudio.ts       # AudioContext PCM playback
-├── lib/
-│   ├── auth-client.ts    # Login, token storage
-│   ├── ws-client.ts      # WebSocket com reconnect
-│   └── input-mapper.ts   # Normalização de coordenadas
-└── types/
-    └── index.ts
-            </pre>
+            <h2>Componentes</h2>
+            <div class="component-grid">
+                <div class="component component-primary">
+                    <h3>App.tsx</h3>
+                    <p>Root component. Gerencia estado de autenticacao, sessao ativa e stream. Condiciona renderizacao: exibe <code>LoginScreen</code> se nao autenticado, ou <code>BrowserViewer</code> com <code>SessionControls</code> quando autenticado.</p>
+                </div>
+                <div class="component component-success">
+                    <h3>BrowserViewer.tsx</h3>
+                    <p>Canvas HTML5 que renderiza frames JPEG recebidos via WebSocket. Captura eventos de mouse (click, move, scroll) e teclado (keydown, keyup) e os envia pelo input relay. Escala automatica para manter aspect ratio.</p>
+                </div>
+                <div class="component component-info">
+                    <h3>SessionControls.tsx</h3>
+                    <p>Controles de sessao: botoes start/stop, seletor de resolucao (1280x720, 1920x1080), campo de URL inicial, timer visual de timeout mostrando tempo restante.</p>
+                </div>
+                <div class="component component-warning">
+                    <h3>LoginScreen.tsx</h3>
+                    <p>Formulario de login com campo para API key. Chama <code>auth-client.login()</code> e exibe erros inline. Redireciona para o viewer apos autenticacao bem-sucedida.</p>
+                </div>
+                <div class="component component-info">
+                    <h3>ConnectionStatus.tsx</h3>
+                    <p>Indicador visual no canto superior: FPS atual do stream, estado da conexao WebSocket (connected/reconnecting/disconnected), latencia estimada.</p>
+                </div>
+            </div>
         </section>
 
+        <!-- 3. Hooks -->
         <section class="card">
-            <h2>Use Stream Hook</h2>
-            <pre class="code-block">function useStream(sessionId: string) {
-  const canvasRef = useRef&lt;HTMLCanvasElement&gt;(null)
-
- Leon: Sneaky》
-  useEffect(() => {
-    const ws = createWsClient()
-    const wsUrl = getAuthWsUrl('/ws/stream', sessionId)
-    ws.connect(wsUrl)
-
-    ws.onBinary((data: ArrayBuffer) => {
-      const ctx = canvasRef.current?.getContext('2d')
-      if (ctx) {
-        const blob = new Blob([data], { type: 'image/jpeg' })
-        const url = URL.createObjectURL(blob)
-        const img = new Image()
-        img.onload = () => {
-          ctx.drawImage(img, 0, 0)
-          URL.revokeObjectURL(url)
-        }
-        img.src = url
-      }
-    })
-
-    return () => ws.disconnect()
-  }, [sessionId])
-
-  return { canvasRef }
-}</pre>
-        </section>
-
-        <section class="card">
-            <h2>Use Input Relay Hook</h2>
-            <pre class="code-block">function useInputRelay(sessionId: string) {
-  const ws = useMemo(() => {
-    const client = createWsClient()
-    client.connect(getAuthWsUrl('/ws/input', sessionId))
-    return client
-  }, [sessionId])
-
-  useEffect(() => {
-    const canvas = document.getElementById('canvas')
-    if (!canvas) return
-
-    const handlePointerMove = (e: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const y = e.clientY - rect.top
-      ws.send({
-        type: 'input',
-        sessionId,
-        data: { type: 'mouse_move', x, y }
-      })
-    }
-
-    canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerdown', handleClick)
-    window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('keyup', handleKeyUp)
-
-    return () => {
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      // ... outros removes
-    }
-  }, [sessionId, ws])
-
-  return ws
-}</pre>
-        </section>
-
-        <section class="card">
-            <h2>Browser Viewer</h2>
-            <p>Componente principal que combina Canvas (vídeo) + Audio API + Input relay:</p>
-            <pre class="code-block">export default function BrowserViewer({ sessionId }) {
-  const { canvasRef } = useStream(sessionId)
-  useAudio(sessionId)
-  useInputRelay(sessionId)
-
-  return (
-    &lt;div className="viewer-container"&gt;
-      &lt;canvas ref={canvasRef} width={1280} height={720} /&gt;
-      &lt;ConnectionStatus /&gt;
-    &lt;/div&gt;
-  )
-}</pre>
-        </section>
-
-        <section class="card">
-            <h2>Login Screen</h2>
-            <p>Tela de login com validação de API Key:</p>
+            <h2>Hooks</h2>
             <ul>
-                <li>Input de texto para API Key</li>
-                <li>Validação visual (campo não vazio, formato UUID)</li>
-                <li>Botão "Conectar" chama <code>login(apiKey)</code></li>
-                <li>Erro exibido em vermelho abaixo do input</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><strong>useSession():</strong> Gerencia o ciclo de vida completo da sessao. Metodos para create (POST /api/session), destroy (DELETE /api/session/:id), polling de status, e controle de timeout. Retorna sessionId, status e funcoes de controle.</li>
+                <li><strong>useStream():</strong> Conecta ao WebSocket <code>/ws/stream</code>, recebe frames JPEG como ArrayBuffer, decodifica via <code>createImageBitmap()</code> e renderiza no canvas 2D. Gerencia reconexao automatica.</li>
+                <li><strong>useAuth() (AuthProvider):</strong> Context provider que gerencia estado de autenticacao global. Expoe <code>login()</code>, <code>logout()</code>, <code>isAuthenticated</code>, <code>tenantInfo</code>. Persiste token no localStorage.</li>
             </ul>
         </section>
 
+        <!-- 4. Bibliotecas Client -->
         <section class="card">
-            <h2>Performance</h2>
+            <h2>Bibliotecas Client</h2>
+            <h3>auth-client.ts</h3>
+            <p>Modulo de autenticacao client-side com as seguintes funcoes:</p>
             <ul>
-                <li>Canvas redraw apenas quando novo frame chega</li>
-                <li>Audio buffers são limpos após reprodução</li>
-                <li>WebSocket reconnect automático (exponential backoff)</li>
-                <li>RequestAnimationFrame opcional para suavização de input</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><code>login(apiKey)</code> -- POST /api/auth/login, armazena JWT no localStorage</li>
+                <li><code>logout()</code> -- Remove token e limpa estado</li>
+                <li><code>getToken()</code> -- Retorna JWT atual do localStorage</li>
+                <li><code>authFetch(url, opts)</code> -- Wrapper do fetch que injeta Authorization header</li>
+                <li><code>getAuthWsUrl(path, sessionId)</code> -- Gera URL WebSocket com token e sessionId como query params</li>
+                <li><code>getProfileInfo()</code> -- GET /api/profile com auth</li>
+                <li><code>clearProfile()</code> -- DELETE /api/profile com auth</li>
+            </ul>
+            <h3>ws-client.ts</h3>
+            <p>Classe <code>WsClient</code> com reconexao automatica:</p>
+            <ul>
+                <li><code>connect(url)</code> -- Abre conexao WebSocket</li>
+                <li><code>disconnect()</code> -- Fecha conexao limpa</li>
+                <li><code>send(data)</code> -- Envia JSON serializado</li>
+                <li><code>onMessage(cb)</code> -- Handler para mensagens JSON</li>
+                <li><code>onBinary(cb)</code> -- Handler para dados binarios (JPEG frames)</li>
+                <li><code>onAuthFail(cb)</code> -- Handler para close code 4001 (token expirado)</li>
+                <li>Reconexao automatica: ate 10 tentativas, backoff de 1s a 5s</li>
             </ul>
         </section>
+
+        <!-- 5. Renderizacao de Video -->
+        <section class="card">
+            <h2>Renderizacao de Video</h2>
+            <p>Pipeline de renderizacao de video em tempo real via WebSocket:</p>
+            <pre class="code-block">1. WebSocket recebe ArrayBuffer (frame JPEG)
+2. new Blob([arrayBuffer], { type: 'image/jpeg' })
+3. createImageBitmap(blob)  // decode async, off main thread
+4. canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h)
+5. Escala automatica para manter aspect ratio
+6. ~30 FPS em tempo real</pre>
+            <p>O uso de <code>createImageBitmap()</code> ao inves de <code>new Image()</code> evita blocking na thread principal e elimina a necessidade de <code>URL.createObjectURL()</code> / <code>URL.revokeObjectURL()</code>.</p>
+        </section>
+
+        <!-- 6. Build -->
+        <section class="card">
+            <h2>Build</h2>
+            <ul>
+                <li><strong>Desenvolvimento:</strong> <code>npx vite --host 0.0.0.0 --port 5173</code> -- HMR habilitado, proxy para API backend</li>
+                <li><strong>Build:</strong> <code>npx vite build</code> -- Gera bundle otimizado em <code>dist/</code></li>
+                <li><strong>Producao:</strong> Servido por Express via <code>express.static('dist')</code> no mesmo servidor do backend</li>
+                <li><strong>Porta de producao:</strong> 4201 (backend + frontend no mesmo processo)</li>
+            </ul>
+        </section>
+
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
     </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
 </body>
 </html>

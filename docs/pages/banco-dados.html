@@ -4,185 +4,158 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Banco de Dados - Serende</title>
-    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="../styles.css?v=dark3">
 </head>
 <body>
-        <nav class="sidebar">
+    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+    <nav class="sidebar" id="sidebar">
         <div class="nav-header">
             <h1>Serende</h1>
-            <p>Documentação Técnica</p>
+            <p>Documentacao Tecnica</p>
         </div>
-
         <ul class="nav-menu">
-            <li><a href="../index.html" class="nav-link">🏠 Início</a></li>
-            <li><a href="arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="banco-dados.html" class="nav-link active">💾 Banco de Dados</a></li>
-            <li><a href="riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+            <li><a href="../index.html" class="nav-link">&#127968; Inicio</a></li>
+            <li><a href="arquitetura.html" class="nav-link">&#127959;&#65039; Arquitetura</a></li>
+            <li><a href="autenticacao.html" class="nav-link">&#128272; Autenticacao</a></li>
+            <li><a href="sessoes.html" class="nav-link">&#128187; Sessoes</a></li>
+            <li><a href="streaming.html" class="nav-link">&#127916; Streaming</a></li>
+            <li><a href="input-relay.html" class="nav-link">&#128433;&#65039; Input Relay</a></li>
+            <li><a href="profiles.html" class="nav-link">&#128100; Profiles</a></li>
+            <li><a href="audio.html" class="nav-link">&#128266; Audio</a></li>
+            <li><a href="tenants.html" class="nav-link">&#127970; Multi-tenant</a></li>
+            <li><a href="api-rest.html" class="nav-link">&#127760; API REST</a></li>
+            <li><a href="websocket.html" class="nav-link">&#9889; WebSocket</a></li>
+            <li><a href="seguranca.html" class="nav-link">&#128737;&#65039; Seguranca</a></li>
+            <li><a href="frontend.html" class="nav-link">&#9883;&#65039; Frontend</a></li>
+            <li><a href="banco-dados.html" class="nav-link active">&#128190; Banco de Dados</a></li>
+            <li><a href="riscos.html" class="nav-link">&#9888;&#65039; Riscos</a></li>
+            <li><a href="fluxo-completo.html" class="nav-link">&#128260; Fluxo Completo</a></li>
         </ul>
     </nav>
-
-
     <main class="content">
-        <h1>💾 Banco de Dados</h1>
+        <h1>&#128190; Banco de Dados</h1>
 
+        <!-- 1. Visao Geral -->
         <section class="card">
-            <h2>SQLite</h2>
-            <p>O Serende utiliza <strong>SQLite</strong> como banco de dados primário para armazenamento de metadados.</p>
-            <ul>
-                <li><strong>Local:</strong> <code>./data/serende.db</code></li>
-                <li><strong>Tipo:</strong> Embedded (sem servidor separado)</li>
-                <li><strong>ACID:</strong> Suporte completo a transações</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
+            <h2>Visao Geral</h2>
+            <p>O Serende utiliza <strong>SQLite</strong> via <code>better-sqlite3</code> como banco de dados embarcado. Configurado em modo <strong>WAL</strong> (Write-Ahead Logging) para melhor performance de leitura concorrente. Foreign keys estao habilitadas. O arquivo do banco fica em <code>/data/serende.db</code>.</p>
         </section>
 
+        <!-- 2. Schema -->
         <section class="card">
             <h2>Schema</h2>
-            <pre class="code-block">-- Tenants
-CREATE TABLE tenants (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  expires_at DATETIME,
-  active INTEGER DEFAULT 1,
-  metadata TEXT
-);
-
--- API Keys
-CREATE TABLE api_keys (
-  id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL REFERENCES tenants(id),
-  key_hash TEXT NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  expires_at DATETIME,
-  active INTEGER DEFAULT 1
-);
-
--- Sessions (opcional - pode ser em memória)
-CREATE TABLE sessions (
-  id TEXT PRIMARY KEY,
-  tenant_id TEXT NOT NULL REFERENCES tenants(id),
-  status TEXT DEFAULT 'creating',
-  resolution TEXT,
-  start_url TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  expires_at DATETIME
-);
-
--- Indexes
-CREATE INDEX idx_api_keys_tenant ON api_keys(tenant_id);
-CREATE INDEX idx_sessions_tenant ON sessions(tenant_id);
-CREATE INDEX idx_sessions_status ON sessions(status);</pre>
+            <p>O banco possui uma unica tabela, <code>api_keys</code>, que armazena credenciais e configuracoes por tenant:</p>
+            <pre class="code-block">CREATE TABLE api_keys (
+  id TEXT PRIMARY KEY,            -- SHA256(apiKey).slice(0,16) = tenantId
+  key_hash TEXT NOT NULL UNIQUE,  -- SHA256 completo da API key
+  key_prefix TEXT NOT NULL,       -- Primeiros 10 chars (ex: "sk_a1b2c3...")
+  name TEXT NOT NULL,             -- Nome descritivo
+  enabled INTEGER DEFAULT 1,     -- 0=revogado, 1=ativo
+  max_sessions INTEGER DEFAULT 100,
+  max_session_duration INTEGER DEFAULT 3600,
+  max_idle_timeout INTEGER DEFAULT 300,
+  features TEXT DEFAULT '{}',     -- JSON de feature flags
+  created_at TEXT DEFAULT (datetime('now')),
+  last_used_at TEXT               -- Atualizado no login
+);</pre>
+            <p>O <code>id</code> e derivado do hash da API key (primeiros 16 chars do SHA256), servindo simultaneamente como identificador do tenant em todo o sistema.</p>
         </section>
 
+        <!-- 3. Modulos -->
         <section class="card">
-            <h2>Tabelas</h2>
+            <h2>Modulos</h2>
+            <div class="component-grid">
+                <div class="component component-info">
+                    <h3>db.js</h3>
+                    <p>Modulo de conexao SQLite. Configura o path <code>/data/serende.db</code>, ativa WAL mode via <code>PRAGMA journal_mode=WAL</code>, habilita foreign keys com <code>PRAGMA foreign_keys=ON</code>. Executa <code>CREATE TABLE IF NOT EXISTS api_keys</code> no init para garantir que o schema existe.</p>
+                </div>
+                <div class="component component-success">
+                    <h3>key-store.js</h3>
+                    <p>CRUD completo de API keys. Funcoes: <code>createKey()</code>, <code>listKeys()</code>, <code>validateKey()</code>, <code>updateKey()</code>, <code>revokeKey()</code>, <code>regenerateKey()</code>, <code>migrateFromEnv()</code>. Todas as operacoes usam prepared statements para seguranca e performance.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. Operacoes -->
+        <section class="card">
+            <h2>Operacoes</h2>
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Tabela</th>
-                        <th>Descrição</th>
-                        <th>Tamanho típico</th>
+                        <th>Operacao</th>
+                        <th>Metodo</th>
+                        <th>Descricao</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td>tenants</td>
-                        <td>Organizações/contas</td>
-                        <td>~1 KB (poucos registros)</td>
+                        <td>Criar key</td>
+                        <td><code>createKey(name, opts)</code></td>
+                        <td>Gera <code>sk_</code> + 32 hex chars, salva SHA256 hash no DB</td>
                     </tr>
                     <tr>
-                        <td>api_keys</td>
-                        <td>Chaves de acesso</td>
-                        <td>~1 KB</td>
+                        <td>Validar</td>
+                        <td><code>validateKey(apiKey)</code></td>
+                        <td>Calcula SHA256 do input e busca o hash no banco</td>
                     </tr>
                     <tr>
-                        <td>sessions</td>
-                        <td>Histórico de sessões</td>
-                        <td>~10 KB (por 1000 sessões)</td>
+                        <td>Listar</td>
+                        <td><code>listKeys()</code></td>
+                        <td>Retorna todas as keys sem hash/secret (so prefix e metadata)</td>
+                    </tr>
+                    <tr>
+                        <td>Revogar</td>
+                        <td><code>revokeKey(id)</code></td>
+                        <td>Seta <code>enabled = 0</code>, key para de funcionar imediatamente</td>
+                    </tr>
+                    <tr>
+                        <td>Regenerar</td>
+                        <td><code>regenerateKey(id)</code></td>
+                        <td>Gera nova raw key mantendo o mesmo id/tenant</td>
+                    </tr>
+                    <tr>
+                        <td>Migrar</td>
+                        <td><code>migrateFromEnv(apiKey)</code></td>
+                        <td>Importa AUTH_API_KEY legacy do .env para o SQLite</td>
                     </tr>
                 </tbody>
             </table>
         </section>
 
+        <!-- 5. Dados em Memoria -->
         <section class="card">
-            <h2>Módulos de Acesso</h2>
+            <h2>Dados em Memoria</h2>
+            <p>Alem do SQLite, diversos dados criticos vivem exclusivamente em memoria (perdidos ao reiniciar o processo):</p>
             <ul>
-                <li><strong>db.js:</strong> Conexão e queries básicas</li>
-                <li><strong>key-store.js:</strong> CRUD de API Keys</li>
-                <li><strong>tenant-manager.js:</strong> CRUD de Tenants</li>
-                <li><strong>session-manager.js:</strong> Gerenciamento de sessões (em memória)</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
+                <li><strong>sessionResources (Map):</strong> StreamManager + InputHandler por sessao. Contem referencias aos processos Xvfb, Chrome e FFmpeg.</li>
+                <li><strong>cdpPools (Map):</strong> Conexoes CDP (Chrome DevTools Protocol) reutilizaveis por sessao, com timeout de 30 segundos para reciclagem.</li>
+                <li><strong>loginAttempts (Map):</strong> Contagem de tentativas de login por IP para rate limiting. Limpa automaticamente apos janela de 1 minuto.</li>
+                <li><strong>activeWsConnections (Map):</strong> WebSocket connections ativas indexadas por token, usadas pelo checker periodico de expiracao.</li>
             </ul>
         </section>
 
+        <!-- 6. Backup -->
         <section class="card">
             <h2>Backup</h2>
-            <pre class="code-block"># Backup manual
-cp data/serende.db data/serende.db.backup
-
-# Backup automático (cron)
-0 2 * * * cp /path/to/data/serende.db /backup/serende-$(date +\%Y\%m\%d).db</pre>
+            <div class="component component-warning">
+                <h3>Procedimento de Backup</h3>
+                <ul>
+                    <li>Arquivo principal: <code>/data/serende.db</code></li>
+                    <li>WAL mode gera arquivos auxiliares: <code>-wal</code> e <code>-shm</code> junto ao DB</li>
+                    <li>Para backup seguro (consistente): <code>sqlite3 /data/serende.db ".backup /tmp/backup.db"</code></li>
+                    <li>Nunca copiar o .db diretamente enquanto o servidor estiver rodando (pode corromper)</li>
+                    <li>Profiles de navegacao ficam em <code>/data/tenants/</code> (filesystem, nao no DB) e devem ser incluidos no backup</li>
+                </ul>
+            </div>
         </section>
 
-        <section class="card">
-            <h2>Manutenção</h2>
-            <ul>
-                <li><strong>VACUUM:</strong> Reorganiza o banco periodicamente</li>
-                <li><strong>ANALYZE:</strong> Atualiza estatísticas para queries</li>
-                <li><strong>Cleanup:</strong> Remover sessões expiradas</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
-            <pre class="code-block">-- Limpar sessões antigas (> 30 dias)
-DELETE FROM sessions WHERE created_at < datetime('now', '-30 days');
-
--- VACUUM para recuperar espaço
-VACUUM;
-
--- Verificar integridade
-PRAGMA integrity_check;</pre>
-        </section>
-
-        <section class="card">
-            <h2>Dados em Memória</h2>
-            <p>Alguns dados são mantidos em memória para performance:</p>
-            <ul>
-                <li><strong>Sessões ativas:</strong> Map em memória (session-manager)</li>
-                <li><strong>Streams ativas:</strong> Referências a processos</li>
-                <li><strong>WebSocket clients:</strong> Lista de clientes conectados</li>
-            <li><a href="fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-            </ul>
-            <p>Esses dados são <strong>não-persistentes</strong> — reiniciando o servidor, todas as sessões ativas são perdidas.</p>
-        </section>
-
-        <section class="card">
-            <h2>Perfil (Profile Data)</h2>
-            <p>Dados de perfil (cookies, cache, etc) são armazenados no filesystem, não no SQLite:</p>
-            <pre class="code-block">/data/profiles/
-└── {tenant-id}/
-    └── master/
-        ├── .config/google-chrome/
-        │   └── Default/
-        │       ├── Cookies
-        │       ├── Local Storage/
-        │       └── History
-        └── .cache/
-            └── google-chrome/
-                └── Default/
-                    └── Cache/</pre>
-        </section>
+        <footer class="footer"><p>Serende Docs v2.0</p></footer>
     </main>
+    <script>
+    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
+    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
+    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
+    document.querySelectorAll('.nav-link').forEach(l=>{if(l.getAttribute('href')===location.pathname.split('/').pop())l.classList.add('active')});
+    </script>
 </body>
 </html>
