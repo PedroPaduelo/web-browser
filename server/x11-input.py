@@ -2,6 +2,7 @@
 import sys
 import os
 import json
+import select
 from Xlib import X, XK, display
 from Xlib.ext import xtest
 
@@ -55,12 +56,15 @@ def get_keycode(key):
     return kc
 
 fi = xtest.fake_input
+_pending = 0
 
 def handle_msg(msg):
+    global _pending
     t = msg.get('type')
 
     if t == 'mousemove':
         fi(d, X.MotionNotify, x=int(msg['x']), y=int(msg['y']), root=root)
+        _pending += 1
 
     elif t == 'click':
         x, y = int(msg['x']), int(msg['y'])
@@ -68,18 +72,20 @@ def handle_msg(msg):
         fi(d, X.MotionNotify, x=x, y=y, root=root)
         fi(d, X.ButtonPress, detail=btn, root=root)
         fi(d, X.ButtonRelease, detail=btn, root=root)
+        _pending += 3
 
     elif t == 'mousedown':
         x, y = int(msg['x']), int(msg['y'])
         btn = BUTTON_MAP.get(msg.get('button', 0), 1)
         fi(d, X.MotionNotify, x=x, y=y, root=root)
         fi(d, X.ButtonPress, detail=btn, root=root)
+        _pending += 2
 
     elif t == 'mouseup':
         x, y = int(msg['x']), int(msg['y'])
         btn = BUTTON_MAP.get(msg.get('button', 0), 1)
-        fi(d, X.MotionNotify, x=x, y=y, root=root)
         fi(d, X.ButtonRelease, detail=btn, root=root)
+        _pending += 1
 
     elif t == 'scroll':
         x, y = int(msg['x']), int(msg['y'])
@@ -90,29 +96,33 @@ def handle_msg(msg):
         for _ in range(clicks):
             fi(d, X.ButtonPress, detail=btn, root=root)
             fi(d, X.ButtonRelease, detail=btn, root=root)
+        _pending += 1 + clicks * 2
 
     elif t == 'keydown':
         kc = get_keycode(msg.get('key', ''))
         if kc:
             fi(d, X.KeyPress, detail=kc, root=root)
+            _pending += 1
 
     elif t == 'keyup':
         kc = get_keycode(msg.get('key', ''))
         if kc:
             fi(d, X.KeyRelease, detail=kc, root=root)
+            _pending += 1
 
     else:
         return
-
-    d.flush()
 
 if __name__ == '__main__':
     init_display()
     sys.stderr.write(f'[X11Input] Connected to display {DISPLAY_NUM}\n')
     sys.stderr.flush()
 
-    stdin = os.fdopen(sys.stdin.fileno(), 'r', buffering=1)
+    stdin_fd = sys.stdin.fileno()
+    stdin = os.fdopen(stdin_fd, 'r', buffering=1)
     loads = json.loads
+    _pending = 0
+
     while True:
         line = stdin.readline()
         if not line:
@@ -125,3 +135,23 @@ if __name__ == '__main__':
         except Exception as e:
             sys.stderr.write(f'[X11Input] Error: {e}\n')
             sys.stderr.flush()
+            continue
+
+        while True:
+            ready, _, _ = select.select([stdin_fd], [], [], 0)
+            if not ready:
+                break
+            extra = stdin.readline()
+            if not extra:
+                break
+            extra = extra.strip()
+            if extra:
+                try:
+                    handle_msg(loads(extra))
+                except Exception as e:
+                    sys.stderr.write(f'[X11Input] Error: {e}\n')
+                    sys.stderr.flush()
+
+        if _pending > 0:
+            d.flush()
+            _pending = 0

@@ -1,8 +1,11 @@
+const API_URL = import.meta.env.VITE_API_URL || ''
+const WS_URL = import.meta.env.VITE_WS_URL || ''
+
 const TOKEN_KEY = 'serende_token'
 const TENANT_KEY = 'serende_tenantId'
 
 export async function login(apiKey: string): Promise<{ token: string; tenantId: string }> {
-  const res = await fetch('/api/auth/login', {
+  const res = await fetch(`${API_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ apiKey }),
@@ -57,13 +60,14 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
   if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
     headers.set('Content-Type', 'application/json')
   }
-  return fetch(url, { ...options, headers })
+  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`
+  return fetch(fullUrl, { ...options, headers })
 }
 
 export function getAuthWsUrl(path: string, sessionId: string): string {
   const token = getToken()
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}${path}?token=${token}&sessionId=${sessionId}`
+  const base = WS_URL || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host
+  return `${base}${path}?token=${token}&sessionId=${sessionId}`
 }
 
 // --- Profile Management ---
