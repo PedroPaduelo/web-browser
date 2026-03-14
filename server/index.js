@@ -1,11 +1,11 @@
-require('dotenv').config({ override: true });
+const path = require('path');
+require('dotenv').config({ override: true, path: path.resolve(__dirname, '.env') });
 
 const express = require('express');
 const http = require('http');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer } = require('./node_modules/ws');
 const cors = require('cors');
 const crypto = require('crypto');
-const path = require('path');
 const { URL } = require('url');
 const { v4: uuidv4 } = require('uuid');
 const helmet = require('helmet');
@@ -338,7 +338,7 @@ async function getCdpClient(cdpPort) {
 
   if (!pageUrl) throw new Error('CDP not available');
 
-  const ws = await import('ws');
+  const ws = await import('./node_modules/ws');
   return new Promise((resolve, reject) => {
     const client = new ws.default(pageUrl);
     const pool = {
@@ -449,7 +449,7 @@ app.get('/api/screenshot/:sessionId', authMiddleware, trackActivity, async (req,
     const pageUrl = await getPageTargetWsUrl(session.cdpPort);
     if (!pageUrl) return res.status(500).json({ error: 'CDP not available' });
 
-    const ws = await import('ws');
+    const ws = await import('./node_modules/ws');
     const result = await new Promise((resolve, reject) => {
       const client = new ws.default(pageUrl);
       let id = 1;
