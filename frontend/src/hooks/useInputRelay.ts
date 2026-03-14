@@ -1,8 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { createWsClient } from '../lib/ws-client'
 import { mapScroll, mapKeyDown, mapKeyUp, Resolution } from '../lib/input-mapper'
+import { getAuthWsUrl } from '../lib/auth-client'
 
-const THROTTLE_MS = 8
+const THROTTLE_MS = 4
 
 let cachedCanvasRect: { x: number; y: number; w: number; h: number; ts: number } | null = null
 
@@ -49,17 +50,16 @@ export function useInputRelay(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   containerRef: React.RefObject<HTMLElement | null>,
   active: boolean,
-  resolution: Resolution = { width: 1280, height: 720 }
+  resolution: Resolution = { width: 1280, height: 720 },
+  sessionId: string | null = null
 ) {
   const lastMoveRef = useRef(0)
   const wsRef = useRef<ReturnType<typeof createWsClient> | null>(null)
 
   useEffect(() => {
-    if (!active) return
+    if (!active || !sessionId) return
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/input`
-
+    const wsUrl = getAuthWsUrl('/ws/input', sessionId)
     const ws = createWsClient()
     wsRef.current = ws
     ws.connect(wsUrl)
@@ -68,7 +68,7 @@ export function useInputRelay(
       ws.disconnect()
       wsRef.current = null
     }
-  }, [active])
+  }, [active, sessionId])
 
   const send = useCallback((event: any) => {
     wsRef.current?.send(event)

@@ -1,15 +1,19 @@
 import { useCallback } from 'react'
+import { useAuth } from './components/AuthProvider'
 import { useSession } from './hooks/useSession'
 import { useStream } from './hooks/useStream'
 import BrowserViewer from './components/BrowserViewer'
 import SessionControls from './components/SessionControls'
 import ConnectionStatus from './components/ConnectionStatus'
+import LoginScreen from './components/LoginScreen'
 
 export default function App() {
+  const { isAuthenticated, loading: authLoading, logout } = useAuth()
   const { status, sessionInfo, error, createSession, destroySession } = useSession()
 
   const isActive = status === 'active'
-  const { isConnected, fps, connectionState, setCanvas } = useStream(isActive)
+  const sessionId = sessionInfo?.sessionId || null
+  const { isConnected, fps, connectionState, setCanvas } = useStream(isActive, sessionId)
 
   const resolution = sessionInfo?.resolution || { width: 1280, height: 720 }
 
@@ -20,6 +24,18 @@ export default function App() {
   const handleStop = useCallback(async () => {
     await destroySession()
   }, [destroySession])
+
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', background: '#111', color: '#9ca3af' }}>
+        Carregando...
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <LoginScreen />
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
@@ -33,6 +49,8 @@ export default function App() {
           onStart={handleStart}
           onStop={handleStop}
           error={error}
+          sessionId={sessionId}
+          sessionInfo={sessionInfo}
         />
         {isActive && (
           <div style={{
@@ -47,6 +65,30 @@ export default function App() {
             <ConnectionStatus state={connectionState} fps={fps} />
           </div>
         )}
+        <div style={{
+          marginLeft: 'auto',
+          padding: '0 16px',
+          background: 'rgba(20, 20, 20, 0.95)',
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+        }}>
+          <button
+            onClick={logout}
+            style={{
+              padding: '4px 12px',
+              borderRadius: '6px',
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'transparent',
+              color: '#9ca3af',
+              fontSize: '12px',
+              cursor: 'pointer',
+            }}
+          >
+            Sair
+          </button>
+        </div>
       </div>
 
       <div style={{ flex: 1, overflow: 'hidden' }}>
@@ -54,6 +96,7 @@ export default function App() {
           <BrowserViewer
             setCanvas={setCanvas}
             resolution={resolution}
+            sessionId={sessionId}
           />
         ) : (
           <div style={{

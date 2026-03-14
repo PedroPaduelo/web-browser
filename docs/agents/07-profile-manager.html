@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Profile Manager Agent | Serende</title>
+  <link rel="stylesheet" href="../styles.css" />
+  <style>
+    body { background: #0f1117; color: #f5f5f5; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .badge { display: inline-flex; align-items: center; background: #2f2f3a; color: #22c55e; border-radius: 999px; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; padding: .2rem .58rem; margin-left: .5rem; border: 1px solid rgba(34, 197, 94, 0.4); }
+    header h1 { margin: 0; font-size: 2rem; background: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    section { margin-top: 1.4rem; border: 1px solid #2b2d37; border-radius: 10px; background: #11131a; padding: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: .6rem; }
+    th, td { border: 1px solid #2b2d37; padding: .5rem .65rem; text-align: left; vertical-align: top; }
+    th { background:#1a1d28; color:#e6e8f0; }
+    td { background:#121622; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background:#1b1f2d; color:#d8d8ff; padding:.15rem .3rem; border-radius:4px; }
+    .diagram { background:#0d0f16; border:1px solid #2b2d37; border-radius:8px; padding:.8rem; margin-top:.4rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color:#e5e5ff; line-height:1.5; }
+    .json { background:#1b1f2d; border:1px solid #2b2d37; border-radius:8px; padding:1rem; margin-top:.4rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color:#a5d6ff; overflow-x:auto; white-space:pre; font-size: .85rem; }
+    footer { margin-top: 2rem; color:#a9afc6; font-size:.9rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div style="display:flex; align-items:center; gap:.4rem;">
+        <h1>Profile Manager Agent</h1>
+        <span class="badge">Ativo</span>
+      </div>
+      <p style="margin:.5rem 0 0; color:#c8cde3;">Singleton responsável pelo gerenciamento de metadados dos perfis de tenant no sistema Serende.</p>
+    </header>
+
+    <section>
+      <h2>Visão Geral</h2>
+      <p>O <strong>Profile Manager Agent</strong> é uma classe singleton (<span class="code">profile-manager.js</span>) que gerencia os metadados dos perfis de tenant. Suas principais responsabilidades incluem:</p>
+      <ul style="line-height: 1.8; padding-left: 1.5rem;">
+        <li>Verificar existência do diretório <span class="code">masterDir</span> de cada tenant</li>
+        <li>Ler e salvar arquivos <span class="code">metadata.json</span> com informações do perfil</li>
+        <li>Gerenciar a limpeza completa de perfis de tenant</li>
+        <li>Retornar diretórios de dados de sessão para o <span class="code">_default</span></li>
+        <li>Acompanhar atividade das sessões através de timestamps</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Métodos</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Método</th>
+            <th>Assinatura</th>
+            <th>Descrição</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="code">hasProfile</span></td>
+            <td><span class="code">async hasProfile(tenantId)</span></td>
+            <td>Verifica se o diretório <span class="code">masterDir</span> existe para o tenant.</td>
+          </tr>
+          <tr>
+            <td><span class="code">loadMetadata</span></td>
+            <td><span class="code">async loadMetadata(tenantId)</span></td>
+            <td>Lê o arquivo <span class="code">metadata.json</span> do tenant. Retorna objeto com <span class="code">tenantId</span>, <span class="code">savedAt</span>, <span class="code">version</span>, <span class="code">lastDisplay</span>, <span class="code">lastActivity</span>.</td>
+          </tr>
+          <tr>
+            <td><span class="code">saveMetadata</span></td>
+            <td><span class="code">async saveMetadata(tenantId, extra)</span></td>
+            <td>Salva/atualiza o <span class="code">metadata.json</span>. Recebe objeto <span class="code">extra</span> com campos a mesclar (ex: <span class="code">{ lastActivity: Date.now() }</span>).</td>
+          </tr>
+          <tr>
+            <td><span class="code">cleanProfile</span></td>
+            <td><span class="code">async cleanProfile(tenantId)</span></td>
+            <td>Remove recursivamente o <span class="code">masterDir</span> do tenant. Usado para limpeza total do perfil.</td>
+          </tr>
+          <tr>
+            <td><span class="code">getUserDataDir</span></td>
+            <td><span class="code">getUserDataDir(tenantId)</span></td>
+            <td>Retorna o caminho completo do <span class="code">sessionProfileDir</span>. Para <span class="code">_default</span>, retorna diretamente o perfil default.</td>
+          </tr>
+          <tr>
+            <td><span class="code">saveSessionState</span></td>
+            <td><span class="code">async saveSessionState(tenantId, displayNum)</span></td>
+            <td>Salva metadata atualizando <span class="code">lastDisplay</span> e <span class="code">lastActivity</span>. Usado quando uma sessão é iniciada ou tem atividade.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Metadata JSON</h2>
+      <p>O arquivo <span class="code">metadata.json</span> armazena informações sobre o perfil do tenant:</p>
+      <div class="json">{
+  "tenantId": "abc123def456...",
+  "savedAt": 1742012400000,
+  "version": "2.0",
+  "lastDisplay": 100,
+  "lastActivity": 1742012399123
+}</div>
+      <p style="margin-top: 1rem; color: #a3a3a3;">
+        <strong>Campos:</strong><br/>
+        • <span class="code">tenantId</span>: Identificador único do tenant<br/>
+        • <span class="code">savedAt</span>: Timestamp (ms) da última modificação do arquivo<br/>
+        • <span class="code">version</span>: Versão do formato do metadata (atualmente "2.0")<br/>
+        • <span class="code">lastDisplay</span>: Número do último display X11 usado por este tenant<br/>
+        • <span class="code">lastActivity</span>: Timestamp (ms) da última atividade detectada
+      </p>
+    </section>
+
+    <section>
+      <h2>Integração com Tenant Manager</h2>
+      <p>O Profile Manager Agent trabalha em conjunto com o <strong>Tenant Manager</strong> para gerenciar o ciclo de vida completo dos perfis:</p>
+      <div class="diagram">
+┌─────────────────┐
+│   Tenant Mgr    │
+│  (api/web)      │
+└────────┬────────┘
+         │ requer perfil
+         ▼
+┌─────────────────────────────────────────┐
+│         Profile Manager                 │
+│         (singleton)                     │
+├─────────────────────────────────────────┤
+│ • hasProfile(tenantId)                  │
+│ • loadMetadata(tenantId) ──────────────►│
+│ • saveMetadata(tenantId, extra)         │
+│ • cleanProfile(tenantId)                │
+│ • getUserDataDir(tenantId) ────────────►│
+│ • saveSessionState(tenantId, display)   │
+└─────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────┐
+│   File System   │
+│  data/tenants/  │
+│  ├─ metadata.js │
+│  └─ profile-... │
+└─────────────────┘
+      </div>
+      <p style="margin-top: 1rem; color: #a3a3a3;">
+        O <strong>Tenant Manager</strong> é o principal consumidor dos métodos do Profile Manager. Quando uma sessão é criada, o Tenant Manager usa <span class="code">getUserDataDir</span> para obter o perfil e <span class="code">saveSessionState</span> para registrar a atividade. Ao limpar perfis órfãos, usa <span class="code">cleanProfile</span> e <span class="code">hasProfile</span> para verificar existência.
+      </p>
+    </section>
+
+    <footer>
+      <p>Profile Manager Agent — Componente do Sistema Serende</p>
+      <p style="margin-top: 8px;">Arquivo: <span class="code">profile-manager.js</span></p>
+    </footer>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        console.log('Profile Manager Agent documentation loaded');
+      });
+    </script>
+  </div>
+</body>
+</html>

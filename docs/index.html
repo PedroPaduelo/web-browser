@@ -1,145 +1,1583 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Documentação Técnica - Serende</title>
-    <link rel="stylesheet" href="styles.css?v=dark3">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serende - Documentação do Sistema</title>
+  <style>
+    :root {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #171717;
+      --bg-tertiary: #262626;
+      --text-primary: #fafafa;
+      --text-secondary: #a3a3a3;
+      --accent: #3b82f6;
+      --accent-hover: #60a5fa;
+      --border: #404040;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #06b6d4;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      padding: 32px 0;
+      margin-bottom: 48px;
+    }
+
+    h1 {
+      font-size: 40px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--info) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 18px;
+      font-weight: 400;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: 12px;
+      vertical-align: middle;
+    }
+
+    .badge-success { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+    .badge-warning { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+    .badge-danger { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+    .badge-info { background: rgba(6, 182, 212, 0.2); color: var(--info); }
+
+    nav {
+      background: var(--bg-secondary);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 48px;
+      border: 1px solid var(--border);
+    }
+
+    nav h2 {
+      font-size: 20px;
+      margin-bottom: 16px;
+      color: var(--text-secondary);
+    }
+
+    .nav-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .nav-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      text-decoration: none;
+      color: var(--text-primary);
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .nav-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+
+    .nav-card .icon {
+      font-size: 24px;
+    }
+
+    .nav-card .title {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .nav-card .desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .section {
+      margin-bottom: 64px;
+    }
+
+    .section-title {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .section-title .count {
+      font-size: 14px;
+      color: var(--text-secondary);
+      font-weight: 400;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg-secondary);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    th, td {
+      padding: 16px 20px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--bg-tertiary);
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+
+    .status-active { background: var(--success); }
+    .status-inactive { background: var(--danger); }
+    .status-pending { background: var(--warning); }
+
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--text-primary);
+    }
+
+    .card-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+    }
+
+    .flow-diagram {
+      background: var(--bg-tertiary);
+      border-radius: 12px;
+      padding: 24px;
+      font-family: 'JetBrains Mono', 'Consolas', monospace;
+      font-size: 13px;
+      line-height: 1.8;
+      overflow-x: auto;
+      white-space: pre;
+      color: var(--text-secondary);
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .tag {
+      background: var(--bg-tertiary);
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--accent);
+      border: 1px solid var(--border);
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .metric-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+
+    .metric-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .metric-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    footer {
+      text-align: center;
+      padding: 48px 0;
+      border-top: 1px solid var(--border);
+      margin-top: 64px;
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      color: var(--accent-hover);
+    }
+
+    .agent-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      transition: all 0.2s;
+    }
+
+    .agent-card:hover {
+      border-color: var(--accent);
+    }
+
+    .agent-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+
+    .agent-name {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .agent-desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .flow-legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .legend-color {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+    }
+  </style>
 </head>
 <body>
-    <button class="menu-toggle" id="menuToggle" aria-label="Menu"><span></span></button>
+  <header>
+    <div class="container">
+      <h1>Serende <span class="badge badge-success">v2.1.0</span></h1>
+      <p class="subtitle">Sistema de Browser Remoto via Streaming - Documentação Completa da Arquitetura</p>
+    </div>
+  </header>
 
-    <nav class="sidebar" id="sidebar">
-        <div class="nav-header">
-            <h1>Serende</h1>
-            <p>Documentação Técnica</p>
-        </div>
-        <ul class="nav-menu">
-            <li><a href="index.html" class="nav-link active">🏠 Início</a></li>
-            <li><a href="pages/arquitetura.html" class="nav-link">🏗️ Arquitetura</a></li>
-            <li><a href="pages/autenticacao.html" class="nav-link">🔐 Autenticação</a></li>
-            <li><a href="pages/sessoes.html" class="nav-link">💻 Sessões</a></li>
-            <li><a href="pages/streaming.html" class="nav-link">🎬 Streaming</a></li>
-            <li><a href="pages/input-relay.html" class="nav-link">🖱️ Input Relay</a></li>
-            <li><a href="pages/profiles.html" class="nav-link">👤 Profiles</a></li>
-            <li><a href="pages/audio.html" class="nav-link">🔊 Áudio</a></li>
-            <li><a href="pages/tenants.html" class="nav-link">🏢 Multi-tenant</a></li>
-            <li><a href="pages/api-rest.html" class="nav-link">🌐 API REST</a></li>
-            <li><a href="pages/websocket.html" class="nav-link">⚡ WebSocket</a></li>
-            <li><a href="pages/seguranca.html" class="nav-link">🛡️ Segurança</a></li>
-            <li><a href="pages/frontend.html" class="nav-link">⚛️ Frontend</a></li>
-            <li><a href="pages/banco-dados.html" class="nav-link">💾 Banco de Dados</a></li>
-            <li><a href="pages/riscos.html" class="nav-link">⚠️ Riscos</a></li>
-            <li><a href="pages/fluxo-completo.html" class="nav-link">🔄 Fluxo Completo</a></li>
-        </ul>
+  <div class="container">
+    <nav>
+      <h2>📚 Navegação Rápida</h2>
+      <div class="nav-grid">
+        <a href="#arquitetura" class="nav-card">
+          <span class="icon">🏗️</span>
+          <div>
+            <div class="title">Arquitetura do Sistema</div>
+            <div class="desc">Visão geral da arquitetura em camadas</div>
+          </div>
+        </a>
+        <a href="#fluxo" class="nav-card">
+          <span class="icon">🔄</span>
+          <div>
+            <div class="title">Fluxo de Dados</div>
+            <div class="desc">Como os dados circulam no sistema</div>
+          </div>
+        </a>
+        <a href="#agentes" class="nav-card">
+          <span class="icon">🤖</span>
+          <div>
+            <div class="title">15 Agentes do Sistema</div>
+            <div class="desc">Módulos e responsabilidades</div>
+          </div>
+        </a>
+        <a href="#coleta" class="nav-card">
+          <span class="icon">📊</span>
+          <div>
+            <div class="title">Pontos de Coleta</div>
+            <div class="desc">Onde e como os dados são coletados</div>
+          </div>
+        </a>
+        <a href="#riscos" class="nav-card">
+          <span class="icon">⚠️</span>
+          <div>
+            <div class="title">Análise de Riscos</div>
+            <div class="desc">Riscos identificados e mitigações</div>
+          </div>
+        </a>
+        <a href="#guia" class="nav-card">
+          <span class="icon">📖</span>
+          <div>
+            <div class="title">Guia de Uso</div>
+            <div class="desc">Como usar o sistema passo a passo</div>
+          </div>
+        </a>
+        <a href="#api" class="nav-card">
+          <span class="icon">🔌</span>
+          <div>
+            <div class="title">Documentação da API</div>
+            <div class="desc">Endpoints disponíveis</div>
+          </div>
+        </a>
+        <a href="#admin" class="nav-card">
+          <span class="icon">⚙️</span>
+          <div>
+            <div class="title">Painel Administrativo</div>
+            <div class="desc">Gestão de tenants e chaves API</div>
+          </div>
+        </a>
+      </div>
     </nav>
 
-    <main class="content">
-        <section class="index-intro">
-            <h1>Serende</h1>
-            <p>
-                Sistema de navegação remota via browser — VNC over Web.<br>
-                Chrome headless + Xvfb + FFmpeg + WebSocket = acesso remoto a um navegador real via qualquer browser moderno.
-            </p>
-        </section>
+    <section id="arquitetura" class="section">
+      <h2 class="section-title">
+        🏗️ Arquitetura do Sistema
+        <span class="count">Visão Geral</span>
+      </h2>
 
-        <section>
-            <h2>📚 Documentação Completa</h2>
-            <div class="nav-cards">
-                <a href="pages/arquitetura.html" class="nav-card">
-                    <h3>🏗️ Arquitetura</h3>
-                    <p>Diagrama de componentes, tecnologias, portas, fluxo de dados principal.</p>
-                </a>
-                <a href="pages/autenticacao.html" class="nav-card">
-                    <h3>🔐 Autenticação</h3>
-                    <p>API Keys (SHA256), JWT (HS256, 24h), rate limiting (5/min login), admin routes.</p>
-                </a>
-                <a href="pages/sessoes.html" class="nav-card">
-                    <h3>💻 Sessões</h3>
-                    <p>Ciclo de vida completo: alocação de display, spawn de processos, timeout, encerramento.</p>
-                </a>
-                <a href="pages/streaming.html" class="nav-card">
-                    <h3>🎬 Streaming de Vídeo</h3>
-                    <p>Pipeline FFmpeg → MJPEG → WebSocket binário → Canvas. 30 FPS, backpressure.</p>
-                </a>
-                <a href="pages/input-relay.html" class="nav-card">
-                    <h3>🖱️ Input Relay</h3>
-                    <p>DOM events → JSON → WebSocket → Python x11-input.py → XTest → Xvfb.</p>
-                </a>
-                <a href="pages/profiles.html" class="nav-card">
-                    <h3>👤 Profiles</h3>
-                    <p>Chrome profile persistente por tenant. Master → sessão → merge. Cookies, logins, bookmarks.</p>
-                </a>
-                <a href="pages/audio.html" class="nav-card">
-                    <h3>🔊 Áudio</h3>
-                    <p>PulseAudio virtual → PCM s16le → WebSocket → Web Audio API.</p>
-                </a>
-                <a href="pages/tenants.html" class="nav-card">
-                    <h3>🏢 Multi-tenant</h3>
-                    <p>Isolamento por API key. TenantId = SHA256. Limites independentes por tenant.</p>
-                </a>
-                <a href="pages/api-rest.html" class="nav-card">
-                    <h3>🌐 API REST</h3>
-                    <p>24 endpoints: auth, session CRUD, input, CDP control, profile, admin.</p>
-                </a>
-                <a href="pages/websocket.html" class="nav-card">
-                    <h3>⚡ WebSocket</h3>
-                    <p>2 canais: /ws/stream (JPEG binário) e /ws/input (JSON). Reconexão automática.</p>
-                </a>
-                <a href="pages/seguranca.html" class="nav-card">
-                    <h3>🛡️ Segurança</h3>
-                    <p>6 camadas: Helmet, Rate Limit, JWT, API Keys, CORS, Trust Proxy.</p>
-                </a>
-                <a href="pages/frontend.html" class="nav-card">
-                    <h3>⚛️ Frontend</h3>
-                    <p>React 18 + TypeScript + Vite. Canvas rendering, WsClient, auth hooks.</p>
-                </a>
-                <a href="pages/banco-dados.html" class="nav-card">
-                    <h3>💾 Banco de Dados</h3>
-                    <p>SQLite WAL mode. Tabela api_keys. Key store CRUD. Dados em memória.</p>
-                </a>
-                <a href="pages/riscos.html" class="nav-card">
-                    <h3>⚠️ Riscos</h3>
-                    <p>Matriz completa: 2 críticos, 3 altos, 3 médios, 2 baixos. Mitigações implementadas.</p>
-                </a>
-                <a href="pages/fluxo-completo.html" class="nav-card">
-                    <h3>🔄 Fluxo Completo</h3>
-                    <p>End-to-end: login → sessão → streaming → uso → encerramento. Todos os endpoints.</p>
-                </a>
-            </div>
-        </section>
+      <div class="card">
+        <h3 class="card-title">Visão Geral</h3>
+        <p class="card-subtitle">O Serende é um sistema de browser remoto via streaming que permite controle de instâncias Chrome headless através de uma interface web.</p>
 
-        <section class="card" style="background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3);">
-            <h2 style="color: var(--color-primary-light);">Visão Rápida</h2>
-            <div class="component-grid">
-                <div class="component component-info">
-                    <h3>Porta Principal</h3>
-                    <p>4201 — API + Frontend + WebSocket</p>
-                </div>
-                <div class="component component-success">
-                    <h3>Max Sessões</h3>
-                    <p>10 simultâneas (configurável)</p>
-                </div>
-                <div class="component component-warning">
-                    <h3>Timeout</h3>
-                    <p>30 min inatividade (auto-destroy)</p>
-                </div>
-                <div class="component component-danger">
-                    <h3>Displays</h3>
-                    <p>:100 a :199 (Xvfb virtual)</p>
-                </div>
-            </div>
-        </section>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-value">4201</div>
+            <div class="metric-label">Porta do Servidor</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">30</div>
+            <div class="metric-label">FPS de Streaming</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">10</div>
+            <div class="metric-label">Sessões Simultâneas</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">30min</div>
+            <div class="metric-label">Timeout de Inatividade</div>
+          </div>
+        </div>
+      </div>
 
-        <footer class="footer">
-            <p>Serende Docs v2.0 — Documentação gerada a partir do código-fonte real</p>
-        </footer>
-    </main>
+      <div class="card">
+        <h3 class="card-title">Camadas da Arquitetura</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Camada</th>
+              <th>Responsabilidade</th>
+              <th>Tecnologias</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Frontend</strong></td>
+              <td>Interface React com visualização do browser remoto</td>
+              <td>React 18, Vite 6, WebSocket</td>
+            </tr>
+            <tr>
+              <td><strong>API Gateway</strong></td>
+              <td>REST API + WebSocket com autenticação JWT</td>
+              <td>Express, ws, CORS, Helmet</td>
+            </tr>
+            <tr>
+              <td><strong>Session Manager</strong></td>
+              <td>Orquestração de sessões Chrome</td>
+              <td>Xvfb, Chrome CDP</td>
+            </tr>
+            <tr>
+              <td><strong>Stream Manager</strong></td>
+              <td>Codificação e broadcasting de vídeo</td>
+              <td>FFmpeg, MJPEG streaming</td>
+            </tr>
+            <tr>
+              <td><strong>Input Handler</strong></td>
+              <td>Simulação de inputs (mouse/teclado)</td>
+              <td>X11 Python, python-xlib</td>
+            </tr>
+            <tr>
+              <td><strong>Data Layer</strong></td>
+              <td>Armazenamento de chaves e perfis</td>
+              <td>SQLite, File System</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-    <script>
-    const mt=document.getElementById('menuToggle'),sb=document.getElementById('sidebar');
-    mt.addEventListener('click',()=>{mt.classList.toggle('active');sb.classList.toggle('open')});
-    document.addEventListener('click',e=>{if(window.innerWidth<=768&&!sb.contains(e.target)&&!mt.contains(e.target)&&sb.classList.contains('open')){mt.classList.remove('active');sb.classList.remove('open')}});
-    </script>
+    <section id="fluxo" class="section">
+      <h2 class="section-title">
+        🔄 Fluxo de Dados
+        <span class="count">Do Login ao Streaming</span>
+      </h2>
+
+      <div class="card">
+        <h3 class="card-title">Diagrama de Fluxo Completo</h3>
+        <div class="flow-diagram">
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                         │
+│  [CLIENTE]                                                                             │
+│  ┌──────────────┐                                                                      │
+│  │ Frontend     │                                                                      │
+│  │ React + WS   │                                                                      │
+│  └──────┬───────┘                                                                      │
+│         │ 1. POST /auth/login (apiKey)                                                 │
+│         ▼                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐          │
+│  │                        [BACKEND - Express]                             │          │
+│  │  ┌───────────────────────────────────────────────────────────────────┐  │          │
+│  │  │ Auth Middleware (JWT verify)                                     │  │          │
+│  │  └─��─────────────────────────────┬───────────────────────────────────┘  │          │
+│  │                                  │                                          │          │
+│  │  ┌──────────────┐  ┌─────────────▼─────────────┐  ┌───────────────────┐ │          │
+│  │  │ Key Store    │  │ Session Manager          │  │ Tenant Manager    │ │          │
+│  │  │ SQLite       │  │ Map<sessionId, data>     │  │ File System       │ │          │
+│  │  └──────┬───────┘  └─────────────┬─────────────┘  └───────────────────┘ │          │
+│  │         │                      │                                          │          │
+│  │         │ 2. validateKey()     │                                          │          │
+│  │         │─────────────────────►│                                          │          │
+│  │         │                      │                                          │          │
+│  │         │◄────────────────────┘                                          │          │
+│  │         │   tenant config       │                                          │          │
+│  │                                  │                                          │          │
+│  │  ┌──────────────┐  ┌─────────────▼─────────────┐                         │          │
+│  │  │ generateToken │  │ startSession()            │                         │          │
+│  │  │ JWT signing   │  │ - allocateDisplay()      │                         │          │
+│  │  └───────────────┘  │ - copyProfile()          │                         │          │
+│  │                     │ - spawn Xvfb             │                         │          │
+│  │                     │ - spawn Chrome           │                         │          │
+│  │                     │ - spawn FFmpeg           │                         │          │
+│  │                     └─────────────┬───────────┘                         │          │
+│  │                                   │                                       │          │
+│  │  ┌────────────────────────────────▼─────────────────────────────────────┘          │          │
+│  │  │                          │ resp: { sessionId, cdpUrl, resolution }           │          │
+│  │  └──────────────────────────┼─────────────────────────────────────┘          │          │
+│  │                            │                                                     │          │
+│  └────────────────────────────┼────────────────────────────────────────────────────┘          │
+│                               │ 3. JWT token + sessionId                             │          │
+│                               ▼                                                        │          │
+│  [CLIENTE] ┌────────────────────────────────────────────────┐                            │          │
+│            │ Frontend guarda token no localStorage         │                            │          │
+│            └─────────────────────┬──────────────────────────┘                            │          │
+│                                  │                                                     │          │
+│                      4. WS Upgrade /ws/stream?token=JWT&sessionId=XXX                  │          │
+│                                  ▼                                                     │          │
+│  ┌───────────────────────────────────────────────────────────────────────────────────┐   │          │
+│  │                    WebSocket Server (ws)                                        │   │          │
+│  │  ┌─────────────────────────────────────────────────────────────────────────────┐ │   │          │
+│  │  │ verifyToken() ✓                                                          │ │   │          │
+│  │  │ getSession() ✓                                                           │ │   │          │
+│  │  │ StreamManager.addClient(ws) ───────────┐                                  │ │   │          │
+│  │  └─────────────────────────────────────────┼──────────────────────────────────┘ │   │          │
+│  │                                            │                                    │   │          │
+│  │  [CHROME DISPLAY]                          │                                    │   │          │
+│  │  ┌─────────────────────────────────────────┼────────────────────────────────────┘   │          │
+│  │  │ Xvfb (display :100)                    │                                    │          │
+│  │  │ ┌─────────────────────────────────────────────────────────────────────────┐  │          │
+│  │  │ │ Chrome Headless (--remote-debugging-port=9222)                        │  │          │
+│  │  │ │ - Renderiza página                                                  │  │          │
+│  │  │ │ - CDP websocket na porta 9222                                        │  │          │
+│  │  │ └─────────────────────────────────────────────────────────────────────────┘  │          │
+│  │  │                                                                           │  │          │
+│  │  │ ┌─────────────────────────────────────────────────────────────────────────┐  │          │
+│  │  │ │ FFmpeg (x11grab → MJPEG)                                              │  │          │
+│  │  │ │ - Captura tela do Xvfb                                               │  │          │
+│  │  │ │ - Codifica em MJPEG                                                  │  │          │
+│  │  │ │ - Pipe stdout → StreamManager                                        │  │          │
+│  │  │ └─────────────────────────────────────────────────────────────────────────┘  │          │
+│  │  └─────────────────────────────────────────────────────────────────────────────┘   │          │
+│  │                                                                                   │          │
+│  │                    StreamManager.extractFrames()                                 │          │
+│  │                    - Detecta frames JPEG no stream                              │          │
+│  │                    - broadcastFrame() → envia via WS para todos clientes        │          │
+│  └───────────────────────────────────────────────────────────────────────────────────┘          │
+│                                                                                         │
+│  [CLIENTE]                                                                             │
+│  ┌──────────────┐                                                                      │
+│  │ Canvas        │◄──────────────────────────────────────────────────── streaming     │
+│  │ drawImage()   │  MJPEG frames (binary over WebSocket)                            │
+│  └───────────────┘                                                                     │
+│                                                                                         │
+│  Input Loop (Controle):                                                                 │
+│  ┌──────────────┐  mouseMove(100,200)                                                │
+│  │ Mouse/Key    │────────────────┐                                                   │
+│  └───────────────┘              │                                                   │
+│                                 ▼                                                   │
+│  ┌────────────────────────────────────────────────────────────────┐                  │
+│  │  POST /api/input (ou WS /ws/input)                            │                  │
+│  │  { type: 'mousemove', x: 100, y: 200, button: 0 }            │                  │
+│  └────────────────────────────────────────────────────────────────┘                  │
+│                                 │                                                     │
+│  ┌──────────────────────────────▼───────────────────────────────────────┐           │
+│  │  Input Handler (x11-input.py via python-xlib)                     │           │
+│  │  - Recebe JSON via stdin                                           │           │
+│  │  - Simula eventos X11 (XTestFake* calls)                          │           │
+│  │  - Envia para display :100 do Xvfb                                │           │
+│  └────────────────────────────────────────────────────────────────────┘           │
+│                                                                                     │
+│  ┌────────────────────────────────────────────────────────────────────────┐        │
+│  │  Chrome Headless (display :100)                                       │        │
+│  │  - Recebe eventos do X11                                             │        │
+│  │  - Processa mouse/keyboard                                           │        │
+│  │  - Renderiza mudanças na tela                                       │        │
+│  │  - FFmpeg captura nova frame                                         │        │
+│  └────────────────────────────────────────────────────────────────────────┘        │
+│                                                                                     │
+│  Ciclo se repete → streaming contínuo                                              │
+│                                                                                         │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Fluxos de Dados Detalhados</h3>
+
+        <h4 style="margin: 24px 0 16px; font-size: 16px; color: var(--text-secondary);">📥 Entrada de Dados</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Fonte</th>
+              <th>Tipo</th>
+              <th>Destino</th>
+              <th>Formato</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Frontend</td>
+              <td>Solicitação API</td>
+              <td>Auth Middleware</td>
+              <td>POST /api/auth/login (JSON)</td>
+            </tr>
+            <tr>
+              <td>Frontend</td>
+              <td>Input do usuário</td>
+              <td>Input Handler</td>
+              <td>JSON via WS ou HTTP</td>
+            </tr>
+            <tr>
+              <td>Frontend</td>
+              <td>Comandos JS</td>
+              <td>CDP (Chrome)</td>
+              <td>Runtime.evaluate</td>
+            </tr>
+            <tr>
+              <td>Frontend</td>
+              <td>Config sessão</td>
+              <td>Session Manager</td>
+              <td>POST /api/session (JSON)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4 style="margin: 24px 0 16px; font-size: 16px; color: var(--text-secondary);">📤 Saída de Dados</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Origem</th>
+              <th>Tipo</th>
+              <th>Destino</th>
+              <th>Formato</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>FFmpeg</td>
+              <td>Streaming vídeo</td>
+              <td>WebSocket clients</td>
+              <td>MJPEG binary frames</td>
+            </tr>
+            <tr>
+              <td>Chrome CDP</td>
+              <td>Estado da página</td>
+              <td>Frontend (via CDP)</td>
+              <td>CDP protocol (JSON-RPC)</td>
+            </tr>
+            <tr>
+              <td>Session Manager</td>
+              <td>Metadata</td>
+              <td>API Frontend</td>
+              <td>JSON (status, uptime, resolution)</td>
+            </tr>
+            <tr>
+              <td>Admin API</td>
+              <td>Estatísticas</td>
+              <td>Admin Panel</td>
+              <td>JSON (keys, sessions, metrics)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="agentes" class="section">
+      <h2 class="section-title">
+        🤖 Agentes do Sistema
+        <span class="count">15 Módulos Especializados</span>
+      </h2>
+
+      <div class="card">
+        <h3 class="card-title">Lista Completa de Agentes</h3>
+        <p class="card-subtitle">Cada agente é responsável por uma camada específica do sistema, operando de forma coordenada.</p>
+
+        <div class="flow-legend">
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--accent);"></div>
+            <span>🔐 Autenticação & Segurança</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--success);"></div>
+            <span>🖥️ Gerenciamento de Sessões</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--warning);"></div>
+            <span>📺 Streaming & Vídeo</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--info);"></div>
+            <span>🔄 Input & Controle</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--danger);"></div>
+            <span>🗄️ Persistência & Dados</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/01-authentication.html">1. Authentication Agent (auth.js)</a></div>
+            <div class="agent-desc">Gerencia autenticação JWT, geração e verificação de tokens, e extração de tenantId.</div>
+          </div>
+          <span class="badge badge-success">Ativo</span>
+        </div>
+        <table style="margin-top: 12px; font-size: 13px;">
+          <thead>
+            <tr>
+              <th>Responsabilidades</th>
+              <th>Interfaces</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                • generateToken(tenantId)<br>
+                • verifyToken(token)<br>
+                • deriveTenantId(apiKey)<br>
+                • authMiddleware(req, res, next)
+              </td>
+              <td>
+                • HTTP Authorization header<br>
+                • Envia JWT no response<br>
+                • Atacha req.tenant e req.user
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/02-key-store.html">2. Key Store Agent (key-store.js)</a></div>
+            <div class="agent-desc">Armazenamento seguro de API keys usando SQLite com hashing SHA256. CRUD completo de chaves.</div>
+          </div>
+          <span class="badge badge-success">Ativo</span>
+        </div>
+        <div class="tags">
+          <span class="tag">SQLite</span>
+          <span class="tag">SHA256</span>
+          <span class="tag">Hash de chaves</span>
+          <span class="tag">Tenant isolation</span>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/03-session-manager.html">3. Session Manager Agent (session-manager.js)</a></div>
+            <div class="agent-desc">Orquestrador principal de sessões Chrome. Gerencia ciclo de vida: start, stop, timeout, monitoramento.</div>
+          </div>
+          <span class="badge badge-success">Ativo</span>
+        </div>
+        <table style="margin-top: 12px; font-size: 13px;">
+          <thead>
+            <tr>
+              <th>Funções Principais</th>
+              <th>Recursos</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                • startSession(sessionId, tenantId, options)<br>
+                • stopSession(sessionId, reason)<br>
+                • getSession(sessionId)<br>
+                • updateActivity(sessionId)<br>
+                • startTimeoutTracker(sessionId)
+              </td>
+              <td>
+                • Alloca displays X11 (100-199)<br>
+                • Spawn Xvfb + Chrome + FFmpeg<br>
+                • Timeout automático (30min)<br>
+                • Merge de perfis ao finalizar<br>
+                • Rate limit por tenant
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/04-stream-manager.html">4. Stream Manager Agent (stream-manager.js)</a></div>
+            <div class="agent-desc">Codifica e distribui stream de vídeo via WebSocket. Usa FFmpeg para capturar Xvfb e envia frames MJPEG.</div>
+          </div>
+          <span class="badge badge-success">Ativo</span>
+        </div>
+        <table style="margin-top: 12px; font-size: 13px;">
+          <thead>
+            <tr>
+              <th>Capacidades</th>
+              <th>Métricas</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                • startCapture(ffmpegStdout)<br>
+                • extractFrames() - detecta SOI/EOI JPEG<br>
+                • broadcastFrame(frame) - multicast<br>
+                • getStats() - fps, clients count
+              </td>
+              <td>
+                • Target: 30 FPS<br>
+                • Buffer dinâmico (512KB → grow)<br>
+                • Controle backpressure (128KB limiter)<br>
+                • Throttling por cliente
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/05-input-handler.html">5. Input Handler Agent (input-handler.js)</a></div>
+            <div class="agent-desc">Simula eventos de mouse e teclado no X11 usando python-xlib. Recebe JSON via stdin e traduz para XTest.</div>
+          </div>
+          <span class="badge badge-info">Ativo</span>
+        </div>
+        <div class="tags">
+          <span class="tag">Python</span>
+          <span class="tag">X11</span>
+          <span class="tag">XTestFakeMotionEvent</span>
+          <span class="tag">XTestFakeKeyEvent</span>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/06-tenant-manager.html">6. Tenant Manager Agent (tenant-manager.js)</a></div>
+            <div class="agent-desc">Isolamento de perfis por tenant. Cada tenant tem diretório próprio com profile master e sessões.</div>
+          </div>
+          <span class="badge badge-success">Ativo</span>
+        </div>
+        <table style="margin-top: 12px; font-size: 13px;">
+          <thead>
+            <tr>
+              <th>Estrutura de Diretórios</th>
+              <th>Operações</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                data/tenants/&lt;tenantId&gt;/<br>
+                ├── profile-master/Default/<br>
+                │   ├── Cookies<br>
+                │   ├── Preferences<br>
+                │   ├── Bookmarks<br>
+                │   └── Login Data<br>
+                ├── sessions/&lt;sessionId&gt;/<br>
+                └── downloads/
+              </td>
+              <td>
+                • copyProfileToSession()<br>
+                • mergeProfileFromSession()<br>
+                • ensureTenantDir()<br>
+                • cleanupSessionDir()
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/07-profile-manager.html">7. Profile Manager Agent (profile-manager.js)</a></div>
+            <div class="agent-desc">Gerencia metadados dos perfis. Salva state da sessão (lastDisplay, lastActivity) e limpeza de profiles.</div>
+          </div>
+          <span class="badge badge-info">Ativo</span>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/08-cdp-proxy.html">8. CDP Proxy Agent (index.js - getCdpClient)</a></div>
+            <div class="agent-desc">Pool de conexões WebSocket para Chrome DevTools Protocol. Gerencia pool por porta CDP com auto-close após 30s idle.</div>
+          </div>
+          <span class="badge badge-success">Ativo</span>
+        </div>
+        <div class="tags">
+          <span class="tag">WebSocket Pool</span>
+          <span class="tag">Connection reuse</span>
+          <span class="tag">Auto-close</span>
+          <span class="tag">Pending requests map</span>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/09-admin-controller.html">9. Admin Controller Agent (index.js - admin routes)</a></div>
+            <div class="agent-desc">Painel administrativo com gestão de API keys, visão de todas as sessões e estatísticas globais.</div>
+          </div>
+          <span class="badge badge-warning">Restrito</span>
+        </div>
+        <table style="margin-top: 12px; font-size: 13px;">
+          <thead>
+            <tr>
+              <th>Endpoints</th>
+              <th>Função</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>POST /api/admin/keys</td>
+              <td>Criar nova API key</td>
+            </tr>
+            <tr>
+              <td>GET /api/admin/keys</td>
+              <td>Listar todas as keys</td>
+            </tr>
+            <tr>
+              <td>PATCH /api/admin/keys/:id</td>
+              <td>Atualizar config key</td>
+            </tr>
+            <tr>
+              <td>POST /api/admin/keys/:id/regenerate</td>
+              <td>Regenerar key value</td>
+            </tr>
+            <tr>
+              <td>GET /api/admin/sessions</td>
+              <td>Listar todas as sessões</td>
+            </tr>
+            <tr>
+              <td>GET /api/admin/stats</td>
+              <td>Estatísticas globais</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/10-security-middleware.html">10. Security Middleware Agent (index.js - middlewares)</a></div>
+            <div class="agent-desc">Pipeline de segurança: Helmet headers, CORS configurável, Rate limiting global e específico de login.</div>
+          </div>
+          <span class="badge badge-danger">Crítico</span>
+        </div>
+        <div class="tags">
+          <span class="tag">Rate Limit</span>
+          <span class="tag">CORS</span>
+          <span class="tag">Helmet</span>
+          <span class="tag">Request ID</span>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/11-websocket-gateway.html">11. WebSocket Gateway Agent (index.js - WS upgrade)</a></div>
+            <div class="agent-desc">Gerencia conexões WebSocket para streaming (/ws/stream) e input (/ws/input). Valida token e sessão por conexão.</div>
+          </div>
+          <span class="badge badge-info">Ativo</span>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/12-chrome-process.html">12. Chrome Process Agent (session-manager.js - spawn)</a></div>
+            <div class="agent-desc">Inicia e gerencia processos Chrome com args otimizados para headless. Monitora exit crashes e cleanup.</div>
+          </div>
+          <span class="badge badge-success">Ativo</span>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/13-ffmpeg-encoder.html">13. FFmpeg Encoder Agent (session-manager.js - spawn ffmpeg)</a></div>
+            <div class="agent-desc">Codifica display X11 em MJPEG otimizado para streaming. Args tuned para baixa latência.</div>
+          </div>
+          <span class="badge badge-warning">Media</span>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/14-activity-tracker.html">14. Activity Tracker Agent (session-manager.js - timeout)</a></div>
+            <div class="agent-desc">Rastreia lastActivity e dispara timeout warnings. Auto-cleanup de sessões inativas. Salva state no perfil.</div>
+          </div>
+          <span class="badge badge-danger">Crítico</span>
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <div>
+            <div class="agent-name"><a href="agents/15-audio-manager.html">15. Audio Manager Agent (audio-manager.js)</a></div>
+            <div class="agent-desc">(Opcional) Gerencia captura e streaming de áudio via WebRTC. Não ativo por padrão.</div>
+          </div>
+          <span class="badge badge-pending">Desativado</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="coleta" class="section">
+      <h2 class="section-title">
+        📊 Pontos de Coleta de Informação
+        <span class="count">Dados Capturados & Logs</span>
+      </h2>
+
+      <div class="card">
+        <h3 class="card-title">Mapa de Coleta de Dados</h3>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Ponto de Coleta</th>
+              <th>Tipo de Dado</th>
+              <th>Armazenamento</th>
+              <th>Retenção</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Auth Logs</strong></td>
+              <td>Login attempts, timestamps, IPs, tenantId</td>
+              <td>Memória (Map)</td>
+              <td>60s window (loginRateLimiter)</td>
+            </tr>
+            <tr>
+              <td><strong>API Key Usage</strong></td>
+              <td>last_used_at em sqlite</td>
+              <td>SQLite (api_keys)</td>
+              <td>Permanente</td>
+            </tr>
+            <tr>
+              <td><strong>Session Registry</strong></td>
+              <td>sessionData (cdpUrl, display, uptime, tenantId)</td>
+              <td>Memória (Map)</td>
+              <td>Vida da sessão</td>
+            </tr>
+            <tr>
+              <td><strong>Session Timeout</strong></td>
+              <td>lastActivity timestamp, timeout warnings</td>
+              <td>Memória (Map)</td>
+              <td>Vida da sessão</td>
+            </tr>
+            <tr>
+              <td><strong>WebSocket Connections</strong></td>
+              <td>activeWsConnections (ws, token, sessionId)</td>
+              <td>Memória (Map)</td>
+              <td>Até disconnect</td>
+            </tr>
+            <tr>
+              <td><strong>Stream Metrics</strong></td>
+              <td>fps, clients count, capturing status</td>
+              <td>Memória (StreamManager instance)</td>
+              <td>Vida da sessão</td>
+            </tr>
+            <tr>
+              <td><strong>Tenant Profiles</strong></td>
+              <td>Cookies, Bookmarks, Preferences, History</td>
+              <td>File System (data/tenants/)</td>
+              <td>Permanente (até delete)</td>
+            </tr>
+            <tr>
+              <td><strong>Chrome Process</strong></td>
+              <td>stdout/stderr logs</td>
+              <td>Console (stdout)</td>
+              <td>Processo vivo</td>
+            </tr>
+            <tr>
+              <td><strong>Request Logs</strong></td>
+              <td>timestamp, level, requestId, method, url, tenantId</td>
+              <td>Console (JSON format)</td>
+              <td>Console apenas</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Eventos de Log (Structured Logging)</h3>
+        <div class="flow-diagram">
+{ "timestamp": "2025-03-14T12:34:56.789Z", "level": "INFO", "requestId": "a1b2c3d4", "message": "Serende server started", "data": { "port": 4201, "maxSessions": 10 } }
+
+{ "timestamp": "2025-03-14T12:35:01.123Z", "level": "INFO", "message": "Session started successfully", "data": { "sessionId": "abc123...", "tenantId": "tenant-xyz" } }
+
+{ "timestamp": "2025-03-14T12:40:15.456Z", "level": "ERROR", "message": "Start session error", "data": { "error": "Global session limit reached", "tenantId": "tenant-xyz" } }
+        </div>
+      </div>
+    </section>
+
+    <section id="riscos" class="section">
+      <h2 class="section-title">
+        ⚠️ Análise de Riscos
+        <span class="count">Vulnerabilidades & Mitigações</span>
+      </h2>
+
+      <div class="card">
+        <h3 class="card-title">Matriz de Riscos de Segurança</h3>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Risco</th>
+              <th>Severidade</th>
+              <th>Mitigação Implementada</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Accesso não autorizado a sessões</strong></td>
+              <td><span class="badge badge-danger">Alta</span></td>
+              <td>
+                • JWT com expiry (24h padrão)<br>
+                • Verificação por tenantId em todas as rotas<br>
+                • WS valida token e sessão no upgrade
+              </td>
+              <td><span class="badge badge-success">Mitigado</span></td>
+            </tr>
+            <tr>
+              <td><strong>Exfiltração de dados entre tenants</strong></td>
+              <td><span class="badge badge-danger">Alta</span></td>
+              <td>
+                • Isolamento físico de diretórios (data/tenants/&lt;id&gt;)<br>
+                • Session Manager valida tenantId antes de operations<br>
+                • file system permissions
+              </td>
+              <td><span class="badge badge-success">Mitigado</span></td>
+            </tr>
+            <tr>
+              <td><strong>DoS via session creation</strong></td>
+              <td><span class="badge badge-warning">Média</span></td>
+              <td>
+                • Rate limit global em /api/ (100 req/min)<br>
+                • Limite por tenant (maxSessions)<br>
+                • Limite global (MAX_SESSIONS)
+              </td>
+              <td><span class="badge badge-success">Mitigado</span></td>
+            </tr>
+            <tr>
+              <td><strong>Brute force em API keys</strong></td>
+              <td><span class="badge badge-warning">Média</span></td>
+              <td>
+                • Rate limit específico em /api/auth/login (5 attempts/60s por IP)<br>
+                • Key hash storage (não armazena key plain)
+              </td>
+              <td><span class="badge badge-success">Mitigado</span></td>
+            </tr>
+            <tr>
+              <td><strong> leakage de console logs</strong></td>
+              <td><span class="badge badge-warning">Média</span></td>
+              <td>
+                • Struct logging + requestId<br>
+                • Production: oculta stack traces (erro 500 genérico)<br>
+                • Helmet security headers
+              </td>
+              <td><span class="badge badge-success">Mitigado</span></td>
+            </tr>
+            <tr>
+              <td><strong>CORS misconfiguration</strong></td>
+              <td><span class="badge badge-warning">Média</span></td>
+              <td>
+                • CORS_ORIGIN configurável por env<br>
+                • Default: permissivo para compatibilidade local<br>
+                • Credentials habilitado
+              </td>
+              <td><span class="badge badge-warning">Parcial</span></td>
+            </tr>
+            <tr>
+              <td><strong>Session fixation / hijacking</strong></td>
+              <td><span class="badge badge-warning">Média</span></td>
+              <td>
+                • JWT signed com segredo forte<br>
+                • Token associado à sessão<br>
+                • WS verifica token em intervalos (60s checker)
+              </td>
+              <td><span class="badge badge-success">Mitigado</span></td>
+            </tr>
+            <tr>
+              <td><strong>Injection via CDP commands</strong></td>
+              <td><span class="badge badge-danger">Alta</span></td>
+              <td>
+                • Somente endpoints autenticados<br>
+                • CDP requests validated por sessionId<br>
+                • Não há eval direto de user input (a não ser explicitamente /api/evaluate)
+              </td>
+              <td><span class="badge badge-warning">Parcial</span></td>
+            </tr>
+            <tr>
+              <td><strong>Resource exhaustion (display pool)</strong></td>
+              <td><span class="badge badge-warning">Média</span></td>
+              <td>
+                • Display pool limitado (100-199 = 100 displays)<br>
+                • Auto-cleanup de displays em 2s<br>
+                • Session timeout com merge profile
+              </td>
+              <td><span class="badge badge-success">Mitigado</span></td>
+            </tr>
+            <tr>
+              <td><strong>Persistence de malware nos profiles</strong></td>
+              <td><span class="badge badge-danger">Alta</span></td>
+              <td>
+                • Profiles são por-tenant (tenant isolation)<br>
+                • Sem download auto-execution<br>
+                • Chrome com flags de segurança (--no-sandbox, --disable-gpu)
+              </td>
+              <td><span class="badge badge-warning">Parcial</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Gaps de Segurança Identificados</h3>
+        <ul style="line-height: 2; color: var(--text-secondary); font-size: 14px; padding-left: 20px;">
+          <li><strong style="color: var(--warning);">CORS default permissivo</strong> — Produção deve definir CORS_ORIGIN específico</li>
+          <li><strong style="color: var(--warning);">--no-sandbox no Chrome</strong> — Necessário em container mas mitiga isolamento</li>
+          <li><strong style="color: var(--warning);">Sem rate limit por tenant individual</strong> — Apenas global + maxSessions</li>
+          <li><strong style="color: var(--warning);">SQLite sem criptografia</strong> — Dados em disco não criptografados</li>
+          <li><strong style="color: var(--warning);">Logs sensíveis no console</strong> — requestId, tenantId aparecem em logs</li>
+          <li><strong style="color: var(--warning);">Sem pii encryption</strong> — Cookies e dados de login armazenados plain</li>
+          <li><strong style="color: var(--warning);">WebSocket sem subprotocol security</strong> — Apenas token query param</li>
+          <li><strong style="color: var(--danger);">/api/evaluate permite código arbitrário</strong> — Endpoint perigoso exposto (deveria ser admin-only)</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="guia" class="section">
+      <h2 class="section-title">
+        📖 Guia de Uso
+        <span class="count">Como Usar o Sistema</span>
+      </h2>
+
+      <div class="card">
+        <h3 class="card-title">1. Autenticação</h3>
+        <p style="color: var(--text-secondary); margin-bottom: 16px;">
+          Acesso via API Key. Cada tenant recebe uma chave no formato <code>sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code>.
+        </p>
+
+        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; margin-bottom: 16px;">
+POST /api/auth/login<br>
+Content-Type: application/json<br><br>
+{<br>
+  "apiKey": "sk_0123456789abcdef..."
+<br>}
+        </div>
+
+        <p style="color: var(--text-secondary);">
+          Resposta: <code>{ "token": "eyJhbG...", "tenantId": "abc123...", "userId": "abc123..." }</code>
+        </p>
+        <p style="color: var(--text-secondary); margin-top: 8px;">
+          Armazene o token no <code>localStorage</code> ou <code>sessionStorage</code>. Ele será usado em todas as requisições via header <code>Authorization: Bearer &lt;token&gt;</code>.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">2. Criar uma Sessão</h3>
+
+        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; margin-bottom: 16px;">
+POST /api/session<br>
+Authorization: Bearer &lt;token&gt;<br>
+Content-Type: application/json<br><br>
+{<br>
+  "resolution": "1280x720",<br>
+  "startUrl": "https://www.google.com"<br>
+}
+        </div>
+
+        <p style="color: var(--text-secondary);">
+          Resposta: <code>{ "sessionId": "uuid", "status": "running", "resolution": { "width": 1280, "height": 720 } }</code>
+        </p>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">3. Conectar ao Stream</h3>
+        <p style="color: var(--text-secondary); margin-bottom: 16px;">
+          Após criar a sessão, conecte via WebSocket para receber os frames MJPEG:
+        </p>
+
+        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; margin-bottom: 16px; word-break: break-all;">
+ws://dominio:4201/ws/stream?token=&lt;JWT&gt;&amp;sessionId=&lt;sessionId&gt;
+        </div>
+
+        <p style="color: var(--text-secondary);">
+          O servidor enviará frames binários MJPEG continuamente. Renderize em um &lt;canvas&gt; com <code>ctx.drawImage(video, 0, 0)</code> ou use <code>Blob URL</code>.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">4. Enviar Input (Mouse/Teclado)</h3>
+
+        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; margin-bottom: 16px;">
+POST /api/input<br>
+Authorization: Bearer &lt;token&gt;<br>
+Content-Type: application/json<br><br>
+{<br>
+  "sessionId": "uuid",<br>
+  "type": "mousemove",<br>
+  "x": 512,<br>
+  "y": 384,<br>
+  "button": 0<br>
+}
+        </div>
+
+        <p style="color: var(--text-secondary);">
+          Tipos: <code>mousedown</code>, <code>mouseup</code>, <code>mousemove</code>, <code>keydown</code>, <code>keyup</code>, <code>wheel</code>, <code>scroll</code>.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">5. Navegação e Controle</h3>
+
+        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; margin-bottom: 16px;">
+POST /api/navigate/:sessionId<br>
+{ "url": "https://exemplo.com" }
+        </div>
+
+        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; margin-bottom: 16px;">
+POST /api/evaluate/:sessionId<br>
+{ "script": "document.title" }
+        </div>
+
+        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px;">
+GET /api/screenshot/:sessionId<br>
+← Retorna image/jpeg
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">6. Timeout e Cleanup</h3>
+        <p style="color: var(--text-secondary);">
+          Sessões possuem timeout de inatividade padrão de <strong>30 minutos</strong>. O sistema envia warning aos 28 minutos e finaliza automaticamente. Ao finalizar, o perfil do tenant é mergeado de volta para o profile-master, mantendo cookies, histórico e configurações.
+        </p>
+      </div>
+    </section>
+
+    <section id="api" class="section">
+      <h2 class="section-title">
+        🔌 Documentação da API
+        <span class="count">Endpoints REST</span>
+      </h2>
+
+      <div class="card">
+        <h3 class="card-title">Endpoints Públicos (sem auth)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Método</th>
+              <th>Rota</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/api/auth/login</code></td>
+              <td>Autentica API key e retorna JWT token</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/auth/verify</code></td>
+              <td>Verifica se token JWT é válido</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/health</code></td>
+              <td>Health check (open para todos)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Endpoints Protegidos (requer Bearer token)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Método</th>
+              <th>Rota</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/api/session</code></td>
+              <td>Cria nova sessão Chrome</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/session</code></td>
+              <td>Lista sessões do tenant</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/session/:sessionId</code></td>
+              <td>Retorna detalhes da sessão</td>
+            </tr>
+            <tr>
+              <td><code>DELETE</code></td>
+              <td><code>/api/session/:sessionId</code></td>
+              <td>Finaliza sessão</td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/api/input</code></td>
+              <td>Envia input (mouse/teclado)</td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/api/input/batch</code></td>
+              <td>Envia batch de inputs</td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/api/navigate/:sessionId</code></td>
+              <td>Navega para URL</td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/api/evaluate/:sessionId</code></td>
+              <td>Executa JavaScript na página</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/screenshot/:sessionId</code></td>
+              <td>Captura screenshot JPG</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/url/:sessionId</code></td>
+              <td>Retorna URL atual da página</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/profile</code></td>
+              <td>Info do perfil do tenant</td>
+            </tr>
+            <tr>
+              <td><code>DELETE</code></td>
+              <td><code>/api/profile</code></td>
+              <td>Limpa perfil do tenant</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Endpoints Administrativos (requer X-Admin-Secret header)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Método</th>
+              <th>Rota</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/api/admin/keys</code></td>
+              <td>Cria nova API key</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/admin/keys</code></td>
+              <td>Lista todas as API keys</td>
+            </tr>
+            <tr>
+              <td><code>PATCH</code></td>
+              <td><code>/api/admin/keys/:id</code></td>
+              <td>Atualiza configurações da key</td>
+            </tr>
+            <tr>
+              <td><code>POST</code></td>
+              <td><code>/api/admin/keys/:id/regenerate</code></td>
+              <td>Gera novo valor da key</td>
+            </tr>
+            <tr>
+              <td><code>DELETE</code></td>
+              <td><code>/api/admin/keys/:id</code></td>
+              <td>Revoga key (set enabled=0)</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/admin/sessions</code></td>
+              <td>Lista todas as sessões (cross-tenant)</td>
+            </tr>
+            <tr>
+              <td><code>GET</code></td>
+              <td><code>/api/admin/stats</code></td>
+              <td>Estatísticas globais do sistema</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="admin" class="section">
+      <h2 class="section-title">
+        ⚙️ Painel Administrativo
+        <span class="count">Gestão Completa</span>
+      </h2>
+
+      <div class="card">
+        <h3 class="card-title">Acesso ao Admin</h3>
+        <p style="color: var(--text-secondary);">
+          O painel administrativo está em <code>/admin</code> e requer a variável <code>ADMIN_SECRET</code> configurada no .env.
+        </p>
+        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 8px; font-family: monospace; font-size: 13px; margin-top: 16px;">
+ADMIN_SECRET=seu-segredo-super-forte-aqui<br>
+Acesso: https://dominio/admin
+        </div>
+
+        <p style="color: var(--text-secondary); margin-top: 16px;">
+          A senha deve ser enviada no header <code>X-Admin-Secret</code> em todas as requisições administrativas.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Funcionalidades do Admin</h3>
+        <ul style="line-height: 2; padding-left: 20px; color: var(--text-secondary);">
+          <li><strong>Gestão de API Keys:</strong> Criar, listar, atualizar, regenerar e revogar chaves de acesso de tenants</li>
+          <li><strong>Controle de Sessões:</strong> Visualizar todas as sessões ativas em todos os tenants, com tenantName, timeout info</li>
+          <li><strong>Estatísticas:</strong> Total de keys ativas, sessões ativas, uptime do servidor, uso de memória</li>
+          <li><strong>Configuração:</strong> Cada key pode ter limits customizados (maxSessions, maxSessionDuration, maxIdleTimeout, features JSON)</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer>
+      <p>Serende Remote Browser System — Documentação v2.1.0</p>
+      <p style="margin-top: 8px;">Gerado automaticamente em 2026-03-14</p>
+      <p style="margin-top: 16px;">
+        <a href="https://github.com">GitHub</a> •
+        <a href="#">Suporte</a> •
+        <a href="#">Status</a>
+      </p>
+    </footer>
+  </div>
 </body>
 </html>

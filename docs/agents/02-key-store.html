@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Key Store Agent - Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <div class="header-content">
+        <div>
+          <a href="../index.html" style="color: var(--text-secondary); text-decoration: none; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            &larr; Voltar para Documentação
+          </a>
+          <h1>Key Store Agent</h1>
+          <p class="subtitle">Gerenciamento seguro de API Keys com isolamento multi-tenant</p>
+          <div style="margin-top: 16px;">
+            <span class="badge badge-success" style="display: inline-flex; align-items: center; gap: 6px;">
+              <span style="width: 8px; height: 8px; background: currentColor; border-radius: 50%;"></span>
+              Ativo
+            </span>
+            <span class="badge badge-info" style="margin-left: 8px;">key-store.js</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Overview -->
+    <section class="card">
+      <h2 class="card-title">Visão Geral</h2>
+      <p class="card-subtitle">
+        O <strong>Key Store Agent</strong> é responsável pelo ciclo de vida completo das API keys no sistema Serende.
+        Ele gerencia a criação, validação, revogação e rotação de chaves, armazenando-as de forma segura em SQLite
+        com hashing SHA256. O agente garante isolamento completo entre tenants através do derivation da tenant ID
+        a partir da própria chave.
+      </p>
+    </section>
+
+    <!-- Schema -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Schema do Banco de Dados</h2>
+        <span class="section-subtitle">Tabela <code>api_keys</code></span>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 180px;">Coluna</th>
+              <th style="width: 120px;">Tipo</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>id</code></td>
+              <td>UUID PRIMARY KEY</td>
+              <td>Identificador único da chave</td>
+            </tr>
+            <tr>
+              <td><code>key_hash</code></td>
+              <td>TEXT NOT NULL</td>
+              <td>Hash SHA256 da chave completa (não reversível)</td>
+            </tr>
+            <tr>
+              <td><code>key_prefix</code></td>
+              <td>TEXT NOT NULL</td>
+              <td>Primeiros 8 caracteres da chave para identificação visual (ex: <code>sk_prod_</code>)</td>
+            </tr>
+            <tr>
+              <td><code>name</code></td>
+              <td>TEXT NOT NULL</td>
+              <td>Nome descritivo da chave (ex: "Integração CRM", "App Mobile")</td>
+            </tr>
+            <tr>
+              <td><code>enabled</code></td>
+              <td>INTEGER DEFAULT 1</td>
+              <td>Flag de status (1 = ativa, 0 = revogada)</td>
+            </tr>
+            <tr>
+              <td><code>max_sessions</code></td>
+              <td>INTEGER DEFAULT 10</td>
+              <td>Número máximo de sessões simultâneas permitidas</td>
+            </tr>
+            <tr>
+              <td><code>max_session_duration</code></td>
+              <td>INTEGER DEFAULT 3600</td>
+              <td>Duração máxima da sessão em segundos (padrão: 1 hora)</td>
+            </tr>
+            <tr>
+              <td><code>max_idle_timeout</code></td>
+              <td>INTEGER DEFAULT 900</td>
+              <td>Timeout de inatividade em segundos (padrão: 15 min)</td>
+            </tr>
+            <tr>
+              <td><code>features</code></td>
+              <td>TEXT (JSON)</td>
+              <td>Configuração de features como JSON (ex: <code>{"webScraping":true, "screenshot":true}</code>)</td>
+            </tr>
+            <tr>
+              <td><code>created_at</code></td>
+              <td>TIMESTAMP DEFAULT NOW()</td>
+              <td>Data de criação da chave</td>
+            </tr>
+            <tr>
+              <td><code>last_used_at</code></td>
+              <td>TIMESTAMP NULL</td>
+              <td>Timestamp da última validação bem-sucedida</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Functions -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Funções</h2>
+        <span class="section-subtitle">API do agente</span>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 200px;">Função</th>
+              <th style="width: 80px;">Retorno</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>hashKey(apiKey)</code></td>
+              <td>Promise&lt;string&gt;</td>
+              <td>Calcula hash SHA256 da API key para armazenamento seguro. A chave original nunca é persistida.</td>
+            </tr>
+            <tr>
+              <td><code>deriveTenantId(apiKey)</code></td>
+              <td>string</td>
+              <td>Extrai tenant ID dos primeiros 16 caracteres do hash. Permite isolamento automático sem tabela de mapeamento.</td>
+            </tr>
+            <tr>
+              <td><code>generateRawKey()</code></td>
+              <td>string</td>
+              <td>Gera nova chave no formato <code>sk_</code> + 32 caracteres hexadecimais aleatórios (128 bits de entropia).</td>
+            </tr>
+            <tr>
+              <td><code>createKey(name, options)</code></td>
+              <td>Promise&lt;object&gt;</td>
+              <td>Cria nova chave com configurações personalizadas. <code>options</code> inclui: <code>maxSessions</code>, <code>maxSessionDuration</code>, <code>maxIdleTimeout</code>, <code>features</code>. Retorna objeto com <code>id</code> e <code>apiKey</code> ( valor em claro exibido apenas uma vez).</td>
+            </tr>
+            <tr>
+              <td><code>listKeys(filters?)</code></td>
+              <td>Promise&lt;array&gt;</td>
+              <td>Lista todas as chaves com metadados (sem valores.hash). Suporta filtros opcionais por <code>enabled</code>, <code>tenantId</code>.</td>
+            </tr>
+            <tr>
+              <td><code>getKeyById(id)</code></td>
+              <td>Promise&lt;object&gt;</td>
+              <td>Busca chave por UUID. Retorna dados exceto <code>key_hash</code>.</td>
+            </tr>
+            <tr>
+              <td><code>updateKey(id, fields)</code></td>
+              <td>Promise&lt;void&gt;</td>
+              <td>Atualiza campos da chave. Permite modificar <code>name</code>, <code>enabled</code>, limites de sessão e features.</td>
+            </tr>
+            <tr>
+              <td><code>revokeKey(id)</code></td>
+              <td>Promise&lt;void&gt;</td>
+              <td>Desabilita chave definindo <code>enabled = 0</code>. Chaves revogadas são mantidas para histórico e auditoria.</td>
+            </tr>
+            <tr>
+              <td><code>validateKey(apiKey)</code></td>
+              <td>Promise&lt;object|null&gt;</td>
+              <td>Valida chave recebida: calcula hash, busca no banco, verifica <code>enabled</code>. Se válida, retorna configuração e atualiza <code>last_used_at</code>. Retorna <code>null</code> se inválida.</td>
+            </tr>
+            <tr>
+              <td><code>getStats()</code></td>
+              <td>Promise&lt;object&gt;</td>
+              <td>Retorna estatísticas: <code>totalKeys</code>, <code>activeKeys</code>, <code>revokedKeys</code>.</td>
+            </tr>
+            <tr>
+              <td><code>regenerateKey(id)</code></td>
+              <td>Promise&lt;string&gt;</td>
+              <td>Gera novo valor para chave existente mantendo o mesmo ID e configurações. Retorna o novo valor em claro (exibido apenas uma vez).</td>
+            </tr>
+            <tr>
+              <td><code>migrateFromEnv(apiKey, meta)</code></td>
+              <td>Promise&lt;object&gt;</td>
+              <td>Migra chave legada do <code>.env</code> para o banco SQLite. Usado durante onboarding inicial. <code>meta</code> inclui <code>name</code> e opções.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- CRUD Flow -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Fluxo CRUD</h2>
+        <span class="section-subtitle">Diagrama de operações</span>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Ciclo de Vida da API Key</h3>
+        <div class="flow-diagram">
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CICLO DE VIDA DA API KEY (CRUD)                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌─────────────┐                                                          │
+│   │  generate   │  →  Retorna: sk_ + 32 hex chars                          │
+│   └──────┬──────┘                                                          │
+│          │                                                                 │
+│          ▼                                                                 │
+│   ┌──────────────────┐                                                    │
+│   │    createKey     │  →  INSERT api_keys (hash, prefix, config...)       │
+│   └──────┬───────────┘                                                    │
+│          │                                                                 │
+│          ▼                                                                 │
+│   ┌──────────────────────────────────────────┐                            │
+│   │              VALIDAÇÃO                   │                            │
+│   │  validateKey(apiKey)                     │                            │
+│   │  1. hashKey(apiKey)                      │                            │
+│   │  2. SELECT * WHERE key_hash = ?          │                            │
+│   │  3. Check enabled = 1                    │                            │
+│   │  4. UPDATE last_used_at                  │                            │
+│   └──────┬───────────────────────────────────┘                            │
+│          │                                                                 │
+│          │ Válido                                                         │
+│          ▼                                                                 │
+│   ┌──────────────────┐  inválido   ┌────────────┐                        │
+│   │   Acesso ao      │─────────────▶│   Error    │                        │
+│   │   Sistema        │              │  401/403   │                        │
+│   └──────┬───────────┘              └────────────┘                        │
+│          │                                                                │
+│          │ updateKey(id, fields)                                          │
+│          │ getKeyById(id)                                                 │
+│          ▼                                                                │
+│   ┌──────────────────┐                                                  │
+│   │   revokeKey()    │  → UPDATE enabled = 0                              │
+│   │   (ou update)    │                                                    │
+│   └──────┬───────────┘                                                    │
+│          │                                                                │
+│          │ regenerateKey(id)                                              │
+│          ▼                                                                │
+│   ┌──────────────────┐  →  Novos valores mantendo config                 │
+│   │   Nova chave     │     → UPDATE key_hash + key_prefix                 │
+│   └──────────────────┘                                                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+        </div>
+      </div>
+    </section>
+
+    <!-- Security -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Segurança</h2>
+        <span class="section-subtitle">Proteções e garantias</span>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Camadas de Segurança</h3>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-top: 20px;">
+
+          <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 12px; padding: 20px;">
+            <h4 style="color: var(--accent); margin-bottom: 12px; font-size: 15px;">Hash SHA256</h4>
+            <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.6;">
+              A chave em texto claro é imediatamente hasheada com SHA256 e o hash é persistido.
+              O valor original nunca é armazenado, garantindo que mesmo em caso de vazamento
+              do banco de dados as chaves não possam ser recuperadas.
+            </p>
+          </div>
+
+          <div style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 12px; padding: 20px;">
+            <h4 style="color: var(--success); margin-bottom: 12px; font-size: 15px;">Derivação de Tenant</h4>
+            <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.6;">
+              O tenant ID é derivado dos primeiros 16 caracteres do hash SHA256. Isso cria
+              isolamento natural no próprio dado da chave — diferentes tenants não podem
+              acessar chaves umas das outras sem tabela de mapeamento.
+            </p>
+          </div>
+
+          <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 12px; padding: 20px;">
+            <h4 style="color: var(--warning); margin-bottom: 12px; font-size: 15px;">Key Prefix</h4>
+            <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.6;">
+              Armazenamos os primeiros 8 caracteres (<code>key_prefix</code>) para identificação
+              visual e debugging. Isso permite operações como listar "tokens que começam com sk_prod_"
+              sem comprometer a segurança da chave completa.
+            </p>
+          </div>
+
+          <div style="background: rgba(6, 182, 212, 0.1); border: 1px solid rgba(6, 182, 212, 0.3); border-radius: 12px; padding: 20px;">
+            <h4 style="color: var(--info); margin-bottom: 12px; font-size: 15px;">Revogação Suave</h4>
+            <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.6;">
+              Chaves revogadas mantêm-se no banco para fins de auditoria. A flag <code>enabled = 0</code>
+              causa rejeição imediata na validação, mas o histórico e configurações são preservados.
+            </p>
+          </div>
+
+        </div>
+
+        <h3 class="card-title" style="margin-top: 32px;">Estrutura da Chave</h3>
+        <div class="code-block" data-lang="text">
+sk_[prefix]_[random-hex]
+
+Exemplos:
+  sk_prod_8f3a1b2c4d5e6f7a8b9c0d1e2f3a4b5c
+  sk_test_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+  sk_dev_11223344556677889900aabbccddeeff
+        </div>
+
+        <h3 class="card-title" style="margin-top: 24px;">Boa Práticas</h3>
+        <ul style="color: var(--text-secondary); font-size: 14px; line-height: 2; padding-left: 20px;">
+          <li>Rotacione chaves regularmente usando <code>regenerateKey()</code></li>
+          <li>Revogue imediatamente chaves comprometidas ou de funcionários que deixaram a organização</li>
+          <li>Configure limites apropriados de sessão para cada tipo de uso</li>
+          <li>Use <code>features</code> para principle of least privilege por chave</li>
+          <li>Nunca exponha chaves em logs ou URLs — sempre use headers Authorization</li>
+          <li>Adote diferentes chaves por ambiente (dev/staging/prod)</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Migration Path -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Migração de Legacy</h2>
+        <span class="section-subtitle">Compatibilidade com configuração .env</span>
+      </div>
+
+      <div class="card">
+        <p class="card-subtitle" style="margin-bottom: 24px;">
+          Durante a transição de chaves armazenadas em variáveis de ambiente para o banco SQLite,
+          o método <code>migrateFromEnv()</code> permite importar uma chave legada mantendo seu valor
+          e adicionando metadados como nome e configurações.
+        </p>
+
+        <div class="code-block" data-lang="javascript">
+// Exemplo de migração
+const result = await keyStore.migrateFromEnv(process.env.API_KEY_LEGACY, {
+  name: 'Legacy Production Key',
+  maxSessions: 20,
+  maxSessionDuration: 7200,
+  features: { webScraping: true, screenshot: true }
+});
+
+console.log(`Chave migrada com ID: ${result.id}`);
+        </div>
+
+        <p class="card-subtitle" style="margin-bottom: 16px;">
+          Após a migração, a chave legada continua funcional mas agora está registrada no banco
+          com todas as funcionalidades de gestão disponíveis.
+        </p>
+      </div>
+    </section>
+
+    <!-- Implementation Notes -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Detalhes de Implementação</h2>
+        <span class="section-subtitle">key-store.js</span>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Arquitetura Interna</h3>
+
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="time">Carregamento</div>
+            <div class="actor">key-store.js</div>
+            <div class="action">Inicializa conexão SQLite com <code>better-sqlite3</code>. Cria tabela <code>api_keys</code> se não existir.</div>
+          </div>
+          <div class="timeline-item">
+            <div class="time">Operações</div>
+            <div class="actor">Funções individuais</div>
+            <div class="action">Cada função executa transação isolada. Wrappers garantem validação de parâmetros e tratamento de erros.</div>
+          </div>
+          <div class="timeline-item">
+            <div class="time">Validação</div>
+            <div class="actor">validateKey()</div>
+            <div class="action">Busca por hash + verificação de enabled em uma query otimizada com índice em <code>key_hash</code>.</div>
+          </div>
+        </div>
+
+        <h3 class="card-title" style="margin-top: 24px;">Índices Recomendados</h3>
+        <div class="code-block" data-lang="sql">
+-- Índices para performance
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_enabled ON api_keys(enabled);
+CREATE INDEX IF NOT EXISTS idx_api_keys_last_used ON api_keys(last_used_at DESC);
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>
+        Documentação do sistema <strong>Serende Remote Browser</strong>.<br>
+        Key Store Agent — Gerenciamento seguro de credenciais multi-tenant.<br>
+        <a href="../index.html">Voltar ao Índice</a>
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -8,6 +8,7 @@ class WsClient {
   private stateListeners: Set<StateListener> = new Set()
   private messageListeners: Set<(data: any) => void> = new Set()
   private binaryListeners: Set<(data: ArrayBuffer) => void> = new Set()
+  private authFailListeners: Set<() => void> = new Set()
   private url = ''
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectAttempts = 0
@@ -37,6 +38,11 @@ class WsClient {
     return () => { this.binaryListeners.delete(fn) }
   }
 
+  onAuthFail(fn: () => void) {
+    this.authFailListeners.add(fn)
+    return () => { this.authFailListeners.delete(fn) }
+  }
+
   connect(url: string) {
     this.url = url
     this.reconnectAttempts = 0
@@ -59,8 +65,13 @@ class WsClient {
       this.setState('connected')
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       this.ws = null
+      if (event.code === 4001) {
+        this.setState('disconnected')
+        this.authFailListeners.forEach(fn => fn())
+        return
+      }
       if (this._state !== 'disconnected') {
         this.tryReconnect()
       }
@@ -113,6 +124,7 @@ class WsClient {
     }
     this.messageListeners.clear()
     this.binaryListeners.clear()
+    this.authFailListeners.clear()
   }
 }
 

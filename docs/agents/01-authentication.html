@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Authentication Agent - Serende Documentation</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .agent-hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .agent-info {
+      flex: 1;
+      min-width: 300px;
+    }
+
+    .agent-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      background: #22c55e;
+      border-radius: 50%;
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+    }
+
+    .status-text {
+      color: #22c55e;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+      transition: color 0.2s;
+    }
+
+    .back-link:hover {
+      color: var(--accent);
+    }
+
+    .param-type {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      color: var(--info);
+      background: rgba(6, 182, 212, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .return-type {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      color: var(--success);
+      background: rgba(34, 197, 94, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .env-var {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      background: var(--bg-tertiary);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      color: var(--accent);
+    }
+
+    .deps-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .dep-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 14px;
+      color: var(--text-primary);
+    }
+
+    .dep-version {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .risks-list {
+      list-style: none;
+      padding: 0;
+    }
+
+    .risks-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 12px;
+    }
+
+    .risks-list li:last-child {
+      margin-bottom: 0;
+    }
+
+    .risk-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .risk-content h4 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--warning);
+    }
+
+    .risk-content p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    pre code {
+      color: #fafafa;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <div class="agent-hero">
+        <div class="agent-info">
+          <div class="agent-status">
+            <span class="status-dot"></span>
+            <span class="status-text">Ativo</span>
+          </div>
+          <h1>Authentication Agent</h1>
+          <p class="subtitle">
+            Gerenciamento de autenticação e autorização com JWT para o sistema Serende
+          </p>
+        </div>
+        <div>
+          <a href="../index.html" class="back-link">
+            ← Voltar para Documentação
+          </a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Visão Geral -->
+    <section id="overview">
+      <h2 class="section-title">Visão Geral</h2>
+      <div class="card">
+        <p class="card-subtitle">
+          O <strong>Authentication Agent</strong> é responsável por todo o fluxo de autenticação e autorização do sistema Serende. Ele gerencia a geração e verificação de tokens JWT, deriva IDs de tenant a partir de API keys, e fornece middleware para proteger rotas da API. O agente opera de forma stateless, mantendo todas as informações necessárias no próprio token.
+        </p>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-value">JWT</div>
+            <div class="metric-label">Formato de Token</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">24h</div>
+            <div class="metric-label">Expiração Padrão</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">HS256</div>
+            <div class="metric-label">Algoritmo</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">SHA256</div>
+            <div class="metric-label">Derivação Tenant</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Funções Exportadas -->
+    <section id="functions">
+      <div class="section-header">
+        <h2 class="section-title">Funções Exportadas</h2>
+        <span class="section-subtitle">auth.js</span>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Função</th>
+              <th>Parâmetros</th>
+              <th>Retorno</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>generateToken</code></td>
+              <td>
+                <span class="param-type">String</span> tenantId<br>
+                <span class="param-type">Object</span> options
+              </td>
+              <td><span class="return-type">String</span></td>
+              <td>
+                Gera um token JWT com o <code>tenantId</code> e configurações de sessão.
+                Inclui <code>maxSessions</code> no payload e define expiração baseada em <code>JWT_EXPIRY</code> (padrão: 24h).
+                Retorna o token assinado.
+              </td>
+            </tr>
+            <tr>
+              <td><code>verifyToken</code></td>
+              <td><span class="param-type">String</span> token</td>
+              <td><span class="return-type">Object|null</span></td>
+              <td>
+                Verifica a assinatura e validade de um token JWT. Se válido, retorna o payload decodificado
+                contendo <code>tenantId</code>, <code>exp</code>, <code>maxSessions</code>. Retorna <code>null</code>
+                se inválido ou expirado.
+              </td>
+            </tr>
+            <tr>
+              <td><code>deriveTenantId</code></td>
+              <td><span class="param-type">String</span> apiKey</td>
+              <td><span class="return-type">String</span></td>
+              <td>
+                Deriva um <code>tenantId</code> único a partir de uma <code>apiKey</code> usando hash SHA256.
+                Retorna os primeiros 16 caracteres do hash em hexadecimal. Idempotente: mesma API key
+                sempre produz o mesmo tenantId.
+              </td>
+            </tr>
+            <tr>
+              <td><code>authMiddleware</code></td>
+              <td><span class="param-type">Object</span> req<br>
+                  <span class="param-type">Object</span> res<br>
+                  <span class="param-type">Function</span> next</td>
+              <td><span class="return-type">void</span></td>
+              <td>
+                Middleware Express que extrai o token do header <code>Authorization: Bearer &lt;token&gt;</code>,
+                chama <code>verifyToken</code>, e popula <code>req.tenant</code> com o payload e <code>req.user</code>
+                com info do tenant. Se inválido, retorna 401.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Fluxo de Autenticação -->
+    <section id="flow">
+      <h2 class="section-title">Fluxo de Autenticação</h2>
+      <div class="card">
+        <p class="card-subtitle">
+          O diagrama abaixo ilustra o ciclo completo de autenticação, desde o login inicial até as requisições autorizadas.
+        </p>
+        <div class="code-block">
+<pre>
+┌──────────┐                 ┌──────────────────────────────────┐
+│  Client  │                 │    Authentication Agent          │
+│          │                 │      (auth.js)                   │
+└────┬─────┘                 └──────────────────────────────────┘
+     │                                   │
+     │  1. POST /api/auth/login          │
+     │     { apiKey: "..." }             │
+     │──────────────────────────────────>│
+     │                                   │  2. validateKey()
+     │                                   │     (verifica no armazenamento)
+     │                                   │
+     │                                   │  3. deriveTenantId(apiKey)
+     │                                   │     → SHA256 → 16 chars
+     │                                   │
+     │                                   │  4. generateToken(tenantId, {
+     │                                   │       maxSessions: config
+     │                                   │     })
+     │                                   │     └─> JWT com payload:
+     │                                   │         { tenantId, exp, maxSessions }
+     │                                   │
+     │   5. 200 OK {"token":"..."}       │
+     │<──────────────────────────────────│
+     │                                   │
+     │  Armazena token (localStorage/   │
+     │  cookie segura)                  │
+     │                                   │
+     │  6. Request posterior            │
+     │     Authorization: Bearer <token>│
+     │──────────────────────────────────>│
+     │                                   │  7. authMiddleware(req, res, next)
+     │                                   │     │
+     │                                   │     ├─ Extrai token do header
+     │                                   │     ├─ verifyToken(token)
+     │                                   │     │   ├─ Verifica assinatura (JWT_SECRET)
+     │                                   │     │   ├─ Verifica expiração
+     │                                   │     │   └─ Retorna payload ou null
+     │                                   │     │
+     │                                   │     ├─ req.tenant = payload
+     │                                   │     ├─ req.user = tenant info
+     │                                   │     └─ next()
+     │                                   │
+     │   8. Rota protegida executa       │
+     │      com req.tenant disponível    │
+     │<──────────────────────────────────│
+</pre>
+        </div>
+
+        <h4 style="margin-top: 24px; margin-bottom: 12px; color: var(--text-secondary); font-size: 14px;">
+          Legenda
+        </h4>
+        <div class="legend-grid">
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--accent);"></div>
+            <span>Comunicação Cliente ↔ Servidor</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--success);"></div>
+            <span>Processo interno do agente</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--info);"></div>
+            <span>Dados persistidos (JWT)</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: var(--warning);"></div>
+            <span>Verificação de segurança</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Variáveis de Ambiente -->
+    <section id="env-vars">
+      <h2 class="section-title">Variáveis de Ambiente</h2>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Variável</th>
+              <th>Tipo</th>
+              <th>Obrigatório</th>
+              <th>Valor Padrão</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code class="env-var">JWT_SECRET</code></td>
+              <td><span class="param-type">String</span></td>
+              <td><span style="color: var(--danger); font-weight: 600;">Sim</span></td>
+              <td>-</td>
+              <td>
+                Chave secreta para assinatura de tokens JWT usando algoritmo HS256.
+                <strong>Crítico para segurança:</strong> deve ser uma string longa e aleatória,
+                mantida em segredo e diferente por ambiente. Se ausente, o agente falha na inicialização.
+              </td>
+            </tr>
+            <tr>
+              <td><code class="env-var">JWT_EXPIRY</code></td>
+              <td><span class="param-type">String</span></td>
+              <td>Não</td>
+              <td><code>24h</code></td>
+              <td>
+                Tempo de expiração dos tokens JWT no formato aceito pelo <code>jsonwebtoken</code>
+                (ex: <code>24h</code>, <code>7d</code>, <code>3600s</code>). Aplica-se a todos os tokens gerados.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Dependências -->
+    <section id="dependencies">
+      <h2 class="section-title">Dependências</h2>
+      <div class="card">
+        <p class="card-subtitle">
+          O Authentication Agent utiliza as seguintes bibliotecas externas:
+        </p>
+        <div class="deps-list">
+          <div class="dep-badge">
+            jsonwebtoken
+            <span class="dep-version">^9.0.0</span>
+          </div>
+          <div class="dep-badge">
+            crypto
+            <span class="dep-version">node:builtin</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Riscos -->
+    <section id="risks">
+      <h2 class="section-title">Riscos Conhecidos</h2>
+      <div class="card">
+        <p class="card-subtitle">
+          Considerações de segurança e mitigações recomendadas para o agente de autenticação.
+        </p>
+        <ul class="risks-list">
+          <li>
+            <span class="risk-icon">⚠️</span>
+            <div class="risk-content">
+              <h4>JWT Hijacking / Token Theft</h4>
+              <p>
+                Tokens JWT podem ser roubados via XSS, logs acidentais, ou interceptação de tráfego não-HTTPS.
+                <strong>Mitigação:</strong> Use always HTTPS, expose tokens apenas em headers Authorization,
+                implemente Revogação de Tokens via blacklist se necessário, e considere curta expiração com refresh tokens.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="risk-icon">🔓</span>
+            <div class="risk-content">
+              <h4>Vazamento de JWT_SECRET</h4>
+              <p>
+                Se a variável <code>JWT_SECRET</code> for exposta, qualquer pessoa pode assinar tokens válidos,
+                comprometendo completamente a segurança. <strong>Mitigação:</strong> Nunca commit secrets, use
+                segredos diferentes por ambiente, e implemente rotação periódica com multiple secrets para validação.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="risk-icon">📊</span>
+            <div class="risk-content">
+              <h4>Derivação de TenantID com SHA256</h4>
+              <p>
+                O uso de SHA256 puro para derivar <code>tenantId</code> a partir de <code>apiKey</code> pode
+                permitir ataques de rainbow table se as API keys tiverem baixa entropia. <strong>Mitigação:</strong>
+                Garanta que API keys sejam geradas com alta entropia (cryptographically random) e considere usar
+                PBKDF2 ou Argon2 para derivação se necessário.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="risk-icon">⏱️</span>
+            <div class="risk-content">
+              <h4>Token Expiration e Clock Skew</h4>
+              <p>
+                Diferentes servidores podem ter clocks ligeiramente dessincronizados (clock skew), causando
+                rejeição de tokens ainda válidos. <strong>Mitigação:</strong> Considere adicionar um pequeno
+                buffer (<code>leeway</code>) na verificação ou usar NTP para sincronização de tempo em todos os nós.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="risk-icon">🚫</span>
+            <div class="risk-content">
+              <h4>Falta de Revogação Imediata</h4>
+              <p>
+                Tokens JWT são stateless e válidos até a expiração; não há como revogá-los antes sem estado
+                adicional. <strong>Mitigação:</strong> Implemente um sistema de blacklist/token denylist no
+                middleware, use short-lived tokens (1-2h) com refresh tokens, ou mude para sessions stateful
+                se revogação em tempo real for crítica.
+              </p>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>
+        &copy; 2025 Serende Documentation. Todos os direitos reservados.
+      </p>
+      <p style="margin-top: 8px; color: var(--text-muted);">
+        Sistema de Browser Remoto via Streaming
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

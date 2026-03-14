@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Gateway Agent - Serende</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <header class="agent-header">
+        <div class="header-content">
+            <h1>WebSocket Gateway Agent</h1>
+            <span class="badge badge-success">Ativo</span>
+        </div>
+        <p class="agent-description">Gerencia upgrade HTTP→WS e routing de conexões WebSocket</p>
+    </header>
+
+    <main>
+        <section id="configuracao">
+            <h2>Configuração</h2>
+            <table class="config-table">
+                <thead>
+                    <tr>
+                        <th>Parâmetro</th>
+                        <th>Valor</th>
+                        <th>Descrição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>noServer</td>
+                        <td>true</td>
+                        <td>Modo manual de upgrade HTTP→WS</td>
+                    </tr>
+                    <tr>
+                        <td>perMessageDeflate</td>
+                        <td>false</td>
+                        <td>Compressão de mensagens desabilitada</td>
+                    </tr>
+                    <tr>
+                        <td>maxPayload</td>
+                        <td>512KB</td>
+                        <td>Tamanho máximo do payload</td>
+                    </tr>
+                    <tr>
+                        <td>setNoDelay</td>
+                        <td>true</td>
+                        <td>Baixa latência (Nagle desabilitado)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section id="upgrade-http-ws">
+            <h2>Upgrade HTTP→WS</h2>
+            <p>O handler de upgrade (<code>server.on('upgrade')</code>) processa a conexão WebSocket através de uma sequência de validações:</p>
+
+            <div class="decision-diagram">
+                <div class="decision-step">
+                    <span class="step-number">1</span>
+                    <span class="step-text">Requisição HTTP recebida</span>
+                </div>
+                <div class="arrow">↓</div>
+                <div class="decision-step">
+                    <span class="step-number">2</span>
+                    <span class="step-text">Extrai <code>token</code> e <code>sessionId</code> dos query params</span>
+                </div>
+                <div class="arrow">↓</div>
+                <div class="decision-step decision-validate">
+                    <span class="step-number">3</span>
+                    <span class="step-text">Valida token JWT</span>
+                </div>
+                <div class="arrow">↓</div>
+                <div class="decision-step decision-validate">
+                    <span class="step-number">4</span>
+                    <span class="step-text">Verifica session existe e pertence ao tenant</span>
+                </div>
+                <div class="arrow">↓</div>
+                <div class="decision-step decision-validate">
+                    <span class="step-number">5</span>
+                    <span class="step-text">Verifica resources existem</span>
+                </div>
+                <div class="arrow">↓</div>
+                <div class="decision-step decision-success">
+                    <span class="step-number">✓</span>
+                    <span class="step-text">Upgrade para WebSocket</span>
+                </div>
+            </div>
+
+            <div class="error-codes">
+                <h3>Códigos de Erro</h3>
+                <ul>
+                    <li><span class="code">401</span> — Token JWT inválido ou expirado</li>
+                    <li><span class="code">403</span> — Session não existe ou não pertence ao tenant</li>
+                    <li><span class="code">404</span> — Resources não existem</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="rotas-ws">
+            <h2>Rotas WS</h2>
+            <p>Após o upgrade, o routing é feito pelo <code>pathname</code> da URL:</p>
+
+            <table class="routes-table">
+                <thead>
+                    <tr>
+                        <th>Rota</th>
+                        <th>Handler</th>
+                        <th>Descrição</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>/ws/stream</code></td>
+                        <td><code>streamManager.addClient(ws)</code></td>
+                        <td>Gerencia stream de vídeo/screenshare. Registra em <code>activeWsConnections</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>/ws/input</code></td>
+                        <td><code>ws.onmessage</code></td>
+                        <td>Recebe input do cliente, parseia JSON e envia para <code>inputHandler</code></td>
+                    </tr>
+                    <tr>
+                        <td><code>outros</code></td>
+                        <td><code>socket.destroy()</code></td>
+                        <td>Conexão rejeitada</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section id="autenticacao-ws">
+            <h2>Autenticação WS</h2>
+            <p>A autenticação WebSocket é realizada através de query parameters na URL de conexão:</p>
+
+            <div class="code-block">
+                <code>ws://host:port/ws/stream?token=JWT_TOKEN&amp;sessionId=SESSION_ID</code>
+            </div>
+
+            <ul class="auth-steps">
+                <li><strong>token:</strong> Token JWT válido para autenticação</li>
+                <li><strong>sessionId:</strong> ID da sessão do tenant</li>
+            </ul>
+
+            <div class="note">
+                <strong>Nota:</strong> O token deve ser validado em cada conexão. Conexões com token expirado ou inválido são rejeitadas durante o handshake de upgrade.
+            </div>
+        </section>
+
+        <section id="token-expiry">
+            <h2>Token Expiry Checker</h2>
+            <p>Um intervalo verifica periodicamente as conexões WebSocket ativas para detectar tokens expirados:</p>
+
+            <div class="timeline">
+                <div class="timeline-item">
+                    <div class="timeline-marker">0s</div>
+                    <div class="timeline-content">
+                        <strong>Início do intervalo</strong>
+                        <p><code>setInterval</code> inicia a cada 60 segundos</p>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-marker">~1s</div>
+                    <div class="timeline-content">
+                        <strong>Itera <code>activeWsConnections</code></strong>
+                        <p>Para cada conexão, verifica se o token expirou</p>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-marker">~2s</div>
+                    <div class="timeline-content">
+                        <strong>Token expirado detectado</strong>
+                        <p>Fecha WebSocket com código <code>4001</code> e mensagem "Token expired"</p>
+                    </div>
+                </div>
+                <div class="timeline-item">
+                    <div class="timeline-marker">60s</div>
+                    <div class="timeline-content">
+                        <strong>Próximo ciclo</strong>
+                        <p>Repete o processo</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="code-block">
+                <code>ws.close(4001, "Token expired")</code>
+            </div>
+        </section>
+
+        <section id="implementacao">
+            <h2>Implementação</h2>
+            <p>O agente é implementado no arquivo <code>index.js</code> e gerencia:</p>
+            <ul>
+                <li>Upgrade de conexões HTTP para WebSocket</li>
+                <li>Validação de autenticação (JWT)</li>
+                <li>Validação de sessões e resources</li>
+                <li>Routing de conexões para handlers específicos</li>
+                <li>Monitoramento de expiração de tokens</li>
+                <li>Gerenciamento de conexões ativas</li>
+            </ul>
+        </section>
+    </main>
+
+    <footer>
+        <p>WebSocket Gateway Agent - Serende Orchestrator</p>
+    </footer>
+</body>
+</html>

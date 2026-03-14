@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FFmpeg Encoder Agent | Serende</title>
+  <link rel="stylesheet" href="../styles.css" />
+  <style>
+    body { background: #0f1117; color: #f5f5f5; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .badge { display: inline-flex; align-items: center; background: #2f2f3a; color: #d6d6e6; border-radius: 999px; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; padding: .2rem .58rem; margin-left: .5rem; border: 1px solid #444; }
+    header h1 { margin: 0; font-size: 2rem; }
+    section { margin-top: 1.4rem; border: 1px solid #2b2d37; border-radius: 10px; background: #11131a; padding: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: .6rem; }
+    th, td { border: 1px solid #2b2d37; padding: .5rem .65rem; text-align: left; vertical-align: top; }
+    th { background:#1a1d28; color:#e6e8f0; }
+    td { background:#121622; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background:#1b1f2d; color:#d8d8ff; padding:.15rem .3rem; border-radius:4px; }
+    .diagram { background:#0d0f16; border:1px solid #2b2d37; border-radius:8px; padding:.8rem; margin-top:.4rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color:#e5e5ff; line-height:1.5; }
+    footer { margin-top: 2rem; color:#a9afc6; font-size:.9rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div style="display:flex; align-items:center; gap:.4rem;">
+        <h1>FFmpeg Encoder Agent</h1>
+        <span class="badge">Media</span>
+      </div>
+      <p style="margin:.5rem 0 0; color:#c8cde3;">Agente de codificação de tela X11 para MJPEG em baixa latência, implementado em <span class="code">session-manager.js</span>.</p>
+    </header>
+
+    <section>
+      <h2>Argumentos</h2>
+      <p>Argumentos FFmpeg otimizados para menor latência possível e saída MJPEG por pipe.</p>
+      <table>
+        <thead>
+          <tr><th>Argumento</th><th>Descrição</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="code">-probesize 32</span></td><td>Reduz o tempo de detecção de formato de entrada, permitindo iniciar mais rápido.</td></tr>
+          <tr><td><span class="code">-analyzeduration 0</span></td><td>Desativa análise prévia. Usa apenas os primeiros dados para iniciar a captura.</td></tr>
+          <tr><td><span class="code">-fflags nobuffer+flush_packets</span></td><td>Desabilita buffering e força os pacotes a serem liberados rapidamente.</td></tr>
+          <tr><td><span class="code">-flags low_delay</span></td><td>Habilita modo de baixa latência no codificador.</td></tr>
+          <tr><td><span class="code">-f x11grab</span></td><td>Usa captura de tela X11 (Xvfb ou display real).</td></tr>
+          <tr><td><span class="code">-framerate 30</span></td><td>Captura a 30 FPS alvo.</td></tr>
+          <tr><td><span class="code">-video_size 1280x720</span></td><td>Resolução de captura (exemplo). Ajustar conforme disponibilidade do display.</td></tr>
+          <tr><td><span class="code">-draw_mouse 0</span></td><td>Não desenha cursor no frame; o cursor é virtualmente gerenciado.</td></tr>
+          <tr><td><span class="code">-thread_queue_size 16</span></td><td>Fila de leitura de threads pequena para reduzir buffering interno.</td></tr>
+          <tr><td><span class="code">-i :100</span></td><td>Display X11 de origem. Ex: <span class="code">:100</span>.</td></tr>
+          <tr><td><span class="code">-f mjpeg</span></td><td>Saída de vídeo no formato MJPEG, frame independente para streaming rápido.</td></tr>
+          <tr><td><span class="code">-q:v 5</span></td><td>Qualidade JPEG (1 melhor, 31 pior). 5 costuma equilibrar qualidade e compressão.</td></tr>
+          <tr><td><span class="code">-huffman optimal</span></td><td>Usa codificação Huffman otimizada para tamanhos de imagem menores.</td></tr>
+          <tr><td><span class="code">-an</span></td><td>Remove áudio (sem trilha de áudio no stream).</td></tr>
+          <tr><td><span class="code">-flush_packets 1</span></td><td>Força flush imediato dos pacotes para reduzir latência de entrega.</td></tr>
+          <tr><td><span class="code">pipe:1</span></td><td>Escreve saída por stdout para consumo pelo StreamManager.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Pipeline de Vídeo</h2>
+      <div class="diagram">
+        Xvfb display → FFmpeg x11grab → MJPEG frames → stdout (pipe:1) → StreamManager → WebSocket
+      </div>
+      <p>O agente lê do display X11 gerenciado (geralmente Xvfb), codifica a tela como MJPEG em tempo real e passa pelo pipe para o StreamManager, que transmite via WebSocket para clientes.</p>
+    </section>
+
+    <section>
+      <h2>Qualidade vs Performance</h2>
+      <p>O parâmetro <span class="code">-q:v 5</span> controla a qualidade JPEG por frame:</p>
+      <ul>
+        <li><span class="code">1</span> = melhor qualidade, maior tamanho de quadro e maior CPU.</li>
+        <li><span class="code">31</span> = menor qualidade, menor taxa de bits e menor carga computacional.</li>
+      </ul>
+      <p>Valor 5 é um bom compromisso para baixa latência e qualidade visual aceitável em transmissões de tela.</p>
+    </section>
+
+    <section>
+      <h2>Latência</h2>
+      <p>O FFmpeg Encoder Agent é ajustado para reduzir latência em cada etapa:</p>
+      <ul>
+        <li><span class="code">-probesize 32</span> e <span class="code">-analyzeduration 0</span> reduzem atrasos de inicialização.</li>
+        <li><span class="code">-fflags nobuffer+flush_packets</span> e <span class="code">-flush_packets 1</span> evitam acumulação de pacotes no pipeline.</li>
+        <li><span class="code">-flags low_delay</span> diminui a criação de buffers internos no codificador.</li>
+        <li><span class="code">pipe:1</span> entrega imediata ao StreamManager para envio rápido via WebSocket.</li>
+      </ul>
+      <p>Com esses ajustes, os quadros chegam ao cliente o mais rápido possível, mantendo a estabilidade do stream.</p>
+    </section>
+
+    <footer>
+      <p>Documento do agente FFmpeg Encoder para Serende. Implementação principal em <span class="code">session-manager.js</span>.</p>
+    </footer>
+  </div>
+</body>
+</html>

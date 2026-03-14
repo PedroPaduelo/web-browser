@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tenant Manager Agent | Serende</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body>
+  <main class="container">
+    <header>
+      <div class="header-content">
+        <div>
+          <h1>Tenant Manager Agent</h1>
+          <p class="subtitle">Gerenciamento de isolamento de perfis Chrome por tenant no filesystem.</p>
+        </div>
+        <span class="version-badge badge badge-success">Ativo</span>
+      </div>
+    </header>
+
+    <section>
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Visão Geral</h2>
+          <p class="section-subtitle">tenant-manager.js controla a criação, cópia, merge e limpeza de perfis de sessão isolados por tenant.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="card-title">Constantes essenciais</p>
+        <div class="card-subtitle">
+          <ul>
+            <li><strong>DATA_DIR</strong> - diretório raiz dos dados do agent.</li>
+            <li><strong>TENANTS_DIR</strong> - pasta de tenants: <code>data/tenants</code>.</li>
+            <li><strong>ESSENTIAL_FILES</strong> - lista de arquivos que são sincronizados entre master e sessão:</li>
+          </ul>
+          <ul>
+            <li>Default/Cookies</li>
+            <li>Default/Preferences</li>
+            <li>Default/Bookmarks</li>
+            <li>Default/Login Data</li>
+            <li>Default/Web Data</li>
+            <li>Local State</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Isolamento Multi-Tenant</h2>
+      </div>
+      <div class="card">
+        <p class="card-subtitle">Cada tenant tem um conjunto de perfis mestres, sessões e downloads separados.</p>
+        <div class="flow-diagram">
+data/tenants/&lt;tenantId&gt;/
+├── profile-master/Default/
+│   ├── Cookies
+│   ├── Preferences
+│   ├── Bookmarks
+│   ├── "Login Data"
+│   ├── "Web Data"
+│   └── Local State
+├── sessions/&lt;sessionId&gt;/profile/Default/
+│   ├── Cookies
+│   ├── Preferences
+│   ├── Bookmarks
+│   ├── "Login Data"
+│   ├── "Web Data"
+│   └── Local State
+└── downloads/
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Ciclo Copy/Merge</h2>
+      </div>
+      <div class="card">
+        <div class="card-subtitle">O fluxo de sincronização de perfil no Tenant Manager garante dados de sessão atualizados e consistentes.</div>
+        <div class="flow-diagram">
+Master (profile-master/Default)
+    ↓ copyProfileToSession(tenantId, sessionId)
+Session (sessions/sessionId/profile/Default)
+    ↓ (navegação/sessão ativa)
+    ↓ mergeProfileFromSession(tenantId, sessionId)
+Master (profile-master/Default)
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Arquivos Essenciais</h2>
+      </div>
+      <div class="card">
+        <p class="card-subtitle">Esses arquivos são necessários para manter estado de login, navegação e preferências do Chrome entre sessões.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Arquivo</th>
+              <th>O que contém</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Default/Cookies</td><td>Cookies de sessão, autenticação e rastreamento</td></tr>
+            <tr><td>Default/Preferences</td><td>Configurações de usuário, UI e políticas do Chrome</td></tr>
+            <tr><td>Default/Bookmarks</td><td>Marcadores e organização de favoritos</td></tr>
+            <tr><td>Default/Login Data</td><td>Credenciais e dados de login salvos</td></tr>
+            <tr><td>Default/Web Data</td><td>Formulários, senhas e histórico de preenchimento</td></tr>
+            <tr><td>Local State</td><td>Configurações globais do navegador e chaves de sessão</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Funções</h2>
+      </div>
+      <div class="card">
+        <table>
+          <thead>
+            <tr><th>Função</th><th>Comportamento</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>ensureTenantDir(tenantId)</td><td>Cria diretórios obrigatórios: profile-master/Default, sessions, downloads</td></tr>
+            <tr><td>getProfileMasterDir(tenantId)</td><td>Retorna caminho do profile master para o tenant</td></tr>
+            <tr><td>getSessionProfileDir(tenantId, sessionId)</td><td>Retorna caminho do profile de sessão</td></tr>
+            <tr><td>copyProfileToSession(tenantId, sessionId)</td><td>Copiar arquivos essenciais do master para sessão</td></tr>
+            <tr><td>mergeProfileFromSession(tenantId, sessionId)</td><td>Mesclar arquivos essenciais da sessão de volta para o master</td></tr>
+            <tr><td>cleanupSessionDir(tenantId, sessionId)</td><td>Remove diretório de sessão e libera recursos</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      <p>Documentação do Tenant Manager Agent - Serende</p>
+    </footer>
+  </main>
+</body>
+</html>

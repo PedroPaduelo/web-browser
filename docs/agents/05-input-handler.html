@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Input Handler Agent - Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <div class="header-content">
+        <div>
+          <h1>Input Handler Agent</h1>
+          <p class="subtitle">Agente de simulação de entrada para X11 via python-xlib</p>
+        </div>
+        <span class="version-badge">Ativo</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Arquitetura</h2>
+      </div>
+      <div class="card">
+        <p class="card-subtitle">
+          O Input Handler Agent é responsável por receber comandos de input do cliente e
+          convertê-los em eventos X11 reais no display virtual. A comunicação ocorre através
+          de um processo Python que escuta stdin e usa a extensão XTest para simular eventos.
+        </p>
+
+        <div class="flow-diagram">
+┌─────────────┐    JSON     ┌────────────┐    stdin    ┌─────────────┐   X11   ┌────────┐   Chrome
+│   Client    │ ──────────► │  Node.js   │ ──────────► │ x11-input.py│ ──────►│  Xvfb  │ ◄──────
+│ (Browser)   │   WS/HTTP   │ (Server)   │    pipe     │ (Python)    │ Events │       │
+└─────────────┘             └────────────┘             └─────────────┘        └────────┘
+        </div>
+
+        <div class="legend-grid">
+          <div class="legend-item">
+            <span class="legend-color" style="background: #3b82f6;"></span>
+            <span>Cliente Envia JSON</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background: #22c55e;"></span>
+            <span>Node.js Processa</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background: #f59e0b;"></span>
+            <span>Python Executa</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-color" style="background: #06b6d4;"></span>
+            <span>Evento X11</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">API do Input Handler</h2>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">createInputHandler(displayNum)</h3>
+        <p class="card-subtitle">
+          Cria e spawna um processo Python que manipula o display X11 especificado.
+          O processo Python (x11-input.py) é iniciado com a variável de ambiente
+          <code>SERENDE_DISPLAY=:displayNum</code> apontando para o display virtual.
+        </p>
+
+        <div class="code-block" data-lang="javascript">
+const { createInputHandler } = require('./input-handler');
+
+// Criar handler para display virtual :100
+const input = createInputHandler('100');
+        </div>
+
+        <h4 class="mt-8 mb-4">Retorno</h4>
+        <p>Objeto com os seguintes métodos:</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Método</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>sendInput(msg)</code></td>
+              <td>Envia uma mensagem JSON para o stdin do processo Python. O JSON deve conter o tipo de input e seus parâmetros.</td>
+            </tr>
+            <tr>
+              <td><code>stop()</code></td>
+              <td>Encerra o processo Python, fechando o stdin e matando o processo.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Tipos de Input</h2>
+        <span class="section-subtitle">JSON aceitos pelo sendInput()</span>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Tipo</th>
+              <th>Parâmetros</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>mousemove</code></td>
+              <td><code>x</code>, <code>y</code></td>
+              <td>Move o cursor do mouse para as coordenadas especificadas.</td>
+            </tr>
+            <tr>
+              <td><code>mousedown</code></td>
+              <td><code>x</code>, <code>y</code>, <code>button</code> (opcional)</td>
+              <td>Pressiona o botão do mouse. Button: 0 = esquerdo, 1 = meio, 2 = direito.</td>
+            </tr>
+            <tr>
+              <td><code>mouseup</code></td>
+              <td><code>x</code>, <code>y</code>, <code>button</code> (opcional)</td>
+              <td>Libera o botão do mouse.</td>
+            </tr>
+            <tr>
+              <td><code>keydown</code></td>
+              <td><code>key</code>, <code>keyCode</code> (opcional)</td>
+              <td>Pressiona uma tecla do teclado.</td>
+            </tr>
+            <tr>
+              <td><code>keyup</code></td>
+              <td><code>key</code>, <code>keyCode</code> (opcional)</td>
+              <td>Libera uma tecla do teclado.</td>
+            </tr>
+            <tr>
+              <td><code>wheel</code></td>
+              <td><code>deltaX</code>, <code>deltaY</code></td>
+              <td>Simula rolagem da roda do mouse. Valores positivos sobem, negativos descem.</td>
+            </tr>
+            <tr>
+              <td><code>scroll</code></td>
+              <td><code>deltaX</code>, <code>deltaY</code></td>
+              <td>Idêntico ao wheel,move o cursor para (x,y) antes de rolar.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4 class="mt-8 mb-4">Exemplos de Uso</h4>
+        <div class="code-block" data-lang="javascript">
+// Mover mouse
+input.sendInput({ type: 'mousemove', x: 800, y: 600 });
+
+// Clique esquerdo
+input.sendInput({ type: 'mousedown', x: 800, y: 600, button: 0 });
+input.sendInput({ type: 'mouseup', x: 800, y: 600, button: 0 });
+
+// Pressionar tecla 'A'
+input.sendInput({ type: 'keydown', key: 'a' });
+input.sendInput({ type: 'keyup', key: 'a' });
+
+// Rolagem
+input.sendInput({ type: 'wheel', deltaX: 0, deltaY: -120 });
+input.sendInput({ type: 'scroll', deltaX: 0, deltaY: 100 });
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Mapeamento de Teclas</h2>
+        <span class="section-subtitle">Como o keyCode é interpretado pelo Python</span>
+      </div>
+
+      <div class="card">
+        <p class="card-subtitle">
+          O Python (x11-input.py) utiliza a biblioteca <code>python-xlib</code> para converter
+          strings de teclas em keycodes X11. Existe um mapeamento interno para teclas especiais
+          e qualquer caractere simples pode ser usado diretamente.
+        </p>
+
+        <h4 class="mb-4">Teclas Especiais Mapeadas</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>X11 Keysym</th>
+              <th>Key</th>
+              <th>X11 Keysym</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Enter</code></td>
+              <td><code>Return</code></td>
+              <td><code>Backspace</code></td>
+              <td><code>BackSpace</code></td>
+            </tr>
+            <tr>
+              <td><code>Tab</code></td>
+              <td><code>Tab</code></td>
+              <td><code>Escape</code></td>
+              <td><code>Escape</code></td>
+            </tr>
+            <tr>
+              <td><code>Delete</code></td>
+              <td><code>Delete</code></td>
+              <td><code>Insert</code></td>
+              <td><code>Insert</code></td>
+            </tr>
+            <tr>
+              <td><code>Home</code></td>
+              <td><code>Home</code></td>
+              <td><code>End</code></td>
+              <td><code>End</code></td>
+            </tr>
+            <tr>
+              <td><code>PageUp</code></td>
+              <td><code>Page_Up</code></td>
+              <td><code>PageDown</code></td>
+              <td><code>Page_Down</code></td>
+            </tr>
+            <tr>
+              <td><code>ArrowUp</code></td>
+              <td><code>Up</code></td>
+              <td><code>ArrowDown</code></td>
+              <td><code>Down</code></td>
+            </tr>
+            <tr>
+              <td><code>ArrowLeft</code></td>
+              <td><code>Left</code></td>
+              <td><code>ArrowRight</code></td>
+              <td><code>Right</code></td>
+            </tr>
+            <tr>
+              <td><code>Control</code></td>
+              <td><code>Control_L</code></td>
+              <td><code>Shift</code></td>
+              <td><code>Shift_L</code></td>
+            </tr>
+            <tr>
+              <td><code>Alt</code></td>
+              <td><code>Alt_L</code></td>
+              <td><code>Meta</code></td>
+              <td><code>Super_L</code></td>
+            </tr>
+            <tr>
+              <td><code>F1</code> - <code>F12</code></td>
+              <td><code>F1</code> - <code>F12</code></td>
+              <td><code>Space</code></td>
+              <td><code>space</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4 class="mt-8 mb-4">Como Funciona</h4>
+        <ol style="margin-left: 20px; color: var(--text-secondary); line-height: 2;">
+          <li>Se a chave <code>key</code> existe no <code>KEY_MAP</code>, usa o valor mapeado</li>
+          <li>Usa <code>XK.string_to_keysym()</code> para converter para keysym X11</li>
+          <li>Usa <code>d.keysym_to_keycode()</code> para obter o keycode numérico</li>
+          <li>O keycode é enviado via <code>XTest.fake_input()</code></li>
+        </ol>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Processo Python (x11-input.py)</h2>
+        <span class="section-subtitle">Detalhes da implementação</span>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Visão Geral</h3>
+        <p class="card-subtitle">
+          O script <code>x11-input.py</code> é um processo Python de longa duração que:
+        </p>
+        <ol style="margin-left: 20px; color: var(--text-secondary); line-height: 2;">
+          <li>Conecta ao display X11 especificado via variável <code>SERENDE_DISPLAY</code></li>
+          <li>Lê linhas JSON do stdin em loop infinito</li>
+          <li>Interpreta cada mensagem e executa o evento X11 correspondente</li>
+          <li>Usa a extensão <code>XTest</code> para simular eventos reais</li>
+        </ol>
+
+        <h4 class="mt-8 mb-4">Dependências</h4>
+        <div class="code-block" data-lang="bash">
+# Instalação das dependências Python
+pip install python-xlib
+        </div>
+
+        <h4 class="mt-8 mb-4">Variáveis de Ambiente</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Variável</th>
+              <th>Descrição</th>
+              <th>Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>SERENDE_DISPLAY</code></td>
+              <td>Display X11 virtual (ex: :100)</td>
+              <td><code>:100</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h4 class="mt-8 mb-4">Fluxo de Execução</h4>
+        <div class="timeline">
+          <div class="timeline-item">
+            <span class="time">1. Inicialização</span>
+            <span class="actor">init_display()</span>
+            <span class="action">Conecta ao display X11 usando python-xlib</span>
+          </div>
+          <div class="timeline-item">
+            <span class="time">2. Loop Principal</span>
+            <span class="actor">while True</span>
+            <span class="action">Lê linhas JSON do stdin em loop infinito</span>
+          </div>
+          <div class="timeline-item">
+            <span class="time">3. Processamento</span>
+            <span class="actor">handle_msg()</span>
+            <span class="action">Interpreta o JSON e executa XTest.fake_input()</span>
+          </div>
+          <div class="timeline-item">
+            <span class="time">4. Flush</span>
+            <span class="actor">d.flush()</span>
+            <span class="action">Envia os eventos pendentes para o servidor X11</span>
+          </div>
+        </div>
+
+        <h4 class="mt-8 mb-4">Mapeamento de Botões</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>Button JS</th>
+              <th>Botão X11</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>0</code></td>
+              <td><code>1</code></td>
+              <td>Botão esquerdo</td>
+            </tr>
+            <tr>
+              <td><code>1</code></td>
+              <td><code>2</code></td>
+              <td>Botão do meio (roda)</td>
+            </tr>
+            <tr>
+              <td><code>2</code></td>
+              <td><code>3</code></td>
+              <td>Botão direito</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Integração com Chrome/Xvfb</h2>
+      </div>
+
+      <div class="card">
+        <p class="card-subtitle">
+          O Input Handler opera em conjunto com o Xvfb (X Virtual Framebuffer) e o Chrome.
+          O Xvfb cria um display virtual onde o Chrome pode executar sem monitor físico,
+          e o Input Handler injeta eventos nesse display.
+        </p>
+
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-value">:100</div>
+            <div class="metric-label">Display Default</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">XTest</div>
+            <div class="metric-label">Extensão X11</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">stdin</div>
+            <div class="metric-label">Interface IPC</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">JSON</div>
+            <div class="metric-label">Formato de Mensagem</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>Serende - Remote Browser Automation</p>
+      <p class="mt-4">Documentação do Input Handler Agent</p>
+    </div>
+  </footer>
+</body>
+</html>

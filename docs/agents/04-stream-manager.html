@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stream Manager Agent - Serende</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <div class="header-content">
+        <div>
+          <h1>Stream Manager Agent <span class="badge badge-success">Ativo</span></h1>
+          <p class="subtitle">Gerenciador de Streaming MJPEG via WebSocket</p>
+        </div>
+        <a href="index.html" class="nav-card" style="padding: 12px 20px; text-decoration: none; color: var(--text-primary);">
+          ← Voltar ao Índice
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Agent Info Card -->
+    <div class="card">
+      <div class="agent-header">
+        <div class="agent-number">02</div>
+        <div>
+          <h3 class="agent-title">Stream Manager Agent</h3>
+          <span class="agent-file">agents/stream-manager.js</span>
+        </div>
+      </div>
+      <p class="agent-desc">
+        Responsável pelo streaming de vídeo MJPEG via WebSocket. Recebe frames codificados do FFmpeg,
+        detecta boundaries JPEG (SOI/EOI), bufferiza e transmite para todos os clientes conectados
+        com controle de backpressure para evitar sobrecarga.
+      </p>
+      <div class="agent-tags">
+        <span class="tag">WebSocket</span>
+        <span class="tag">MJPEG</span>
+        <span class="tag">Buffer</span>
+        <span class="tag">Broadcast</span>
+      </div>
+    </div>
+
+    <!-- Como Funciona -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Como Funciona</h2>
+        <span class="section-subtitle">Fluxo de dados do streaming</span>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Diagrama de Arquitetura</h3>
+        <p class="card-subtitle">
+          O Stream Manager atua como intermediário entre o FFmpeg (codificador) e os clientes WebSocket.
+          Ele processa streams binários brutos, extrai frames JPEG completos e os distribui.
+        </p>
+
+        <div class="flow-diagram">
+FFmpeg stdout (pipe)
+        │
+        ▼
+┌─────────────────────┐
+│  startCapture()     │
+│  ─ acumula buffer   │
+│  ─ processa chunks  │
+└─────────────────────┘
+        │
+        ▼
+┌─────────────────────┐
+│  extractFrames()    │
+│  ─ scan SOI/EOI     │
+│  ─ detecta JPEGs    │
+└─────────────────────┘
+        │
+        ▼
+┌─────────────────────┐
+│  broadcastFrame()   │
+│  ─ ws.send()        │
+│  ─ backpressure     │
+└─────────────────────┘
+        │
+        ▼
+WebSocket Clients (Navegadores)
+        </div>
+
+        <h4 class="card-subtitle mt-8">Fluxo Detalhado</h4>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="time">1. Inicialização</div>
+            <div class="actor">constructor()</div>
+            <div class="action">Cria buffer de 512KB inicial, clients Set vazio, contadores zerados</div>
+          </div>
+          <div class="timeline-item">
+            <div class="time">2. Conexão de Cliente</div>
+            <div class="actor">addClient(ws)</div>
+            <div class="action">Adiciona WebSocket, envia último frame, configura handler de fechamento</div>
+          </div>
+          <div class="timeline-item">
+            <div class="time">3. Captura</div>
+            <div class="actor">startCapture(ffmpegStdout)</div>
+            <div class="action">Lê dados pipe FFmpeg, acumula em buffer, chama extractFrames()</div>
+          </div>
+          <div class="timeline-item">
+            <div class="time">4. Extração</div>
+            <div class="actor">extractFrames()</div>
+            <div class="action">Scan por SOI (0xFFD8) e EOI (0xFFD9), detecta frames JPEG completos</div>
+          </div>
+          <div class="timeline-item">
+            <div class="time">5. Broadcast</div>
+            <div class="actor">broadcastFrame(frame)</div>
+            <div class="action">Envia frame para todos os clients (com backpressure check de 128KB)</div>
+          </div>
+          <div class="timeline-item">
+            <div class="time">6. Parada</div>
+            <div class="actor">stop()</div>
+            <div class="action">Limpa buffer, deleta clients, fecha conexões</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Protocolo MJPEG -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Protocolo MJPEG</h2>
+        <span class="section-subtitle">Detecção de frames JPEG</span>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Marcadores JPEG (SOI/EOI)</h3>
+        <p class="card-subtitle">
+          O sistema detecta frames completos procurando por marcadores JPEG no buffer binário.
+          Cada frame começa com SOI (Start of Image) e termina com EOI (End of Image).
+        </p>
+
+        <div class="code-block" data-lang="javascript"><code>// Constantes JPEG markers
+const SOI = 0xFFD8; // Start of Image (0xFF 0xD8)
+const EOI = 0xFFD9; // End of Image (0xFF 0xD9)
+
+// Extração via matching de bytes
+extractFrames() {
+  for (let i = 0; i < this.buffer.length - 1; i++) {
+    if (this.buffer[i] === 0xFF && this.buffer[i+1] === 0xD8) {
+      this.frameStart = i;
+    }
+    if (this.buffer[i] === 0xFF && this.buffer[i+1] === 0xD9) {
+      const frameEnd = i + 2;
+      const frame = this.buffer.slice(this.frameStart, frameEnd);
+      this.buffer = this.buffer.slice(frameEnd);
+      this.broadcastFrame(frame);
+    }
+  }
+}</code></div>
+
+        <div class="metrics-grid mt-8">
+          <div class="metric-card">
+            <div class="metric-value">0xFF</div>
+            <div class="metric-label">Marker Prefix</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">0xD8</div>
+            <div class="metric-label">SOI (Start)</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">0xD9</div>
+            <div class="metric-label">EOI (End)</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value">~1-2MB</div>
+            <div class="metric-label">Tamanho por Frame</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Backpressure -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Backpressure</h2>
+        <span class="section-subtitle">Controle de fluxo e throttling</span>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Mecanismo de Controle</h3>
+        <p class="card-subtitle">
+          O sistema monitora o buffer de cada cliente WebSocket. Quando o buffer ultrapassa
+          128KB, o streaming é temporariamente suspenso até que o cliente recupere.
+        </p>
+
+        <div class="code-block" data-lang="javascript"><code>broadcastFrame(frame) {
+  const bufferSize = 128 * 1024; // 128KB throttle threshold
+
+  this.clients.forEach(ws => {
+    if (ws.bufferSize > bufferSize) {
+      // Cliente lento: remove frame e loga aviso
+      console.debug('Backpressure: cliente buffer cheio');
+      return;
+    }
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(frame);
+    }
+  });
+}</code></div>
+
+        <div class="card mt-4" style="background: var(--bg-tertiary); border-color: var(--warning);">
+          <h4 style="color: var(--warning); margin-bottom: 8px;">O que é Backpressure?</h4>
+          <p style="color: var(--text-secondary); font-size: 14px;">
+            Backpressure é um mecanismo de controle de fluxo que impede que um produtor mais
+            rápido (FFmpeg) sobrecarregue um consumidor mais lento (cliente WebSocket). Ao
+            detectar que o buffer do cliente está cheio, o sistema pausa temporariamente o
+            envio de frames até que haja espaço disponível.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Métricas -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Métricas</h2>
+        <span class="section-subtitle">Estatísticas de operação</span>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">getStats()</h3>
+        <p class="card-subtitle">
+          Retorna estatísticas em tempo real sobre o estado do stream e conexões.
+        </p>
+
+        <div class="code-block" data-lang="javascript"><code>getStats() {
+  return {
+    clients: this.clients.size,        // Número de clients conectados
+    fps: this.currentFps,              // Frames por segundo atual
+    capturing: this.isCapturing,       // Estado de captura
+    bufferSize: this.buffer.length,    // Tamanho do buffer (bytes)
+    totalFrames: this.frameCount       // Total de frames processados
+  };
+}</code></div>
+
+        <div class="metrics-grid mt-8">
+          <div class="metric-card">
+            <div class="metric-value" id="stat-clients">0</div>
+            <div class="metric-label">Clientes</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="stat-fps">30</div>
+            <div class="metric-label">FPS</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="stat-buffer">512</div>
+            <div class="metric-label">Buffer (KB)</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-value" id="stat-status">ativo</div>
+            <div class="metric-label">Estado</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Métodos -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Métodos</h2>
+        <span class="section-subtitle">API da classe StreamManager</span>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Método</th>
+              <th>Assinatura</th>
+              <th>Descrição</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>constructor()</code></td>
+              <td><code>StreamManager()</code></td>
+              <td>Inicializa buffer (512KB), clients Set, contadores de FPS e frames</td>
+              <td><span class="badge badge-success">Ativo</span></td>
+            </tr>
+            <tr>
+              <td><code>addClient</code></td>
+              <td><code>addClient(ws: WebSocket)</code></td>
+              <td>Adiciona cliente, envia último frame, configura handler close</td>
+              <td><span class="badge badge-success">Ativo</span></td>
+            </tr>
+            <tr>
+              <td><code>startCapture</code></td>
+              <td><code>startCapture(stream: Readable)</code></td>
+              <td>Inicia leitura do pipe FFmpeg, acumula buffer, inicia extracao</td>
+              <td><span class="badge badge-success">Ativo</span></td>
+            </tr>
+            <tr>
+              <td><code>extractFrames</code></td>
+              <td><code>extractFrames()</code></td>
+              <td>Scan por SOI/EOI, detecta frames JPEG completos, atualiza buffer</td>
+              <td><span class="badge badge-success">Ativo</span></td>
+            </tr>
+            <tr>
+              <td><code>broadcastFrame</code></td>
+              <td><code>broadcastFrame(frame: Buffer)</code></td>
+              <td>Envia frame binário para todos os clients com backpressure check (128KB)</td>
+              <td><span class="badge badge-success">Ativo</span></td>
+            </tr>
+            <tr>
+              <td><code>stop</code></td>
+              <td><code>() => void</code></td>
+              <td>Para captura, limpa buffer, deleta clients, fecha conexoes</td>
+              <td><span class="badge badge-success">Ativo</span></td>
+            </tr>
+            <tr>
+              <td><code>getStats</code></td>
+              <td><code>() => Stats</code></td>
+              <td>Retorna { clients, fps, capturing, bufferSize, totalFrames }</td>
+              <td><span class="badge badge-success">Ativo</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Constantes -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Constantes</h2>
+        <span class="section-subtitle">Valores configuráveis do sistema</span>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Constante</th>
+              <th>Valor</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>SOI</code></td>
+              <td><code>0xFFD8</code></td>
+              <td>Start of Image - marcador inicial de frame JPEG</td>
+            </tr>
+            <tr>
+              <td><code>EOI</code></td>
+              <td><code>0xFFD9</code></td>
+              <td>End of Image - marcador final de frame JPEG</td>
+            </tr>
+            <tr>
+              <td><code>TARGET_FPS</code></td>
+              <td><code>30</code></td>
+              <td>Frames por segundo alvo do streaming</td>
+            </tr>
+            <tr>
+              <td><code>FRAME_INTERVAL</code></td>
+              <td><code>33.33ms</code></td>
+              <td>Intervalo entre frames (1000ms / 30 FPS)</td>
+            </tr>
+            <tr>
+              <td><code>INITIAL_BUFFER_SIZE</code></td>
+              <td><code>512KB</code></td>
+              <td>Tamanho inicial do buffer (cresce dinamicamente)</td>
+            </tr>
+            <tr>
+              <td><code>BACKPRESSURE_THRESHOLD</code></td>
+              <td><code>128KB</code></td>
+              <td>Limite de buffer de clientes antes do throttling</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Estrutura de Dados -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Estrutura de Dados</h2>
+        <span class="section-subtitle">Atributos da classe</span>
+      </div>
+
+      <div class="card">
+        <div class="code-block" data-lang="typescript"><code>class StreamManager {
+  // Clients ativos (WebSocket connections)
+  clients: Set&lt;WebSocket&gt;
+
+  // Buffer circular de bytes
+  buffer: Buffer;        // Dados acumulados do FFmpeg
+  frameStart: number;    // Índice do SOI atual
+
+  // Estatísticas
+  frameCount: number;    // Total de frames processados
+  currentFps: number;    // FPS atual calculado
+  isCapturing: boolean;  // Estado de captura
+
+  // Rate limiting
+  lastFrameTime: number; // Timestamp do último frame enviado
+  targetInterval: number; // Intervalo alvo (33.33ms)
+}</code></div>
+      </div>
+    </section>
+
+    <!-- Notas Técnicas -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Notas Técnicas</h2>
+        <span class="section-subtitle">Considerações de implementação</span>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Buffer Dinâmico</h3>
+        <p class="card-subtitle">
+          O buffer de 512KB inicial é apenas um ponto de partida. O método <code>extractFrames()</code>
+          atualiza continuamente o buffer, consumindo frames processados e preservando bytes pendentes.
+          O buffer cresce automaticamente se houver latência no processamento.
+        </p>
+
+        <h3 class="card-title mt-8">Formato MJPEG</h3>
+        <p class="card-subtitle">
+          MJPEG (Motion JPEG) é uma sequência de imagens JPEG independentes. Cada frame é uma imagem
+          JPEG completa, permitindo que o cliente renderize frame por frame sem dependências.
+          Isso é ideal para streaming de baixa latência via WebSocket.
+        </p>
+
+        <h3 class="card-title mt-8">WebSocket Backpressure</h3>
+        <p class="card-subtitle">
+          Cada WebSocket no Node.js tem um buffer interno. A resposta verifica <code>ws.bufferSize</code>
+          para evitar acumulação. Clientes lentos podem perder frames, mas não causam vazamento de memória.
+          Isso é comportamento aceitável para streaming em tempo real.
+        </p>
+
+        <h3 class="card-title mt-8">Cleanup</h3>
+        <p class="card-subtitle">
+          O método <code>stop()</code> deve ser chamado ao encerrar sessões para evitar memory leaks.
+          Ele limpa o buffer, remove todos os clients do Set e fecha todas as conexões WebSocket abertas.
+        </p>
+      </div>
+    </section>
+
+    <!-- Integração -->
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Integração</h2>
+        <span class="section-subtitle">Relacionamento com outros agents</span>
+      </div>
+
+      <div class="card">
+        <div class="agent-grid">
+          <div class="agent-card">
+            <div class="agent-header">
+              <div class="agent-number">01</div>
+              <div>
+                <h4 class="agent-title">Orchestrator Agent</h4>
+                <span class="agent-file">agents/orchestrator.js</span>
+              </div>
+            </div>
+            <p class="agent-desc">
+              Cria instância do StreamManager e chama startCapture() quando FFmpeg inicia.
+            </p>
+          </div>
+
+          <div class="agent-card">
+            <div class="agent-header">
+              <div class="agent-number">—</div>
+              <div>
+                <h4 class="agent-title">FFmpeg</h4>
+                <span class="agent-file">processo externo</span>
+              </div>
+            </div>
+            <p class="agent-desc">
+              Pipe stdout alimenta o stream manager para detecção e broadcast de frames.
+            </p>
+          </div>
+
+          <div class="agent-card">
+            <div class="agent-header">
+              <div class="agent-number">03</div>
+              <div>
+                <h4 class="agent-title">Control Agent</h4>
+                <span class="agent-file">agents/control.js</span>
+              </div>
+            </div>
+            <p class="agent-desc">
+              Não interage diretamente, mas compartilha o mesmo ciclo de vida da sessão.
+            </p>
+          </div>
+
+          <div class="agent-card">
+            <div class="agent-header">
+              <div class="agent-number">—</div>
+              <div>
+                <h4 class="agent-title">Clientes WebSocket</h4>
+                <span class="agent-file">navegadores</span>
+              </div>
+            </div>
+            <p class="agent-desc">
+              Recebem frames MJPEG e renderizam via tag IMG ou canvas decode.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <div class="container">
+      <p>Serende Documentation — Stream Manager Agent</p>
+      <p style="margin-top: 8px; color: var(--text-muted);">
+        Versão 2.0.0 | Documentação gerada automaticamente
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

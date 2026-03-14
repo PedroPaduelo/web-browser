@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security Middleware Agent - Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header>
+    <div class="container header-content">
+      <div>
+        <h1>Security Middleware Agent</h1>
+        <p class="subtitle">Pipeline de segurança completo para aplicações Express</p>
+      </div>
+      <span class="badge badge-danger">Crítico</span>
+    </div>
+  </header>
+
+  <main class="container">
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Pipeline</h2>
+        <span class="section-subtitle">Ordem de execução dos middlewares</span>
+      </div>
+
+      <div class="flow-diagram">
+┌─────────────────────────────────────────────────────────────────────┐
+│                         INCOMING REQUEST                             │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  1. TRUST PROXY                                                   │
+│     └─ app.set('trust proxy', 1) ──> Reconhece EasyPanel proxy    │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  2. HELMET                                                       │
+│     ├─ Strict-Transport-Security (HSTS)                           │
+│     ├─ X-Frame-Options (DENY)                                     │
+│     ├─ X-Content-Type-Options (nosniff)                           │
+│     ├─ Referrer-Policy (strict-origin-when-cross-origin)         │
+│     ├─ Permissions-Policy (geolocation=(), camera=())             │
+│     ├─ Content-Security-Policy ──> ⚠️ Desabilitado                │
+│     └─ Cross-Origin-Embedder-Policy ──> ⚠️ Desabilitado          │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  3. CORS                                                         │
+│     ├─ Origin: Configurável via CORS_ORIGIN (default: *)         │
+│     ├─ Methods: GET, POST, DELETE, PATCH, OPTIONS                │
+│     └─ Headers: Content-Type, Authorization, x-admin-secret,     │
+│                 x-api-key                                          │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  4. BODY PARSER                                                 │
+│     └─ express.json({ limit: '1mb' })                            │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  5. GLOBAL RATE LIMITER                                         │
+│     ├─ Window: RATE_LIMIT_WINDOW_MS (default: 60000ms)          │
+│     ├─ Max: RATE_LIMIT_MAX_REQUESTS (default: 100)              │
+│     └─ Armazenamento: Memória (por IP)                           │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  6. REQUEST ID GENERATOR                                        │
+│     └─ UUID v4 (8 caracteres) ──> Header X-Request-Id           │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  7. AUTH ROUTES ──> Rate Limiter Específico                     │
+│     ├─ Limite: 5 tentativas por IP                              │
+│     ├─ Janela: 60 segundos                                      │
+│     └─ Cleanup: A cada 5 minutos                                │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  8. STRUCTURED LOGGING                                          │
+│     └─ console.log/error/warn ──> JSON com requestId            │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  9. ROUTE HANDLERS ──> Seus endpoints aqui                      │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 10. ERROR HANDLER ──> response.json({ error, requestId })       │
+│     (Exibe stack trace em NODE_ENV !== 'production')            │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 11. 404 CATCH-ALL ──> { error: 'Not found', requestId }         │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                        RESPONSE SENT                              │
+└─────────────────────────────────────────────────────────────────────┘
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Rate Limiting</h2>
+        <span class="section-subtitle">Duas camadas de proteção</span>
+      </div>
+
+      <div class="agent-grid">
+        <div class="agent-card">
+          <div class="agent-header">
+            <span class="agent-number">1</span>
+            <div>
+              <div class="agent-title">Rate Limiter Global</div>
+              <div class="agent-file">app.use(rateLimit(...))</div>
+            </div>
+          </div>
+          <div class="agent-desc">
+            Aplica a todos os endpoints da API. Configurável via variáveis de ambiente.
+            Protege contra ataques de negação de serviço distribuído.
+          </div>
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-value">100</div>
+              <div class="metric-label">req/window (padrão)</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-value">60s</div>
+              <div class="metric-label">janela (padrão)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="agent-card">
+          <div class="agent-header">
+            <span class="agent-number">2</span>
+            <div>
+              <div class="agent-title">Login Rate Limiter</div>
+              <div class="agent-file">/auth/login</div>
+            </div>
+          </div>
+          <div class="agent-desc">
+            Proteção específica para endpoint de autenticação. Previne força bruta
+            com limitação rigorosa e limpeza automática de registros.
+          </div>
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-value">5</div>
+              <div class="metric-label">tentativas/IP</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-value">60s</div>
+              <div class="metric-label">janela fixa</div>
+            </div>
+          </div>
+          <div class="mt-4">
+            <span class="badge badge-info">Cleanup a cada 5min</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Headers de Segurança</h2>
+        <span class="section-subtitle">Configuração do Helmet.js</span>
+      </div>
+
+      <div class="card">
+        <div class="card-subtitle">
+          O Helmet é configurado com proteções padrão, mas com <strong>CSP e COEP desabilitados</strong>
+          para garantir compatibilidade com funcionalidades que utilizam iframes ou cross-origin.
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Header</th>
+              <th>Valor</th>
+              <th>Status</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Strict-Transport-Security</code></td>
+              <td><code>max-age=31536000</code></td>
+              <td><span class="badge badge-success">Ativo</span></td>
+              <td>Força HTTPS por 1 ano</td>
+            </tr>
+            <tr>
+              <td><code>X-Frame-Options</code></td>
+              <td><code>DENY</code></td>
+              <td><span class="badge badge-success">Ativo</span></td>
+              <td>Previne clickjacking</td>
+            </tr>
+            <tr>
+              <td><code>X-Content-Type-Options</code></td>
+              <td><code>nosniff</code></td>
+              <td><span class="badge badge-success">Ativo</span></td>
+              <td>Evita MIME-sniffing</td>
+            </tr>
+            <tr>
+              <td><code>Referrer-Policy</code></td>
+              <td><code>strict-origin-when-cross-origin</code></td>
+              <td><span class="badge badge-success">Ativo</span></td>
+              <td>Controla informação de referrer</td>
+            </tr>
+            <tr>
+              <td><code>Permissions-Policy</code></td>
+              <td><code>geolocation=(), camera=()</code></td>
+              <td><span class="badge badge-success">Ativo</span></td>
+              <td>Desativa APIs sensíveis</td>
+            </tr>
+            <tr>
+              <td><code>Content-Security-Policy</code></td>
+              <td><code>Desabilitado</code></td>
+              <td><span class="badge badge-warning">Desativado</span></td>
+              <td>Compatibilidade com iframes COOP/COEP</td>
+            </tr>
+            <tr>
+              <td><code>Cross-Origin-Embedder-Policy</code></td>
+              <td><code>Desabilitado</code></td>
+              <td><span class="badge badge-warning">Desativado</span></td>
+              <td>Necessário para SharedArrayBuffer</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">CORS</h2>
+        <span class="section-subtitle">Cross-Origin Resource Sharing configurável</span>
+      </div>
+
+      <div class="card">
+        <div class="card-subtitle">
+          Configuração flexível via variável de ambiente <code>CORS_ORIGIN</code>.
+          Suporta múltiplas origens separadas por vírgula.
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Configuração</th>
+              <th>Valor Padrão</th>
+              <th>Variável de Ambiente</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Origin</td>
+              <td><code>*</code> (qualquer origem)</td>
+              <td><code>CORS_ORIGIN</code></td>
+            </tr>
+            <tr>
+              <td>Methods</td>
+              <td><code>GET, POST, DELETE, PATCH, OPTIONS</code></td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td>Allowed Headers</td>
+              <td><code>Content-Type, Authorization, x-admin-secret, x-api-key</code></td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td>Credentials</td>
+              <td><code>false</code></td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td>Max Age</td>
+              <td><code>86400</code> (24h)</td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="code-block mt-8" data-lang="javascript">
+cors: (
+  process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()) ||
+  ['*']
+)
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Logging Estruturado</h2>
+        <span class="section-subtitle">JSON logs com contexto</span>
+      </div>
+
+      <div class="card">
+        <div class="card-subtitle mb-8">
+          O sistema sobrescreve <code>console.log</code>, <code>console.error</code> e <code>console.warn</code>
+          para gerar logs estruturados em formato JSON automaticamente.
+        </div>
+
+        <div class="code-block" data-lang="json">
+{
+  "timestamp": "2025-03-14T02:21:00.123Z",
+  "level": "info",
+  "requestId": "a1b2c3d4",
+  "method": "POST",
+  "path": "/api/auth/login",
+  "statusCode": 200,
+  "responseTime": 145,
+  "message": "Login successful",
+  "userId": "user_12345"
+}
+        </div>
+
+        <div class="code-block mt-4" data-lang="json">
+{
+  "timestamp": "2025-03-14T02:21:05.456Z",
+  "level": "error",
+  "requestId": "e5f6g7h8",
+  "method": "POST",
+  "path": "/api/auth/login",
+  "statusCode": 401,
+  "message": "Invalid credentials",
+  "ip": "192.168.1.100"
+}
+        </div>
+
+        <div class="legend-grid mt-8">
+          <div class="legend-item">
+            <div class="legend-color" style="background: #22c55e;"></div>
+            <span><code>timestamp</code> — Data/hora UTC</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: #3b82f6;"></div>
+            <span><code>level</code> — info | warn | error</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: #f59e0b;"></div>
+            <span><code>requestId</code> — Rastreabilidade</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-color" style="background: #06b6d4;"></div>
+            <span><code>responseTime</code> — Tempo em ms</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Error Handler</h2>
+        <span class="section-subtitle">Tratamento centralizado de erros</span>
+      </div>
+
+      <div class="card">
+        <div class="card-subtitle mb-8">
+          O error handler captura todas as exceções não tratadas e retorna resposta JSON
+          consistente com <code>requestId</code> para rastreamento. Stack trace completo em desenvolvimento.
+        </div>
+
+        <div class="code-block" data-lang="json">
+{
+  "error": "Internal Server Error",
+  "requestId": "a1b2c3d4",
+  "message": "Database connection failed",
+  "stack": "Error: Database connection failed\n    at Pool.connect..."
+}
+        </div>
+
+        <div class="code-block mt-4" data-lang="json">
+{
+  "error": "Validation Error",
+  "requestId": "e5f6g7h8",
+  "message": "Invalid email format"
+}
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Variáveis de Ambiente</h2>
+        <span class="section-subtitle">Configuração do Security Middleware</span>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Variável</th>
+            <th>Padrão</th>
+            <th>Descrição</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>NODE_ENV</code></td>
+            <td><code>development</code></td>
+            <td>Ambiente (production|development|test)</td>
+          </tr>
+          <tr>
+            <td><code>TRUST_PROXY</code></td>
+            <td><code>1</code></td>
+            <td>Nível de confiança do proxy EasyPanel</td>
+          </tr>
+          <tr>
+            <td><code>CORS_ORIGIN</code></td>
+            <td><code>*</code></td>
+            <td>Origem(es) permitida, separadas por vírgula</td>
+          </tr>
+          <tr>
+            <td><code>RATE_LIMIT_WINDOW_MS</code></td>
+            <td><code>60000</code></td>
+            <td>Janela de rate limit em milissegundos</td>
+          </tr>
+          <tr>
+            <td><code>RATE_LIMIT_MAX_REQUESTS</code></td>
+            <td><code>100</code></td>
+            <td>Máximo de requisições por janela</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="section-header">
+        <h2 class="section-title">Implementação</h2>
+        <span class="section-subtitle">Referência no código fonte</span>
+      </div>
+
+      <div class="code-block" data-lang="javascript">
+// index.js — Security Middleware Pipeline
+
+// 1. Trust Proxy (EasyPanel)
+app.set('trust proxy', parseInt(process.env.TRUST_PROXY) || 1);
+
+// 2. Helmet Security Headers
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
+  })
+);
+
+// 3. CORS
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()) || ['*'],
+    methods: ['GET', 'POST', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-secret', 'x-api-key'],
+    credentials: false,
+    maxAge: 86400
+  })
+);
+
+// 4. Body Parser
+app.use(express.json({ limit: '1mb' }));
+
+// 5. Global Rate Limiter
+const globalLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use(globalLimiter);
+
+// 6. Request ID Generator
+app.use((req, res, next) => {
+  req.id = crypto.randomUUID().slice(0, 8);
+  res.setHeader('X-Request-Id', req.id);
+  next();
+});
+
+// 7. Auth Rate Limiter (specific to /auth routes)
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: { error: 'Muitas tentativas de login', retryAfter: 60 }
+});
+
+// 8. Structured Logging
+console.log = (...args) => logger('info', ...args);
+console.error = (...args) => logger('error', ...args);
+console.warn = (...args) => logger('warn', ...args);
+
+// 9. Error Handler (after all routes)
+app.use(errorHandler);
+
+// 10. 404 Handler (catch-all)
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found', requestId: req.id });
+});
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>Serende Documentation — Security Middleware Agent</p>
+      <p class="mt-4" style="color: var(--text-muted);">
+        Pipeline de segurança implementado com Express.js, Helmet, rate-limit e logging estruturado.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

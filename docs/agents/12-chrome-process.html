@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chrome Process Agent | Serende</title>
+  <link rel="stylesheet" href="../styles.css" />
+  <style>
+    body { background: #0f1117; color: #f5f5f5; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .badge { display: inline-flex; align-items: center; background: #2f2f3a; color: #d6d6e6; border-radius: 999px; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; padding: .2rem .58rem; margin-left: .5rem; border: 1px solid #444; }
+    .badge-active { background: rgba(34, 197, 94, 0.2); color: #22c55e; border-color: rgba(34, 197, 94, 0.4); }
+    header h1 { margin: 0; font-size: 2rem; }
+    section { margin-top: 1.4rem; border: 1px solid #2b2d37; border-radius: 10px; background: #11131a; padding: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: .6rem; }
+    th, td { border: 1px solid #2b2d37; padding: .5rem .65rem; text-align: left; vertical-align: top; }
+    th { background:#1a1d28; color:#e6e8f0; }
+    td { background:#121622; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background:#1b1f2d; color:#d8d8ff; padding:.15rem .3rem; border-radius:4px; }
+    .diagram { background:#0d0f16; border:1px solid #2b2d37; border-radius:8px; padding:.8rem; margin-top:.4rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color:#e5e5ff; line-height:1.5; white-space: pre; }
+    .step { display: flex; gap: 1rem; margin-bottom: .8rem; align-items: flex-start; }
+    .step-num { background:#3b82f6; color:#fff; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.75rem; font-weight:700; flex-shrink:0; }
+    .step-content { flex:1; }
+    .step-title { font-weight:600; color:#60a5fa; margin-bottom:.2rem; font-size:.9rem; }
+    .timeline-item { margin-bottom: .8rem; padding-left: 1.5rem; border-left: 2px solid #2b2d37; position:relative; }
+    .timeline-item::before { content:''; position:absolute; left:-6px; top:0; width:10px; height:10px; background:#3b82f6; border-radius:50%; border:2px solid #0f1117; }
+    .timeline-time { font-size:.75rem; color:#737373; margin-bottom:.25rem; }
+    .timeline-actor { font-weight:600; color:#60a5fa; font-size:.85rem; margin-bottom:.2rem; }
+    .timeline-action { color:#a1a1aa; font-size:.85rem; }
+    footer { margin-top: 2rem; color:#a9afc6; font-size:.9rem; border-top:1px solid #2b2d37; padding-top:1.5rem; }
+    .env-block { background:#0d0f16; border:1px solid #2b2d37; border-radius:8px; padding:.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color:#e5e5ff; font-size:.85rem; margin-top:.4rem; }
+    .exit-desc { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 1rem; margin-top: .8rem; }
+    .exit-desc h4 { color:#ef4444; margin:0 0 .5rem 0; font-size:.9rem; }
+    .exit-desc ul { margin:0; padding-left:1.2rem; color:#a1a1aa; font-size:.85rem; }
+    .exit-desc li { margin-bottom:.3rem; }
+    .polling-diagram { font-size:.8rem; line-height:1.6; }
+    .polling-step { margin-bottom:.4rem; color:#a1a1aa; }
+    .polling-step strong { color:#f5f5f5; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div style="display:flex; align-items:center; gap:.4rem;">
+        <h1>Chrome Process Agent</h1>
+        <span class="badge badge-active">Ativo</span>
+      </div>
+      <p style="margin:.5rem 0 0; color:#c8cde3;">Agente responsável por gerenciar o ciclo de vida do Chrome headless, incluindo spawn e monitoramento via CDP.</p>
+    </header>
+
+    <section>
+      <h2>Visão Geral</h2>
+      <p style="color:#a1a1aa; font-size:.9rem; margin-top:.5rem;">
+        Implementado em <span class="code">session-manager.js</span>, o Chrome Process Agent é responsável por criar, configurar e gerenciar instâncias do navegador Chrome em modo headless. Gerencia todo o lifecycle do processo, desde o spawn inicial até o encerramento, monitorando a conectividade via Chrome DevTools Protocol (CDP) e lidando com eventos de saída.
+      </p>
+    </section>
+
+    <section>
+      <h2>Chrome Flags</h2>
+      <p style="color:#a1a1aa; font-size:.85rem; margin-bottom:.8rem;">
+        O agente configura o Chrome com 25+ flags de linha de comando otimizadas para execução em ambientes headless e containers:
+      </p>
+      <table>
+        <thead>
+          <tr><th>Flag</th><th>Descrição</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="code">--no-sandbox</span></td><td>Desativa o sandbox de segurança. Necessário para containers Docker com privilégios restritos.</td></tr>
+          <tr><td><span class="code">--disable-gpu</span></td><td>Desabilita aceleração GPU. Evita problemas em ambientes sem acesso a GPUs ou com drivers incompatíveis.</td></tr>
+          <tr><td><span class="code">--disable-dev-shm-usage</span></td><td>Força o uso do sistema de arquivos comum em vez de /dev/shm. Previne erros de memória insuficiente em containers.</td></tr>
+          <tr><td><span class="code">--no-first-run</span></td><td>Pula a tela de primeira execução e configurações iniciais.</td></tr>
+          <tr><td><span class="code">--no-default-browser-check</span></td><td>Desativa verificação de navegador padrão para evitar popups.</td></tr>
+          <tr><td><span class="code">--disable-translate</span></td><td>Desativa o tradutor automático do Chrome.</td></tr>
+          <tr><td><span class="code">--disable-background-networking</span></td><td>Desabilita requisições de rede em background (atualizações, relatórios).</td></tr>
+          <tr><td><span class="code">--disable-background-timer-throttling</span></td><td>Impede que timers sejam limitados em páginas em background.</td></tr>
+          <tr><td><span class="code">--disable-backgrounding-occluded-windows</span></td><td>Evita que janelas ocluídas tenham prioridade reduzida.</td></tr>
+          <tr><td><span class="code">--disable-renderer-backgrounding</span></td><td>Mantém renderizadores ativos mesmo em background.</td></tr>
+          <tr><td><span class="code">--disable-ipc-flooding-protection</span></td><td>Desativa proteção contra flooding de mensagens IPC, útil para automação intensiva.</td></tr>
+          <tr><td><span class="code">--disable-hang-monitor</span></td><td>Desativa o monitor de travamento que poderia interromper scripts de automação.</td></tr>
+          <tr><td><span class="code">--disable-component-update</span></td><td>Previne atualizações automáticas de componentes durante a execução.</td></tr>
+          <tr><td><span class="code">--disable-domain-reliability</span></td><td>Desativa coleta de métricas de confiabilidade de domínio.</td></tr>
+          <tr><td><span class="code">--disable-features=TranslateUI</span></td><td>Remove completamente a interface de tradução.</td></tr>
+          <tr><td><span class="code">--metrics-recording-only</span></td><td>Permite coleta de métricas sem enviá-las (modo somente leitura).</td></tr>
+          <tr><td><span class="code">--no-pings</span></td><td>Desativa ping de sites visitados para estatísticas.</td></tr>
+          <tr><td><span class="code">--user-data-dir=&lt;path&gt;</span></td><td>Diretório de dados do usuário para persistir sessão, cookies e configurações.</td></tr>
+          <tr><td><span class="code">--window-size=WxH</span></td><td>Define dimensões da janela do Chrome (ex: <span class="code">1280x720</span>).</td></tr>
+          <tr><td><span class="code">--window-position=0,0</span></td><td>Posição da janela no display virtual.</td></tr>
+          <tr><td><span class="code">--autoplay-policy=no-user-gesture-required</span></td><td>Permite autoplay de mídia sem interação do usuário.</td></tr>
+          <tr><td><span class="code">--start-maximized</span></td><td>Inicia com a janela maximizada.</td></tr>
+          <tr><td><span class="code">--remote-debugging-port=&lt;port&gt;</span></td><td>Porta para conexão CDP (Chrome DevTools Protocol).</td></tr>
+          <tr><td><span class="code">--remote-debugging-address=127.0.0.1</span></td><td>Endereço de escuta para debug remoto (localhost por segurança).</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Flag Opcional</h2>
+      <table style="border:none; background:transparent; padding:0;">
+        <thead style="display:none;">
+          <tr><th>Flag</th><th>Descrição</th></tr>
+        </thead>
+        <tbody style="background:transparent; border:none;">
+          <tr style="background:transparent; border:none;">
+            <td style="background:transparent; border:none; width:280px;">
+              <span class="code">--load-extension=&lt;path&gt;</span>
+            </td>
+            <td style="background:transparent; border:none; color:#a1a1aa;">
+              Carrega extensões Chrome customizadas. Usado para modificar comportamento do navegador, injeção de scripts ou manipulação de tráfego. Múltiplas extensões separadas por vírgulas.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Startup Sequence</h2>
+      <p style="color:#a1a1aa; font-size:.85rem; margin-bottom:1rem;">
+        Sequência de inicialização do processo Chrome:
+      </p>
+      <div style="margin-top:.8rem;">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <div class="step-title">Preparação das Variáveis de Ambiente</div>
+            <div class="timeline-action">Configura LD_LIBRARY_PATH e variáveis necessárias para a biblioteca do Chrome antes do spawn.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <div class="step-title">Spawn do Processo</div>
+            <div class="timeline-action">Executa <span class="code">chrome-install/opt/google/chrome/google-chrome</span> com os arguments configurados.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <div class="step-title">Initial Handshake</div>
+            <div class="timeline-action">Processo Chrome é iniciado e começa a escutar na porta de debugging configurada.</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <div class="step-title">CDP Polling</div>
+            <div class="timeline-action">Agente verifica se o endpoint <span class="code">/json/version</span> está respondendo (ver seção abaixo).</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">5</div>
+          <div class="step-content">
+            <div class="step-title">Ready</div>
+            <div class="timeline-action">Chrome está pronto para receber comandos via CDP. Sessão é marcada como ativa.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>CDP Readiness</h2>
+      <p style="color:#a1a1aa; font-size:.85rem; margin-bottom:.8rem;">
+        O agente aguarda o Chrome estar pronto para conexão CDP através de polling no endpoint <span class="code">/json/version</span>:
+      </p>
+      <div class="polling-diagram diagram">
+        1. Inicia polling: GET http://127.0.0.1:<porta>/json/version
+        2. Intervalo: 500ms entre tentativas
+        3. Máximo de tentativas: 15
+        4. Timeout total: 7.5 segundos
+        5. Se sucesso: CDP pronto, retorna WebSocket URL
+        6. Se falhar após 15 tentativas: erro de timeout, sessão abortada
+      </div>
+      <div style="margin-top:1rem;">
+        <div class="timeline-item">
+          <div class="timeline-time">t = 0ms</div>
+          <div class="timeline-actor">Chrome Process Agent</div>
+          <div class="timeline-action">Inicia Chrome com remote-debugging-port configurado</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">t = ~500-1500ms</div>
+          <div class="timeline-actor">Chrome</div>
+          <div class="timeline-action">Processo inicializado, endpoint /json/version disponível</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">t = Primeiro sucesso polling</div>
+          <div class="timeline-actor">Chrome Process Agent</div>
+          <div class="timeline-action">Recebe resposta JSON com WebSocketURL, CDP conectado</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-time">t = Pronto</div>
+          <div class="timeline-actor">Sistema</div>
+          <div class="timeline-action">Sessão ativa e pronta para execução de páginas</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Environment Configuration</h2>
+      <p style="color:#a1a1aa; font-size:.85rem; margin-bottom:.5rem;">
+        O agente configura <span class="code">LD_LIBRARY_PATH</span> para garantir que o Chrome encontre suas bibliotecas compartilhadas no ambiente containerizado:
+      </p>
+      <div class="env-block">
+LD_LIBRARY_PATH="/chrome-install/opt:/chrome-install/usr/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH
+      </div>
+      <div style="margin-top:1rem; color:#a1a1aa; font-size:.85rem;">
+        <p><strong>Caminhos configurados:</strong></p>
+        <ul style="margin:.5rem 0 0 1.2rem; padding:0;">
+          <li><span class="code">/chrome-install/opt</span> - Biblioteca principal do Chrome</li>
+          <li><span class="code">/chrome-install/usr/lib</span> - Bibliotecas do sistema do Chrome</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>Exit Handler</h2>
+      <p style="color:#a1a1aa; font-size:.85rem; margin-bottom:.8rem;">
+        O agente monitora o evento <span class="code">exit</span> do processo Chrome para clean-up e notificação:
+      </p>
+      <div class="timeline" style="padding-left:1.5rem; border-left:2px solid #2b2d37;">
+        <div class="timeline-item" style="padding-left:1.5rem;">
+          <div class="timeline-actor" style="color:#f59e0b;">Chrome Process</div>
+          <div class="timeline-action">Emite evento 'exit' com código de saída</div>
+        </div>
+        <div class="timeline-item" style="padding-left:1.5rem;">
+          <div class="timeline-actor" style="color:#3b82f6;">Exit Handler</div>
+          <div class="timeline-action">Recebe evento, chama <span class="code">stopSession()</span></div>
+        </div>
+        <div class="timeline-item" style="padding-left:1.5rem;">
+          <div class="timeline-actor" style="color:#3b82f6;">Stop Session</div>
+          <div class="timeline-action">Limpa recursos, encerra conexões CDP</div>
+        </div>
+        <div class="timeline-item" style="padding-left:1.5rem;">
+          <div class="timeline-actor" style="color:#3b82f6;">Callback</div>
+          <div class="timeline-action">Invoca <span class="code">onSessionDiedCallback</span> com código de saída</div>
+        </div>
+        <div class="timeline-item" style="padding-left:1.5rem;">
+          <div class="timeline-actor" style="color:#22c55e;">Session Manager</div>
+          <div class="timeline-action">Remove sessição do pool ativo, decide se deve recriar</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Error Handling</h2>
+      <p style="color:#a1a1aa; font-size:.85rem; margin-bottom:.8rem;">
+        O agente lida com diferentes cenários de falha durante o lifecycle do Chrome:
+      </p>
+      <div class="exit-desc">
+        <h4>Exit Codes Comuns</h4>
+        <ul>
+          <li><strong>0</strong> - Encerramento normal (sessão finalizada por usuário)</li>
+          <li><strong>1</strong> - Erro genérico (crash ou initial failure)</li>
+          <li><strong>Signal-based</strong> - Processo morto por signal (SIGKILL, SIGTERM, etc.)</li>
+          <li><strong>null</strong> - Processo terminado inesperadamente (kill -9)</li>
+        </ul>
+      </div>
+      <div style="margin-top:1rem; color:#a1a1aa; font-size:.85rem;">
+        <p><strong>Timeout CDP:</strong> Se o polling não obtiver resposta em 7.5s, a sessão é marcada como falha e o processo é killado automaticamente.</p>
+        <p style="margin-top:.5rem;"><strong>Spawn Failure:</strong> Se o Chrome não iniciar (executable inválido ou permissões), o erro é propagado para o Session Manager.</p>
+        <p style="margin-top:.5rem;"><strong>Unexpected Exit:</strong> Quando o Chrome crasha durante execução, o <span class="code">onSessionDiedCallback</span> é invocado e o Session Manager pode optar por recriar a sessão automaticamente.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Chrome Binary</h2>
+      <p style="color:#a1a1aa; font-size:.85rem;">
+        O executável do Chrome é carregado do caminho absoluto:
+      </p>
+      <div class="code-block" data-lang="path">
+chrome-install/opt/google/chrome/google-chrome
+      </div>
+    </section>
+
+    <footer>
+      <p>Documentação do Chrome Process Agent para Serende. Implementação principal em <span class="code">session-manager.js</span>. Versão 1.0.</p>
+    </footer>
+  </div>
+</body>
+</html>

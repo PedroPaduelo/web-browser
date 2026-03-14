@@ -1,0 +1,71 @@
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import { login as authLogin, logout as authLogout, isAuthenticated as checkAuth, getTenantId, getToken } from '../lib/auth-client'
+
+interface AuthContextType {
+  isAuthenticated: boolean
+  tenantId: string | null
+  userId: string | null
+  loading: boolean
+  login: (apiKey: string) => Promise<void>
+  logout: () => void
+}
+
+const AuthContext = createContext<AuthContextType>(null!)
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [authenticated, setAuthenticated] = useState(false)
+  const [tenantId, setTenantId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (checkAuth()) {
+      const token = getToken()
+      if (token) {
+        fetch('/api/auth/verify', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then(res => {
+            if (res.ok) return res.json()
+            throw new Error('Invalid token')
+          })
+          .then(data => {
+            setAuthenticated(true)
+            setTenantId(data.tenantId || data.userId)
+          })
+          .catch(() => {
+            authLogout()
+            setAuthenticated(false)
+            setTenantId(null)
+          })
+          .finally(() => setLoading(false))
+      } else {
+        setLoading(false)
+      }
+    } else {
+      authLogout()
+      setLoading(false)
+    }
+  }, [])
+
+  const login = useCallback(async (apiKey: string) => {
+    const data = await authLogin(apiKey)
+    setAuthenticated(true)
+    setTenantId(data.tenantId)
+  }, [])
+
+  const logout = useCallback(() => {
+    authLogout()
+    setAuthenticated(false)
+    setTenantId(null)
+  }, [])
+
+  return (
+    <AuthContext.Provider value={{ isAuthenticated: authenticated, tenantId, userId: tenantId, loading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth() {
+  return useContext(AuthContext)
+}

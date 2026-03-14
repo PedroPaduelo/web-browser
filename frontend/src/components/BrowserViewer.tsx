@@ -1,16 +1,17 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect } from 'react'
 import { useInputRelay } from '../hooks/useInputRelay'
 
 interface Props {
   setCanvas: (canvas: HTMLCanvasElement | null) => void
   resolution?: { width: number; height: number }
+  sessionId: string | null
 }
 
-export default function BrowserViewer({ setCanvas, resolution = { width: 1280, height: 720 } }: Props) {
+export default function BrowserViewer({ setCanvas, resolution = { width: 1280, height: 720 }, sessionId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  useInputRelay(canvasRef, containerRef, true, resolution)
+  useInputRelay(canvasRef, containerRef, true, resolution, sessionId)
 
   useEffect(() => {
     setCanvas(canvasRef.current)

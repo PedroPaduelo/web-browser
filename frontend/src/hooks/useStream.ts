@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createWsClient, type ConnectionState } from '../lib/ws-client'
+import { getAuthWsUrl } from '../lib/auth-client'
 
 interface StreamState {
   isConnected: boolean
@@ -7,7 +8,7 @@ interface StreamState {
   connectionState: ConnectionState
 }
 
-export function useStream(active: boolean) {
+export function useStream(active: boolean, sessionId: string | null) {
   const [state, setState] = useState<StreamState>({
     isConnected: false,
     fps: 0,
@@ -22,11 +23,9 @@ export function useStream(active: boolean) {
   }, [])
 
   useEffect(() => {
-    if (!active) return
+    if (!active || !sessionId) return
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/stream`
-
+    const wsUrl = getAuthWsUrl('/ws/stream', sessionId)
     const ws = createWsClient()
 
     ws.onStateChange((s) => {
@@ -39,16 +38,21 @@ export function useStream(active: boolean) {
 
     let pendingFrame: ImageBitmap | null = null
     let rafId = 0
+    let ctx: CanvasRenderingContext2D | null = null
+    let currentCanvas: HTMLCanvasElement | null = null
 
     function renderFrame() {
       if (pendingFrame) {
         const canvas = canvasRef.current
         if (canvas) {
+          if (canvas !== currentCanvas) {
+            currentCanvas = canvas
+            ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })
+          }
           const w = pendingFrame.width
           const h = pendingFrame.height
           if (canvas.width !== w) canvas.width = w
           if (canvas.height !== h) canvas.height = h
-          const ctx = canvas.getContext('2d')
           if (ctx) ctx.drawImage(pendingFrame, 0, 0)
         }
         pendingFrame.close()
@@ -60,8 +64,7 @@ export function useStream(active: boolean) {
 
     ws.onBinary((data) => {
       fpsRef.current.count++
-      const blob = new Blob([data], { type: 'image/jpeg' })
-      createImageBitmap(blob).then((bmp) => {
+      createImageBitmap(new Blob([data], { type: 'image/jpeg' })).then((bmp) => {
         if (pendingFrame) pendingFrame.close()
         pendingFrame = bmp
       }).catch(() => {})
@@ -72,7 +75,7 @@ export function useStream(active: boolean) {
     const fpsInterval = setInterval(() => {
       const fps = fpsRef.current.count
       fpsRef.current.count = 0
-      setState(prev => ({ ...prev, fps }))
+      setState(prev => prev.fps !== fps ? { ...prev, fps } : prev)
     }, 1000)
 
     return () => {
@@ -81,8 +84,10 @@ export function useStream(active: boolean) {
       cancelAnimationFrame(rafId)
       if (pendingFrame) { pendingFrame.close(); pendingFrame = null }
       fpsRef.current.count = 0
+      ctx = null
+      currentCanvas = null
     }
-  }, [active])
+  }, [active, sessionId])
 
   return { ...state, setCanvas }
 }

@@ -6,4 +6,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
   },
+  server: {
+    host: '0.0.0.0',
+    allowedHosts: ['serende.ddw1sl.easypanel.host', 'serende-frontend.ddw1sl.easypanel.host'],
+  },
 })
