@@ -338,7 +338,7 @@ async function getCdpClient(cdpPort) {
 
   if (!pageUrl) throw new Error('CDP not available');
 
-  const ws = await import('./node_modules/ws');
+  const ws = await import('./node_modules/ws/index.js');
   return new Promise((resolve, reject) => {
     const client = new ws.default(pageUrl);
     const pool = {
@@ -449,7 +449,7 @@ app.get('/api/screenshot/:sessionId', authMiddleware, trackActivity, async (req,
     const pageUrl = await getPageTargetWsUrl(session.cdpPort);
     if (!pageUrl) return res.status(500).json({ error: 'CDP not available' });
 
-    const ws = await import('./node_modules/ws');
+    const ws = await import('./node_modules/ws/index.js');
     const result = await new Promise((resolve, reject) => {
       const client = new ws.default(pageUrl);
       let id = 1;
