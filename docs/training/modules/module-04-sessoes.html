@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Treinamento — Módulo 4: Sessões — Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .training-nav { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 32px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); }
+    .training-nav .container { display: flex; justify-content: space-between; align-items: center; }
+    .training-nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; }
+    .training-nav a:hover { color: var(--accent); }
+    .progress-bar { height: 4px; background: var(--bg-tertiary); margin: 24px 0; border-radius: 2px; overflow: hidden; }
+    .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--info)); width: 50%; transition: width 0.3s ease; }
+    .module-meta { display: flex; gap: 24px; margin: 24px 0; flex-wrap: wrap; }
+    .module-meta .meta-item { background: var(--bg-secondary); border: 1px solid var(--border); padding: 12px 20px; border-radius: 8px; font-size: 14px; color: var(--text-secondary); }
+    .module-meta .meta-item strong { color: var(--text-primary); display: block; margin-bottom: 4px; font-size: 13px; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 12px; }
+    .checklist li:last-child { border-bottom: none; }
+    .checklist input[type="checkbox"] { margin-top: 4px; accent-color: var(--accent); width: 18px; height: 18px; }
+    pre { background: var(--bg-secondary); border: 1px solid var(--border); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    code { font-family: 'Monaco', 'Menlo', monospace; }
+    .info-box { background: rgba(6, 182, 212, 0.1); border-left: 4px solid var(--info); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .warning-box { background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--warning); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .timeline { margin: 24px 0; padding-left: 24px; border-left: 3px solid var(--accent); }
+    .timeline .event { position: relative; padding-left: 24px; margin-bottom: 20px; }
+    .timeline .event::before { content: ''; position: absolute; left: -9px; top: 4px; width: 12px; height: 12px; background: var(--accent); border-radius: 50%; }
+    .timeline .event strong { display: block; margin-bottom: 4px; }
+    .timeline .event .time { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+    th { background: var(--bg-tertiary); font-weight: 600; }
+    .module-nav { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+    .module-nav a { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; transition: all 0.2s ease; }
+    .module-nav a.prev { color: var(--text-secondary); border: 1px solid var(--border); }
+    .module-nav a.prev:hover { border-color: var(--accent); color: var(--accent); }
+    .module-nav a.next { background: var(--accent); color: white; }
+    .module-nav a.next:hover { background: var(--accent-hover); }
+  </style>
+</head>
+<body>
+  <nav class="training-nav">
+    <div class="container">
+      <a href="module-03-autenticacao.html">← Módulo 3: Autenticação</a>
+      <span>Treinamento • Módulo 4 de 8</span>
+      <a href="module-05-visualizacao.html">Próximo: Visualização →</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="progress-bar"><div class="fill"></div></div>
+
+    <article>
+      <header>
+        <h1>Módulo 4: Gerenciamento de Sessões</h1>
+        <p class="subtitle">Aprenda a criar, monitorar e encerrar sessões de browser remoto, entender o ciclo de vida e os recursos envolvidos.</p>
+      </header>
+
+      <section class="module-meta">
+        <div class="meta-item"><strong>Duração estimada</strong>30 minutos</div>
+        <div class="meta-item"><strong>Dificuldade</strong>Intermediário</div>
+        <div class="meta-item"><strong>Pré-requisitos</strong>Módulos 1-3</div>
+      </section>
+
+      <section>
+        <h2>🎯 Objetivos deste módulo</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" disabled><div><strong>Compreender o ciclo de vida de uma sessão</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Criação → Ativa → Timeout/Encerramento → Cleanup.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Saber criar e encerrar sessões via API</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Endpoints REST para gerenciar sessões.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Entender os recursos envolvidos</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Xvfb, Chrome, FFmpeg — quanto memória e CPU cada um consome.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Configurar timeout e cleanup</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">SESSION_TIMEOUT_MS e cleanup de processos órfãos.</p></div></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>🔄 Ciclo de Vida de uma Sessão</h2>
+
+        <div class="timeline">
+          <div class="event">
+            <strong>1. Solicitação de criação</strong>
+            <span class="time">POST /api/sessions com Authorization: Bearer &lt;token&gt;</span>
+            <p>Session Manager recebe a requisição e deriva o tenantId do token JWT.</p>
+          </div>
+          <div class="event">
+            <strong>2. Alocação de display (Xvfb)</strong>
+            <span class="time">~500ms</span>
+            <p>Session Manager aloca um display livre do pool (ex: :99, :100, :101...). Inicia Xvfb com resolução configurável (padrão: 1280x720).</p>
+          </div>
+          <div class="event">
+            <strong>3. Inicialização do Chrome</strong>
+            <span class="time">~3-5 segundos</span>
+            <p>Chrome é iniciado com flags headless, sandbox desabilitado, e remote-debugging-port=9222+N (ex: 9222, 9223...). O Chrome pointeda para o DISPLAY alocado.</p>
+          </div>
+          <div class="event">
+            <strong>4. Inicialização do FFmpeg</strong>
+            <span class="time">~1 segundo</span>
+            <p>FFmpeg captura a tela via x11grab do Xvfb (ex: -i :99.0) e codifica em MJPEG, multipart/x-mixed-replace.</p>
+          </div>
+          <div class="event">
+            <strong>5. Sessão ativa</strong>
+            <span class="time">Até timeout ou DELETE</span>
+            <p>A sessão está pronta. Frontend pode: (a) consumir stream MJPEG, (b) enviar inputs via POST ou WS, (c) executar comandos CDP.</p>
+          </div>
+          <div class="event">
+            <strong>6. Timeout ou encerramento</strong>
+            <span class="time">padrão: 6 minutos de inatividade</span>
+            <p>Session Manager verificaActivityTracker. Se não há atividade, a sessão é encerrada automaticamente.</p>
+          </div>
+          <div class="event">
+            <strong>7. Cleanup</strong>
+            <span class="time">~1 segundo</span>
+            <p>Processos (Xvfb, Chrome, FFmpeg) são terminados (kill). Recursos são liberados. Display retorna ao pool.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>📡 API de Sessões</h2>
+
+        <h3>Criar Sessão</h3>
+        <pre><code>POST /api/sessions
+Authorization: Bearer &lt;token&gt;
+Content-Type: application/json
+
+{
+  "url": "https://example.com",        // URL inicial (opcional)
+  "width": 1280,                       // Largura (opcional, padrão: 1280)
+  "height": 720,                       // Altura (opcional, padrão: 720)
+  "profileId": "meu-perfil",           // ID do perfil (opcional)
+  "record": false                      // Gravar sessão (opcional)
+}</code></pre>
+        <p><strong>Resposta (200):</strong></p>
+        <pre><code>{
+  "sessionId": "sess_abc123def456",
+  "tenantId": "acme-corp",
+  "display": ":100",
+  "cdpPort": 9223,
+  "streamUrl": "http://server:3333/api/sessions/sess_abc123def456/stream",
+  "wsUrl": "ws://server:3333/ws/stream?session=sess_abc123def456",
+  "inputWsUrl": "ws://server:3333/ws/input?session=sess_abc123def456"
+}</code></pre>
+
+        <h3>Listar Sessões Ativas</h3>
+        <pre><code>GET /api/sessions
+Authorization: Bearer &lt;token&gt;</code></pre>
+        <p><strong>Resposta (200):</strong></p>
+        <pre><code>{
+  "sessions": [
+    {
+      "sessionId": "sess_abc123",
+      "tenantId": "acme-corp",
+      "url": "https://google.com",
+      "display": ":100",
+      "cdpPort": 9223,
+      "createdAt": "2024-01-15T10:30:00Z",
+      "lastActivity": "2024-01-15T10:35:00Z"
+    }
+  ]
+}</code></pre>
+
+        <h3>Obter Status de Uma Sessão</h3>
+        <pre><code>GET /api/sessions/:sessionId
+Authorization: Bearer &lt;token&gt;</code></pre>
+
+        <h3>Encerrar Sessão</h3>
+        <pre><code>DELETE /api/sessions/:sessionId
+Authorization: Bearer &lt;token&gt;</code></pre>
+        <p><strong>Resposta (200):</strong></p>
+        <pre><code>{"message": "Session sess_abc123def456 terminated"}</code></pre>
+
+        <h3>Navegar para Nova URL</h3>
+        <pre><code>POST /api/sessions/:sessionId/navigate
+Authorization: Bearer &lt;token&gt;
+Content-Type: application/json
+
+{"url": "https://novaurl.com"}</code></pre>
+      </section>
+
+      <section>
+        <h2>⚙️ Configuração de Timeout</h2>
+
+        <table>
+          <thead><tr><th>Variável</th><th>Default</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>SESSION_TIMEOUT_MS</code></td><td>360000 (6 min)</td><td>Tempo máximo sem atividade antes de encerrar a sessão.</td></tr>
+            <tr><td><code>IDLE_CHECK_INTERVAL_MS</code></td><td>30000 (30 seg)</td><td>Frequência com que o Session Manager verifica sessões órfãs.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="warning-box">
+          <strong>⚠️ Importante:</strong> O timeout é baseado em <em>atividade</em> — não apenas tempo desde a criação. Cada input (mouse, teclado) reseta o timer. Sessões sem input por 6 minutos são encerradas automaticamente para liberar recursos.
+        </div>
+      </section>
+
+      <section>
+        <h2>💻 Criar Sessão — Exemplo Completo com curl</h2>
+
+        <pre><code># 1. Login para obter token
+TOKEN=$(curl -s -X POST http://localhost:3333/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"apiKey":"sk_demo_abc123"}' | jq -r .token)
+
+# 2. Criar sessão
+SESSION=$(curl -s -X POST http://localhost:3333/api/sessions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}')
+
+echo "$SESSION" | jq .
+
+# Saída:
+# {
+#   "sessionId": "sess_xyz789",
+#   "display": ":100",
+#   "cdpPort": 9223,
+#   "streamUrl": "http://localhost:3333/api/sessions/sess_xyz789/stream"
+# }
+
+# 3. Baixar stream (teste)
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:3333/api/sessions/sess_xyz789/stream" \
+  --output test.mjpeg
+
+# 4. Encerrar sessão
+curl -X DELETE http://localhost:3333/api/sessions/sess_xyz789 \
+  -H "Authorization: Bearer $TOKEN"</code></pre>
+      </section>
+
+      <section>
+        <h2>🔍 Monitoramento de Sessões</h2>
+
+        <h3>Verificar processos da sessão</h3>
+        <pre><code># Listar todos os processos relacionados
+ps aux | grep -E "(Xvfb|chrome|ffmpeg)" | grep -v grep
+
+# Verificar consumo de memória
+ps aux --sort=-rss | head -20 | grep -E "(Xvfb|chrome)"</code></p>
+
+        <h3>Métricas via API Admin</h3>
+        <pre><code># Requer ADMIN_SECRET no header
+curl http://localhost:3333/api/admin/stats \
+  -H "x-admin-secret: $ADMIN_SECRET"</code></pre>
+        <p>Retorna contagem de sessões ativas, memória total, e uptime.</p>
+
+        <h3>Eventos SSE (Server-Sent Events)</h3>
+        <pre><code># Receber eventos de atividade em tempo real
+curl -N http://localhost:3333/api/sessions/events \
+  -H "Authorization: Bearer $TOKEN"</code></pre>
+        <p>Eventos: <code>session_created</code>, <code>session_ended</code>, <code>activity</code>.</p>
+      </section>
+
+      <section>
+        <h2>⚠️ Limites e Boas Práticas</h2>
+
+        <ul style="padding-left: 24px; line-height: 1.8;">
+          <li><strong>Recursos por sessão:</strong> ~200-400 MB RAM (Chrome ~150MB, Xvfb ~30MB, FFmpeg ~20MB).</li>
+          <li><strong>Limite de sessões simultâneas:</strong> depends on server RAM. Regra prática: 1GB RAM = ~3-4 sessões.</li>
+          <li><strong>Sessions não são persistidas:</strong> Se o servidor reiniciar, todas as sessões são perdidas.</li>
+          <li><strong>Encerramento limpo:</strong> Sempre use DELETE /api/sessions/:id para encerrar. Não kill -9.</li>
+          <li><strong>Use timeout curto em produção:</strong> 6 min é suficiente para a maioria dos casos de uso.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>✅ Checklist de Conclusão</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" id="s1"><label for="s1">Entendi o ciclo de vida completo de uma sessão.</label></li>
+          <li><input type="checkbox" id="s2"><label for="s2">Sei criar uma sessão via API REST (POST /api/sessions).</label></li>
+          <li><input type="checkbox" id="s3"><label for="s3">Sei listar e encerrar sessões.</label></li>
+          <li><input type="checkbox" id="s4"><label for="s4">Entendo como funciona o timeout e cleanup automático.</label></li>
+          <li><input type="checkbox" id="s5"><label for="s5">Consigo monitorar sessões ativas via API e processos.</label></li>
+        </ul>
+      </section>
+
+      <nav class="module-nav">
+        <a href="module-03-autenticacao.html" class="prev">← Módulo 3: Autenticação</a>
+        <a href="module-05-visualizacao.html" class="next">Próximo: Visualização →</a>
+      </nav>
+    </article>
+  </div>
+</body>
+</html>

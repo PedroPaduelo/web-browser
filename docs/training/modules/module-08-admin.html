@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Treinamento — Módulo 8: Administração e Segurança — Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .training-nav { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 32px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); }
+    .training-nav .container { display: flex; justify-content: space-between; align-items: center; }
+    .training-nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; }
+    .training-nav a:hover { color: var(--accent); }
+    .progress-bar { height: 4px; background: var(--bg-tertiary); margin: 24px 0; border-radius: 2px; overflow: hidden; }
+    .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--info)); width: 100%; transition: width 0.3s ease; }
+    .module-meta { display: flex; gap: 24px; margin: 24px 0; flex-wrap: wrap; }
+    .module-meta .meta-item { background: var(--bg-secondary); border: 1px solid var(--border); padding: 12px 20px; border-radius: 8px; font-size: 14px; color: var(--text-secondary); }
+    .module-meta .meta-item strong { color: var(--text-primary); display: block; margin-bottom: 4px; font-size: 13px; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 12px; }
+    .checklist li:last-child { border-bottom: none; }
+    .checklist input[type="checkbox"] { margin-top: 4px; accent-color: var(--accent); width: 18px; height: 18px; }
+    pre { background: var(--bg-secondary); border: 1px solid var(--border); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    code { font-family: 'Monaco', 'Menlo', monospace; }
+    .info-box { background: rgba(6, 182, 212, 0.1); border-left: 4px solid var(--info); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .warning-box { background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--warning); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .danger-box { background: rgba(239, 68, 68, 0.1); border-left: 4px solid var(--danger); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .module-nav { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+    .module-nav a { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; transition: all 0.2s ease; }
+    .module-nav a.prev { color: var(--text-secondary); border: 1px solid var(--border); }
+    .module-nav a.prev:hover { border-color: var(--accent); color: var(--accent); }
+    .module-nav a.next { background: var(--accent); color: white; }
+    .module-nav a.next:hover { background: var(--accent-hover); }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+    th { background: var(--bg-tertiary); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <nav class="training-nav">
+    <div class="container">
+      <a href="module-07-streaming-audio.html">← Módulo 7: Streaming</a>
+      <span>Treinamento • Módulo 8 de 8 (Último)</span>
+      <a href="../index.html">Voltar ao Portal →</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="progress-bar"><div class="fill"></div></div>
+
+    <article>
+      <header>
+        <h1>Módulo 8: Administração, Monitoramento e Segurança</h1>
+        <p class="subtitle">Domine o painel admin, monitore sessões em tempo real, gerencie chaves API, e entenda as camadas de segurança do Serende.</p>
+      </header>
+
+      <section class="module-meta">
+        <div class="meta-item"><strong>Duração estimada</strong>35 minutos</div>
+        <div class="meta-item"><strong>Dificuldade</strong>Avançado</div>
+        <div class="meta-item"><strong>Pré-requisitos</strong>Módulos 1-7</div>
+      </section>
+
+      <section>
+        <h2>🎯 Objetivos deste módulo</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" disabled><div><strong>Usar o painel admin do React</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Interface web para gerenciar chaves e sessões.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Gerenciar chaves API via REST</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Criar, listar, revogar e regenerar chaves.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Monitorar sessões ativas</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Ver status, encerrar sessões problemáticas.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Entender as camadas de segurança</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Helmet, CORS, Rate Limiting, JWT, autenticação de admin.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Configurar monitoramento e alertas</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Logs estruturados, métricas, health checks.</p></div></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>🛡️ Painel Admin</h2>
+
+        <p>O Serende inclui um painel admin em React na rota <code>/admin</code> do frontend.</p>
+
+        <h3>Acesso</h3>
+        <ol style="padding-left: 24px; line-height: 1.8;">
+          <li>Acesse <code>https://serende.example.com/admin</code></li>
+          <li>Insira o <code>ADMIN_SECRET</code> (definido no .env)</li>
+          <li>Navegue pelas abas: <strong>Chaves</strong>, <strong>Sessões</strong>, <strong>Métricas</strong></li>
+        </ol>
+
+        <div class="info-box">
+          <strong>Nota:</strong> O Admin Secret é enviado via header <code>x-admin-secret</code>. Ele é diferente do JWT usado por tenants normais.
+        </div>
+      </section>
+
+      <section>
+        <h2>🔑 Gestão de Chaves API</h2>
+
+        <h3>Endpoints Admin</h3>
+        <table>
+          <thead><tr><th>Método</th><th>Rota</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>POST</code></td><td><code>/api/admin/keys</code></td><td>Criar nova chave API</td></tr>
+            <tr><td><code>GET</code></td><td><code>/api/admin/keys</code></td><td>Listar todas as chaves</td></tr>
+            <tr><td><code>PATCH</code></td><td><code>/api/admin/keys/:id</code></td><td>Atualizar metadados de uma chave</td></tr>
+            <tr><td><code>POST</code></td><td><code>/api/admin/keys/:id/regenerate</code></td><td>Regenerar chave (invalida a anterior)</td></tr>
+            <tr><td><code>DELETE</code></td><td><code>/api/admin/keys/:id</code></td><td>Revogar chave</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Criar chave via API</h3>
+        <pre><code>curl -X POST http://localhost:3333/api/admin/keys \
+  -H "x-admin-secret: $ADMIN_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"tenantId":"acme-corp","label":"Chave de produção"}'</code></pre>
+
+        <p><strong>Resposta:</strong></p>
+        <pre><code>{
+  "id": "key_abc123",
+  "tenantId": "acme-corp",
+  "apiKey": "sk_acme_8f3e2a1b9c4d...",
+  "label": "Chave de produção",
+  "createdAt": "2024-01-15T10:00:00Z"
+}</code></pre>
+
+        <div class="warning-box">
+          <strong>⚠️ ATENÇÃO:</strong> A <code>apiKey</code> só é retornada na criação. Após isso, apenas o hash é armazenado. Se perdida, use <code>POST /api/admin/keys/:id/regenerate</code>.
+        </div>
+
+        <h3>Listar chaves</h3>
+        <pre><code>curl http://localhost:3333/api/admin/keys \
+  -H "x-admin-secret: $ADMIN_SECRET"</code></pre>
+
+        <h3>Revogar chave</h3>
+        <pre><code>curl -X DELETE http://localhost:3333/api/admin/keys/key_abc123 \
+  -H "x-admin-secret: $ADMIN_SECRET"</code></pre>
+      </section>
+
+      <section>
+        <h2>📊 Monitoramento de Sessões</h2>
+
+        <h3>Listar sessões ativas (admin)</h3>
+        <pre><code>curl http://localhost:3333/api/admin/sessions \
+  -H "x-admin-secret: $ADMIN_SECRET"</code></pre>
+
+        <p><strong>Resposta:</strong></p>
+        <pre><code>{
+  "sessions": [
+    {
+      "sessionId": "sess_abc123",
+      "tenantId": "acme-corp",
+      "display": ":100",
+      "cdpPort": 9223,
+      "url": "https://google.com",
+      "createdAt": "2024-01-15T10:30:00Z",
+      "lastActivity": "2024-01-15T10:35:00Z",
+      "processCount": 3,
+      "memoryMB": 245
+    }
+  ],
+  "total": 1
+}</code></pre>
+
+        <h3>Estatísticas do servidor</h3>
+        <pre><code>curl http://localhost:3333/api/admin/stats \
+  -H "x-admin-secret: $ADMIN_SECRET"</code></pre>
+
+        <p><strong>Resposta:</strong></p>
+        <pre><code>{
+  "uptime": 86400,
+  "activeSessions": 3,
+  "totalKeys": 12,
+  "totalMemoryMB": 735,
+  "cpuUsage": 45.2,
+  "freeDisplays": 7
+}</code></pre>
+      </section>
+
+      <section>
+        <h2>🔒 Camadas de Segurança</h2>
+
+        <p>O Security Middleware Agent (<code>10-security-middleware</code>) implementa 10 layers de proteção:</p>
+
+        <table>
+          <thead><tr><th>#</th><th>Middleware</th><th>Função</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><strong>Trust Proxy</strong></td><td>Confia em headers X-Forwarded-For (se atrás de proxy)</td></tr>
+            <tr><td>2</td><td><strong>Helmet</strong></td><td>Headers de segurança (X-Frame-Options, X-Content-Type, etc.)</td></tr>
+            <tr><td>3</td><td><strong>CORS</strong></td><td>Controle de origem cruzada (configurável via CORS_ORIGIN)</td></tr>
+            <tr><td>4</td><td><strong>Body Parser</strong></td><td>JSON com limite de tamanho (10MB padrão)</td></tr>
+            <tr><td>5</td><td><strong>Rate Limit Global</strong></td><td>100 req/min por IP (configurável)</td></tr>
+            <tr><td>6</td><td><strong>Request ID</strong></td><td>UUID para rastreamento de requisições nos logs</td></tr>
+            <tr><td>7</td><td><strong>Login Rate Limiter</strong></td><td>5 tentativas de login por IP a cada 60 segundos</td></tr>
+            <tr><td>8</td><td><strong>Structured Logging</strong></td><td>Logs JSON com timestamp, request ID, status</td></tr>
+            <tr><td>9</td><td><strong>Error Handler</strong></td><td>Erros padronizados (produção não expõe stack traces)</td></tr>
+            <tr><td>10</td><td><strong>404 Handler</strong></td><td>Respostas JSON padronizadas para rotas inexistentes</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>⚠️ Riscos Conhecidos e Mitigações</h2>
+
+        <div class="danger-box">
+          <h3 style="margin-bottom: 8px;">🔴 Riscos Críticos</h3>
+          <table style="margin: 0;">
+            <thead><tr><th>Risco</th><th>Impacto</th><th>Mitigação</th></tr></thead>
+            <tbody>
+              <tr><td><strong>JWT Hijacking</strong></td><td>Acesso a sessão alheia</td><td>HTTPS obrigatório, tokens com expiração curta</td></tr>
+              <tr><td><strong>Vazamento de ADMIN_SECRET</strong></td><td>Controle total do sistema</td><td>Armazene em cofre de segredos, nunca em código</td></tr>
+              <tr><td><strong>Key store SQLite corrompido</strong></td><td>Perda de todas as chaves</td><td>Backup regular do <code>data/key-store.db</code></td></tr>
+              <tr><td><strong>Escape do Xvfb</strong></td><td>Acesso ao display host</td><td>Chrome com --no-sandbox, isolamento de processos</td></tr>
+              <tr><td><strong>Flood de sessões</strong></td><td>Exaustão de memória/CPU</td><td>Rate limit + limite máximo de sessões simultâneas</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2>📋 Logs Estruturados</h2>
+
+        <h3>Formato de log</h3>
+        <pre><code>{
+  "level": "info",
+  "timestamp": "2024-01-15T10:30:00.123Z",
+  "requestId": "uuid-...",
+  "method": "POST",
+  "url": "/api/sessions",
+  "statusCode": 200,
+  "responseTime": 1523,
+  "tenantId": "acme-corp",
+  "ip": "192.168.1.1"
+}</code></pre>
+
+        <h3>Visualizar logs em produção</h3>
+        <pre><code># PM2 — últimas 50 linhas
+pm2 logs serende --lines 50
+
+# Logs contínuos (follow)
+pm2 logs serende
+
+# Filtrar erros
+pm2 logs serende | grep '"level":"error"'
+
+# Logs de uma sessão específica
+pm2 logs serende | grep "sess_abc123"</code></pre>
+
+        <h3>Health Check Endpoint</h3>
+        <pre><code>curl http://localhost:3333/health</code></pre>
+        <p>Retorna <code>{"status":"ok","timestamp":"..."}</code> se o servidor está operacional.</p>
+      </section>
+
+      <section>
+        <h2>🔧 Checklist de Segurança para Produção</h2>
+
+        <ul class="checklist">
+          <li><input type="checkbox" id="sec1"><label for="sec1"><strong>HTTPS habilitado</strong> — nunca exponha o sistema via HTTP puro.</label></li>
+          <li><input type="checkbox" id="sec2"><label for="sec2"><strong>JWT_SECRET com alta entropia</strong> — mínimo 32 chars aleatórios.</label></li>
+          <li><input type="checkbox" id="sec3"><label for="sec3"><strong>ADMIN_SECRET diferente do JWT_SECRET</strong> — nunca reutilize segredos.</label></li>
+          <li><input type="checkbox" id="sec4"><label for="sec4"><strong>CORS_ORIGIN restrito</strong> — use domínio específico, não "*".</label></li>
+          <li><input type="checkbox" id="sec5"><label for="sec5"><strong>Rate Limit configurado</strong> — 100/min global, 5 tentativas de login.</label></li>
+          <li><input type="checkbox" id="sec6"><label for="sec6"><strong>Backup do SQLite</strong> — cron job diário para backup de data/key-store.db.</label></li>
+          <li><input type="checkbox" id="sec7"><label for="sec7"><strong>Firewall</strong> — libere somente porta 3333 (ou porta configurada).</label></li>
+          <li><input type="checkbox" id="sec8"><label for="sec8"><strong>Logs monitorados</strong> — erros e login failures alertados.</label></li>
+          <li><input type="checkbox" id="sec9"><label for="sec9"><strong>NODE_ENV=production</strong> — nunca rode production com NODE_ENV=development.</label></li>
+          <li><input type="checkbox" id="sec10"><label for="sec10"><strong>Limite de sessões</strong> — configure máximo baseado na RAM disponível.</label></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>🎓 Parabéns! Treinamento Completo</h2>
+        <p>Você completou todos os 8 módulos do treinamento do Serende. Agora você sabe:</p>
+        <ul style="padding-left: 24px; line-height: 1.8;">
+          <li>Como o sistema funciona (arquitetura de 15 agentes).</li>
+          <li>Como instalar e configurar.</li>
+          <li>Como autenticar e gerenciar tenants.</li>
+          <li>Como criar e monitorar sessões.</li>
+          <li>Como visualizar a tela remota (MJPEG).</li>
+          <li>Como enviar input (mouse, teclado).</li>
+          <li>Como configurar streaming e áudio.</li>
+          <li>Como administrar, monitorar e proteger o sistema.</li>
+        </ul>
+
+        <div class="info-box">
+          <strong>Próximos passos:</strong>
+          <ul style="padding-left: 16px; margin-top: 8px;">
+            <li>Consulte o <a href="../index.html" style="color: var(--accent);">Portal de Documentação</a> para detalhes técnicos de cada agente.</li>
+            <li>Pratique com os exercícios no <a href="exercicios.html" style="color: var(--accent);">módulo de exercícios</a>.</li>
+            <li>Use o <a href="cheatsheet.html" style="color: var(--accent);">Cheat Sheet</a> como referência rápida.</li>
+          </ul>
+        </div>
+      </section>
+
+      <nav class="module-nav">
+        <a href="module-07-streaming-audio.html" class="prev">← Módulo 7: Streaming</a>
+        <a href="exercicios.html" class="next">Exercícios Práticos →</a>
+      </nav>
+    </article>
+  </div>
+</body>
+</html>

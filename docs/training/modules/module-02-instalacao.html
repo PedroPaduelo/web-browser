@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Treinamento — Módulo 2: Instalação — Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .training-nav { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 32px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); }
+    .training-nav .container { display: flex; justify-content: space-between; align-items: center; }
+    .training-nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; }
+    .training-nav a:hover { color: var(--accent); }
+    .progress-bar { height: 4px; background: var(--bg-tertiary); margin: 24px 0; border-radius: 2px; overflow: hidden; }
+    .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--info)); width: 25%; transition: width 0.3s ease; }
+    .module-meta { display: flex; gap: 24px; margin: 24px 0; flex-wrap: wrap; }
+    .module-meta .meta-item { background: var(--bg-secondary); border: 1px solid var(--border); padding: 12px 20px; border-radius: 8px; font-size: 14px; color: var(--text-secondary); }
+    .module-meta .meta-item strong { color: var(--text-primary); display: block; margin-bottom: 4px; font-size: 13px; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 12px; }
+    .checklist li:last-child { border-bottom: none; }
+    .checklist input[type="checkbox"] { margin-top: 4px; accent-color: var(--accent); width: 18px; height: 18px; }
+    pre { background: var(--bg-secondary); border: 1px solid var(--border); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    code { font-family: 'Monaco', 'Menlo', monospace; }
+    .info-box { background: rgba(6, 182, 212, 0.1); border-left: 4px solid var(--info); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .warning-box { background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--warning); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .env-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .env-table th, .env-table td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+    .env-table th { background: var(--bg-tertiary); font-weight: 600; }
+    .env-table code { background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+    .step { margin: 24px 0; padding-left: 24px; position: relative; }
+    .step::before { content: counter(step); counter-increment: step; position: absolute; left: 0; top: 0; background: var(--accent); color: white; width: 28px; height: 28px; border-radius: 50%; text-align: center; line-height: 28px; font-weight: 700; font-size: 14px; }
+    body { counter-reset: step; }
+    .module-nav { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+    .module-nav a { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; transition: all 0.2s ease; }
+    .module-nav a.prev { color: var(--text-secondary); border: 1px solid var(--border); }
+    .module-nav a.prev:hover { border-color: var(--accent); color: var(--accent); }
+    .module-nav a.next { background: var(--accent); color: white; }
+    .module-nav a.next:hover { background: var(--accent-hover); }
+  </style>
+</head>
+<body>
+  <nav class="training-nav">
+    <div class="container">
+      <a href="module-01-introducao.html">← Módulo 1: Introdução</a>
+      <span>Treinamento • Módulo 2 de 8</span>
+      <a href="module-03-autenticacao.html">Próximo: Autenticação →</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="progress-bar"><div class="fill"></div></div>
+
+    <article>
+      <header>
+        <h1>Módulo 2: Instalação e Configuração Inicial</h1>
+        <p class="subtitle">Aprenda a instalar o Serende em um servidor Ubuntu/Debian e configurar o ambiente de produção.</p>
+      </header>
+
+      <section class="module-meta">
+        <div class="meta-item"><strong>Duração estimada</strong>45 minutos</div>
+        <div class="meta-item"><strong>Dificuldade</strong>Intermediário</div>
+        <div class="meta-item"><strong>Requisitos</strong>Acesso a servidor Ubuntu/Debian com root ou sudo</div>
+      </section>
+
+      <section>
+        <h2>📋 Pré-requisitos do Sistema</h2>
+        <h3>Requisitos de SO e pacotes</h3>
+        <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+          <thead><tr style="background: var(--bg-tertiary);"><th style="padding: 10px;">Pacote</th><th style="padding: 10px;">Descrição</th><th style="padding: 10px;">Versão mínima</th></tr></thead>
+          <tbody>
+            <tr><td style="padding: 10px; border-bottom: 1px solid var(--border);">Ubuntu/Debian</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">Sistema operacional</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">20.04+ / 11+</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid var(--border);">Node.js</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">Runtime principal</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">18.x (ESM)</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid var(--border);">npm</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">Gerenciador de pacotes</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">9.x+</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid var(--border);">Python 3</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">Bridge para X11 input</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">3.8+</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid var(--border);">FFmpeg</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">Codificação de vídeo</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">4.4+</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid var(--border);">Xvfb</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">X virtual framebuffer</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">1.20+</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid var(--border);">Chrome/Chromium</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">Navegador headless</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">110+</td></tr>
+            <tr><td style="padding: 10px; border-bottom: 1px solid var(--border);">git</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">Controle de versão</td><td style="padding: 10px; border-bottom: 1px solid var(--border);">2.30+</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>�� Instalação Passo a Passo</h2>
+
+        <div class="step">
+          <strong>1. Atualizar o sistema</strong>
+          <pre><code>sudo apt update && sudo apt upgrade -y</code></pre>
+        </div>
+
+        <div class="step">
+          <strong>2. Instalar dependências do sistema</strong>
+          <pre><code>sudo apt install -y \\
+  nodejs npm python3 python3-pip ffmpeg xvfb \\
+  chromium-browser libnss3 libgconf-2-4 libxss1 \\
+  libappindicator3-1 libasound2 libatk-bridge2.0-0 \\
+  libgtk-3-0 libgbm1 build-essential curl git</code></pre>
+        </div>
+
+        <div class="step">
+          <strong>3. Verificar versões instaladas</strong>
+          <pre><code>node --version   # deve ser v18.x
+npm --version    # deve ser 9.x+
+python3 --version
+ffmpeg -version
+Xvfb -version</code></pre>
+        </div>
+
+        <div class="step">
+          <strong>4. Clonar o repositório</strong>
+          <pre><code>cd /opt
+sudo git clone https://github.com/PedroPaduelo/serende.git
+cd serende
+sudo chown -R $(whoami):$(whoami) .</code></pre>
+        </div>
+
+        <div class="step">
+          <strong>5. Instalar dependências Node.js</strong>
+          <pre><code>npm ci --only=production</code></pre>
+          <p style="font-size: 14px; color: var(--text-secondary); margin-top: 8px;">
+            O <code>npm ci</code> garante instalação limpa baseada no lockfile. Use <code>--only=production</code> para evitar devDependencies no container.
+          </p>
+        </div>
+
+        <div class="step">
+          <strong>6. Criar arquivo .env</strong>
+          <pre><code>cp .env.example .env
+nano .env</code></pre>
+          <p style="font-size: 14px; color: var(--text-secondary); margin-top: 8px;">
+            Consulte a seção "Variáveis de Ambiente" abaixo para preencher corretamente.
+          </p>
+        </div>
+
+        <div class="step">
+          <strong>7. Criar diretório de dados</strong>
+          <pre><code>mkdir -p data/profiles
+chmod 755 data/profiles</code></pre>
+        </div>
+
+        <div class="step">
+          <strong>8. Build para produção</strong>
+          <pre><code>npm run build</code></pre>
+          <p style="font-size: 14px; color: var(--text-secondary); margin-top: 8px;">
+            O comando usa <code>tsup</code> para bundling e gera arquivos em <code>dist/</code>.
+          </p>
+        </div>
+
+        <div class="step">
+          <strong>9. Testar inicialização</strong>
+          <pre><code>node dist/index.js</code></pre>
+          <p>Verifique se o servidor inicia sem erros. Pressione Ctrl+C para parar.</p>
+        </div>
+
+        <div class="step">
+          <strong>10. Configurar PM2 (process manager)</strong>
+          <pre><code>npm install -g pm2
+pm2 startup
+pm2 save</code></pre>
+          <p style="font-size: 14px; color: var(--text-secondary); margin-top: 8px;">
+            O PM2 mantém o processo rodando após logout e reinicia automaticamente em crashes.
+          </p>
+        </div>
+
+        <div class="step">
+          <strong>11. Iniciar com PM2</strong>
+          <pre><code>pm2 start npm --name serende -- run start
+pm2 logs serende   # verifique os logs iniciais
+pm2 save</code></pre>
+        </div>
+
+        <div class="step">
+          <strong>12. Testar API health</strong>
+          <pre><code>curl http://localhost:3333/health</code></pre>
+          <p>Retorno esperado: <code>{"status":"ok","timestamp":"..."}</code></p>
+        </div>
+
+        <div class="info-box">
+          <strong>💡 Dica:</strong> Para ambientes Docker, consulte <code>container/Dockerfile</code> e <code>docker-compose.yml</code> no repositório.
+        </div>
+      </section>
+
+      <section>
+        <h2>⚙️ Variáveis de Ambiente (.env)</h2>
+        <table class="env-table">
+          <thead><tr><th>Variável</th><th>Obrigatória</th><th>Padrão</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>NODE_ENV</code></td><td>Sim</td><td>—</td><td><code>production</code> (não use <code>development</code> em produção)</td></tr>
+            <tr><td><code>PORT</code></td><td>Sim</td><td>3333</td><td>Porta HTTP do servidor Fastify</td></tr>
+            <tr><td><code>JWT_SECRET</code></td><td>Sim</td><td>—</td><td>Segredo para assinatura HS256. Use 256-bit random string.</td></tr>
+            <tr><td><code>JWT_EXPIRY</code></td><td>Não</td><td>24h</td><td>TTL dos tokens (ex: 24h, 30m, 7d)</td></tr>
+            <tr><td><code>ADMIN_SECRET</code></td><td>Sim</td><td>—</td><td>Segredo para painel admin (header <code>x-admin-secret</code>)</td></tr>
+            <tr><td><code>CORS_ORIGIN</code></td><td>Não</td><td>*</td><td>Origem permitida (use domínios específicos em produção)</td></tr>
+            <tr><td><code>TRUST_PROXY</code></td><td>Não</td><td>false</td><td>Confiar em X-Forwarded-* (true se atrás de proxy reverso)</td></tr>
+            <tr><td><code>RATE_LIMIT_MAX</code></td><td>Não</td><td>100</td><td>Requisições por janela global</td></tr>
+            <tr><td><code>RATE_LIMIT_WINDOW_MS</code></td><td>Não</td><td>60000</td><td>Janela de rate limit (1 min)</td></tr>
+            <tr><td><code>LOGIN_RATE_LIMIT_MAX</code></td><td>Não</td><td>5</td><td>Tentativas de login por IP/window</td></tr>
+            <tr><td><code>LOGIN_RATE_LIMIT_WINDOW_MS</code></td><td>Não</td><td>60000</td></tr>
+            <tr><td><code>SESSION_TIMEOUT_MS</code></td><td>Não</td><td>360000</td><td>Timeout de sessão ociosa (6 min)</td></tr>
+            <tr><td><code>CHROME_PATH</code></td><td>Não</td><td>/usr/bin/chromium-browser</td><td>Caminho do executável Chrome/Chromium</td></tr>
+            <tr><td><code>DISPLAY_BASE</code></td><td>Não</td><td>99</td><td>Display base para Xvfb (será 99,100,...)</td></tr>
+            <tr><td><code>FFMPEG_PATH</code></td><td>Não</td><td>ffmpeg</td><td>Caminho do ffmpeg</td></tr>
+            <tr><td><code>PROFILE_BASE_DIR</code></td><td>Não</td><td>./data/profiles</td><td>Pasta de perfis de tenants</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>🧪 Testes de Sanity (Validação Pós-Instalação)</h2>
+        <p>Execute estes testes para confirmar que o sistema está operacional.</p>
+
+        <h3>1. Health Check</h3>
+        <pre><code>curl http://localhost:3333/health</code></pre>
+        <p>Esperado: <code>{"status":"ok"}</code></p>
+
+        <h3>2. Criar uma chave API (via SQLite ou script)</h3>
+        <pre><code>node dist/scripts/create-key.js --tenant demo</code></pre>
+        <p>Resposta: chave em formato <code>sk_...</code></p>
+
+        <h3>3. Login (obter JWT)</h3>
+        <pre><code>curl -X POST http://localhost:3333/api/auth/login \\
+  -H "Content-Type: application/json" \\
+  -d '{"apiKey":"sk_demo_..."}'</code></pre>
+        <p>Esperado: <code>{"token":"eyJ...","tenantId":"demo"}</code></p>
+
+        <h3>4. Criar sessão</h3>
+        <pre><code>TOKEN=$(curl -s -X POST http://localhost:3333/api/auth/login \\
+  -H "Content-Type: application/json" \\
+  -d '{"apiKey":"sk_demo_..."}' | jq -r .token)
+
+curl -X POST http://localhost:3333/api/sessions \\
+  -H "Authorization: Bearer $TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"url":"https://example.com"}'</code></pre>
+        <p>Esperado: <code>{"sessionId":"abc123","wsUrl":"ws://...","streamUrl":"..."}</code></p>
+
+        <h3>5. Verificar processos</h3>
+        <pre><code>ps aux | grep -E "(Xvfb|chrome|ffmpeg)"</code></pre>
+        <p>Você deve ver processos <code>Xvfb</code>, <code>chrome</code> e <code>ffmpeg</code> rodando.</p>
+
+        <h3>6. Testar streaming</h3>
+        <pre><code>curl -H "Authorization: Bearer $TOKEN" \\
+  "http://localhost:3333/api/sessions/abc123/stream" \\
+  --output /tmp/test.mjpeg</code></pre>
+        <p>O arquivo <code>/tmp/test.mjpeg</code> deve conter dados binários MJPEG.</p>
+      </section>
+
+      <section>
+        <h2>🛠️ Troubleshooting Comum</h2>
+
+        <h3>❌ "Cannot find module 'chrome-launcher' (ou similar)"</h3>
+        <p><strong>Causa:</strong> Dependências não instaladas.</p>
+        <p><strong>Solução:</strong> <code>npm ci</code> novamente.</p>
+
+        <h3>❌ Chrome não inicia: "No space left on device"</h3>
+        <p><strong>Causa:</strong> /dev/shm muito pequeno (Chrome usa memória compartilhada).</p>
+        <p><strong>Solução:</strong> Editar <code>server/session-manager.js</code> para adicionar <code>--disable-dev-shm-usage</code>.</p>
+
+        <h3>❌ "Error: spawn ffmpeg ENOENT"</h3>
+        <p><strong>Causa:</strong> FFmpeg não instalado ou não no PATH.</p>
+        <p><strong>Solução:</strong> <code>which ffmpeg</code>. Se não encontrado, instalar via apt.</p>
+
+        <h3>❌ Porta 3333 já em uso</h3>
+        <p><strong>Solução:</strong> Mudar <code>PORT</code> no .env ou liberar a porta.</p>
+
+        <h3>❌ Xvfb falha: "Fatal server error"</h3>
+        <p><strong>Causa:</strong> Display já em uso ou permissões.</p>
+        <p><strong>Solução:</strong> Verifique se não há processos órfãos: <code>pkill Xvfb</code>.</p>
+
+        <h3>❌ Streaming vazio (imagem não aparece)</h3>
+        <p><strong>Diagnóstico:</strong> FFmpeg está rodando? Verifique com <code>ps aux | grep ffmpeg</code>.</p>
+        <p><strong>Solução:</strong> Teste manual: <code>ffmpeg -f x11grab -video_size 1280x720 -i :99.0 -vframes 1 out.jpg</code></p>
+      </section>
+
+      <section>
+        <h2>✅ Checklist de Instalação</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" id="i1"><label for="i1">Dependências do sistema instaladas (Node, Python, FFmpeg, Xvfb, Chrome)</label></li>
+          <li><input type="checkbox" id="i2"><label for="i2">Repositório clonado e npm ci executado</label></li>
+          <li><input type="checkbox" id="i3"><label for="i3">Arquivo .env configurado com JWT_SECRET, ADMIN_SECRET e PORT</label></li>
+          <li><input type="checkbox" id="i4"><label for="i4">Build concluído (dist/index.js gerado)</label></li>
+          <li><input type="checkbox" id="i5"><label for="i5">PM2 configurado e processo iniciado</label></li>
+          <li><input type="checkbox" id="i6"><label for="i6">Health check retornando status OK</label></li>
+          <li><input type="checkbox" id="i7"><label for="i7">Teste de criação de sessão funcionou (Xvfb + Chrome + FFmpeg spawn)</label></li>
+          <li><input type="checkbox" id="i8"><label for="i8">Streaming MJPEG acessível (curl ou navegador)</label></li>
+        </ul>
+      </section>
+
+      <nav class="module-nav">
+        <a href="module-01-introducao.html" class="prev">← Módulo 1: Introdução</a>
+        <a href="module-03-autenticacao.html" class="next">Próximo: Autenticação →</a>
+      </nav>
+    </article>
+  </div>
+</body>
+</html>

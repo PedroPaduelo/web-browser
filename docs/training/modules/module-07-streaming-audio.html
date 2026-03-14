@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Treinamento — Módulo 7: Streaming e Áudio — Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .training-nav { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 32px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); }
+    .training-nav .container { display: flex; justify-content: space-between; align-items: center; }
+    .training-nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; }
+    .training-nav a:hover { color: var(--accent); }
+    .progress-bar { height: 4px; background: var(--bg-tertiary); margin: 24px 0; border-radius: 2px; overflow: hidden; }
+    .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--info)); width: 87.5%; transition: width 0.3s ease; }
+    .module-meta { display: flex; gap: 24px; margin: 24px 0; flex-wrap: wrap; }
+    .module-meta .meta-item { background: var(--bg-secondary); border: 1px solid var(--border); padding: 12px 20px; border-radius: 8px; font-size: 14px; color: var(--text-secondary); }
+    .module-meta .meta-item strong { color: var(--text-primary); display: block; margin-bottom: 4px; font-size: 13px; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 12px; }
+    .checklist li:last-child { border-bottom: none; }
+    .checklist input[type="checkbox"] { margin-top: 4px; accent-color: var(--accent); width: 18px; height: 18px; }
+    pre { background: var(--bg-secondary); border: 1px solid var(--border); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    code { font-family: 'Monaco', 'Menlo', monospace; }
+    .info-box { background: rgba(6, 182, 212, 0.1); border-left: 4px solid var(--info); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .warning-box { background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--warning); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .module-nav { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+    .module-nav a { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; transition: all 0.2s ease; }
+    .module-nav a.prev { color: var(--text-secondary); border: 1px solid var(--border); }
+    .module-nav a.prev:hover { border-color: var(--accent); color: var(--accent); }
+    .module-nav a.next { background: var(--accent); color: white; }
+    .module-nav a.next:hover { background: var(--accent-hover); }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+    th { background: var(--bg-tertiary); font-weight: 600; }
+    .architecture-diagram { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 24px 0; font-family: 'Monaco', 'Menlo', monospace; font-size: 13px; line-height: 1.5; overflow-x: auto; }
+    .comparison-table { margin: 20px 0; }
+    .comparison-table th { text-align: center; }
+  </style>
+</head>
+<body>
+  <nav class="training-nav">
+    <div class="container">
+      <a href="module-06-input.html">← Módulo 6: Controle de Input</a>
+      <span>Treinamento • Módulo 7 de 8</span>
+      <a href="module-08-admin.html">Próximo: Administração →</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="progress-bar"><div class="fill"></div></div>
+
+    <article>
+      <header>
+        <h1>Módulo 7: Streaming (Vídeo/Áudio) e Áudio Opcional</h1>
+        <p class="subtitle">Entenda como o vídeo é codificado e transmitido, e como habilitar áudio quando necessário. Módulo cobre FFmpeg e Audio Manager.</p>
+      </header>
+
+      <section class="module-meta">
+        <div class="meta-item"><strong>Duração estimada</strong>20 minutos</div>
+        <div class="meta-item"><strong>Dificuldade</strong>Intermediário</div>
+        <div class="meta-item"><strong>Pré-requisitos</strong>Módulo 6</div>
+      </section>
+
+      <section>
+        <h2>🎯 Objetivos deste módulo</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" disabled><div><strong>Compreender o pipeline de vídeo (FFmpeg + MJPEG)</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">x11grab → encode → streaming HTTP.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Saber configurar bitrate, FPS e qualidade</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Impacto na latência e largura de banda.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Entender o áudio opcional e suas limitações</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Quando usar, custo e formato.</p></div></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>🎬 Streaming de Vídeo (MJPEG)</h2>
+        <p>O vídeo do browser é capturado do framebuffer Xvfb e codificado em tempo real pelo FFmpeg.</p>
+
+        <h3>Pipeline detalhado</h3>
+        <div class="architecture-diagram">
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Xvfb (framebuffer :99)                                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │ Renderização do Chrome (headless)                              │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│           ▲                                                              │
+│           │ x11grab                                                      │
+│           │                                                              │
+│    ┌──────┴──────────────────┐                                           │
+│    │  FFmpeg                 │                                           │
+│    │  -f x11grab             │                                           │
+│    │  -video_size WxH        │                                           │
+│    │  -framerate N           │                                           │
+│    │  -i :99.0               │                                           │
+│    │  -f mjpeg               │                                           │
+│    │  -q:v 5                 │                                           │
+│    │  -                    │                                           │
+│    └──────┬──────────────────┘                                           │
+│           │ stdout (multipart/x-mixed-replace)                          │
+│           ▼                                                              │
+│  Fastify route: GET /api/sessions/:id/stream                            │
+│           │                                                              │
+│           ▼                                                              │
+│  Cliente &lt;img src="/api/..."&gt;  (MJPEG multipart streaming)           │
+└─────────────────────────────────────────────────────────────────────────┘
+        </div>
+
+        <h3>Parâmetros FFmpeg por sessão</h3>
+        <table>
+          <thead><tr><th>Parâmetro</th><th>Valor padrão</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>-f x11grab</code></td><td>fixo</td><td>Fonte de captura do Xvfb.</td></tr>
+            <tr><td><code>-video_size</code></td><td>1280x720</td><td>Resolução, herdada da sessão.</td></tr>
+            <tr><td><code>-framerate</code></td><td>15</td><td>Frames por segundo (1–30).</td></tr>
+            <tr><td><code>-i :99.0</code></td><td>display var</td><td>Display Xvfb (promovido por <code>DISPLAY_BASE</code>).</td></tr>
+            <tr><td><code>-f mjpeg</code></td><td>fixo</td><td>Formato de saída.</td></tr>
+            <tr><td><code>-q:v</code></td><td>5</td><td>Qualidade (1–31, menor = melhor).</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>⚙️ Configuração de Streaming</h2>
+
+        <p>As propriedades são passadas no <code>POST /api/sessions</code>.</p>
+
+        <h3>Campos opcionais da criação de sessão</h3>
+        <table>
+          <thead><tr><th>Campo</th><th>Tipo</th><th>Padrão</th><th>Impacto</th></tr></thead>
+          <tbody>
+            <tr><td><code>width</code></td><td>number</td><td>1280</td><td>+resolução = +largura de banda</td></tr>
+            <tr><td><code>height</code></td><td>number</td><td>720</td><td> mesma coisa</td></tr>
+            <tr><td><code>fps</code></td><td>number</td><td>15</td><td>+FPS = +CPU e +banda</td></tr>
+            <tr><td><code>quality</code></td><td>1–31</td><td>5</td><td>Menor = melhor qualidade, mais CPU</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Exemplo com streaming otimizado</h3>
+        <pre><code>POST /api/sessions
+{
+  "url": "https://example.com",
+  "width": 1024,
+  "height": 768,
+  "fps": 12,
+  "quality": 7
+}</code></pre>
+
+        <div class="warning-box">
+          <strong>⚠️ Atenção:</strong> MJPEG não é adequado para vídeos longos, Netflix, YouTube. Use apenas para controle e navegação. A latência típica é de 80–150 ms.
+        </div>
+      </section>
+
+      <section>
+        <h2>🔊 Áudio (Opcional)</h2>
+        <p>O Serende suporta captura de áudio do Chrome via WebRTC/audio-capture (experimental). Requer o <strong>Audio Manager Agent</strong> ativo.</p>
+
+        <div class="info-box">
+          <strong>Importante:</strong> O áudio NÃO é mixado no MJPEG. Ele é fornecido via endpoint separado, geralmente via SSE ou WAV/PCM stream.
+        </div>
+
+        <h3>Como habilitar</h3>
+        <pre><code>POST /api/sessions
+{
+  "url": "https://example.com",
+  "audio": true   // ou "wav" ou "pcm"
+}</code></pre>
+
+        <h3>Endpoint de áudio</h3>
+        <pre><code>GET /api/sessions/:id/audio
+Authorization: Bearer &lt;token&gt;
+Accept: audio/wav (ou audio/x-raw)</code></pre>
+
+        <p>Retorna stream binário de áudio capturado da aba do Chrome.</p>
+
+        <h3>Limitações do áudio</h3>
+        <ul style="padding-left: 24px; line-height: 1.8;">
+          <li>Alta latência (300–600 ms) devido à captura e processamento.</li>
+          <li>Apenas áudio da aba ativa (Chrome headless).</li>
+          <li>Maior consumo CPU (~10-20% extra).</li>
+          <li>Formato bruto (PCM) ou WAV — precisa ser decodificado no cliente.</li>
+          <li><strong>Não sincronizado</strong> com vídeo. Use a síncrona no cliente se necessário.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>🔧 Troubleshooting de Streaming</h2>
+
+        <h3>❌ Imagem congelada (último frame para sempre)</h3>
+        <ul style="padding-left: 24px;">
+          <li>Processo FFmpeg morreu? Verifique: <code>ps aux | grep ffmpeg</code></li>
+          <li>Token expirou? Recrie a sessão.</li>
+          <li>Erro no Xvfb? Verifique se o display ainda existe: <code>ps aux | grep Xvfb</code></li>
+        </ul>
+
+        <h3>❌ Qualidade muito ruim (pixels blocados)</h3>
+        <ul style="padding-left: 24px;">
+          <li>Aumente <code>quality</code> (ex: 3 em vez de 7) — menor número = melhor qualidade.</li>
+          <li>Verifique se a largura/altura são muito baixas para o conteúdo.</li>
+        </ul>
+
+        <h3>❌ Latência alta (1s+)</h3>
+        <ul style="padding-left: 24px;">
+          <li>Reduza resolução (ex: 800×600).</li>
+          <li>Reduza FPS (ex: 10).</li>
+          <li>Verifique rede (ping, jitter).</li>
+        </ul>
+
+        <h3>❌ Áudio não funciona</h3>
+        <ul style="padding-left: 24px;">
+          <li>Verifique se <code>audio: true</code> foi passado na criação.</li>
+          <li>O Audio Manager Agent está carregado? Veja logs do servidor.</li>
+          <li>Chrome não suporta captura de áudio em headless puro — pode exigir patch ou usar PulseAudio虚拟.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>💡 Boas Práticas</h2>
+
+        <ul style="padding-left: 24px; line-height: 1.8;">
+          <li><strong>Use resolução mínima suficiente</strong>: Para formulários, 1024×768 ou 800×600 são ótimos.</li>
+          <li><strong>FPS entre 10–15</strong>: É suficiente para controle manual, diminui CPU.</li>
+          <li><strong>Qualidade 5–7</strong>: Boa relação tamanho/qualidade. Use 3 apenas se precisar de alta fidelidade.</li>
+          <li><strong>Desabilite áudio</strong> se não for necessário — consome ~15% CPU extra.</li>
+          <li><strong>Teste local primeiro</strong>: Valide configurações antes de ir para produção remota.</li>
+          <li><strong>Monitore memória</strong>: sessões com alta resolução podem fugir do controle (memory leak no Chrome). Reinicie sessões after ~30 minutos se usar alta resolução.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>📊 Comparação Rápida (Configurações Comuns)</h2>
+        <table class="comparison-table">
+          <thead><tr><th>Perfil</th><th>Resolução</th><th>FPS</th><th>Qualidade</th><th>Uso CPU</th><th>Uso Banda</th><th>Melhor para</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Leve</strong></td><td>800×600</td><td>10</td><td>7</td><td>~15%</td><td>~0.5 Mbps</td><td>IoT, Raspberry Pi</td></tr>
+            <tr><td><strong>Balanço</strong></td><td>1280×720</td><td>15</td><td>5</td><td>~30%</td><td>~2 Mbps</td><td>Geral (RPA, testes)</td></tr>
+            <tr><td><strong>Alta Qualidade</strong></td><td>1920×1080</td><td>20</td><td>3</td><td>~60%</td><td>~5 Mbps</td><td>Inspeção visual precisa</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>✅ Checklist de Conclusão</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" id="sa1"><label for="sa1">Entendi o pipeline de vídeo (Xvfb → FFmpeg → MJPEG).</label></li>
+          <li><input type="checkbox" id="sa2"><label for="sa2">Sei configurar largura, altura, FPS e qualidade.</label></li>
+          <li><input type="checkbox" id="sa3"><label for="sa3">Entendo as limitações de latência e uso de CPU do MJPEG.</label></li>
+          <li><input type="checkbox" id="sa4"><label for="sa4">Conheço o áudio opcional e quando usá-lo.</label></li>
+          <li><input type="checkbox" id="sa5"><label for="sa5">Consigo diagnosticar problemas comuns de streaming.</label></li>
+        </ul>
+      </section>
+
+      <nav class="module-nav">
+        <a href="module-06-input.html" class="prev">← Módulo 6: Controle de Input</a>
+        <a href="module-08-admin.html" class="next">Próximo: Administração e Segurança →</a>
+      </nav>
+    </article>
+  </div>
+</body>
+</html>

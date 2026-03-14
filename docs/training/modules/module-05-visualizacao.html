@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Treinamento — Módulo 5: Visualização Remota — Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .training-nav { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 32px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); }
+    .training-nav .container { display: flex; justify-content: space-between; align-items: center; }
+    .training-nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; }
+    .training-nav a:hover { color: var(--accent); }
+    .progress-bar { height: 4px; background: var(--bg-tertiary); margin: 24px 0; border-radius: 2px; overflow: hidden; }
+    .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--info)); width: 62.5%; transition: width 0.3s ease; }
+    .module-meta { display: flex; gap: 24px; margin: 24px 0; flex-wrap: wrap; }
+    .module-meta .meta-item { background: var(--bg-secondary); border: 1px solid var(--border); padding: 12px 20px; border-radius: 8px; font-size: 14px; color: var(--text-secondary); }
+    .module-meta .meta-item strong { color: var(--text-primary); display: block; margin-bottom: 4px; font-size: 13px; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 12px; }
+    .checklist li:last-child { border-bottom: none; }
+    .checklist input[type="checkbox"] { margin-top: 4px; accent-color: var(--accent); width: 18px; height: 18px; }
+    pre { background: var(--bg-secondary); border: 1px solid var(--border); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    code { font-family: 'Monaco', 'Menlo', monospace; }
+    .info-box { background: rgba(6, 182, 212, 0.1); border-left: 4px solid var(--info); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .warning-box { background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--warning); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+    th { background: var(--bg-tertiary); font-weight: 600; }
+    .module-nav { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+    .module-nav a { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; transition: all 0.2s ease; }
+    .module-nav a.prev { color: var(--text-secondary); border: 1px solid var(--border); }
+    .module-nav a.prev:hover { border-color: var(--accent); color: var(--accent); }
+    .module-nav a.next { background: var(--accent); color: white; }
+    .module-nav a.next:hover { background: var(--accent-hover); }
+    .comparison-table { margin: 20px 0; }
+    .comparison-table th { text-align: center; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+    .badge.pro { background: var(--accent); color: white; }
+    .badge.con { background: var(--danger); color: white; }
+  </style>
+</head>
+<body>
+  <nav class="training-nav">
+    <div class="container">
+      <a href="module-04-sessoes.html">← Módulo 4: Sessões</a>
+      <span>Treinamento • Módulo 5 de 8</span>
+      <a href="module-06-input.html">Próximo: Controle de Input →</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="progress-bar"><div class="fill"></div></div>
+
+    <article>
+      <header>
+        <h1>Módulo 5: Visualização Remota de Browser</h1>
+        <p class="subtitle">Entenda como o streaming MJPEG funciona, como consumir a imagem no frontend, otimizações e limitações do protocolo.</p>
+      </header>
+
+      <section class="module-meta">
+        <div class="meta-item"><strong>Duração estimada</strong>25 minutos</div>
+        <div class="meta-item"><strong>Dificuldade</strong>Básico</div>
+        <div class="meta-item"><strong>Pré-requisitos</strong>Módulo 4 (sessão ativa)</div>
+      </section>
+
+      <section>
+        <h2>🎯 Objetivos deste módulo</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" disabled><div><strong>Compreender o formato MJPEG e boundary streaming</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Como o FFmpeg emite frames via multipart/x-mixed-replace.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Aprender a consumir o stream no frontend</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Uso de &lt;img&gt;, fetch+blob, ou WebSocket alternativo.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Conhecer as limitações de latência e qualidade</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Por que MJPEG não é adequado para vídeos e jogos.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Saber configurar resolução e FPS</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Impacto da largura/altura e frame rate na performance.</p></div></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>📺 O que é MJPEG streaming?</h2>
+        <p>MJPEG (Motion JPEG) é um fluxo contínuo de quadros JPEG individuais enviados via HTTP como <code>multipart/x-mixed-replace</code>. Cada frame é uma imagem completa (não interframe).</p>
+
+        <h3>Fluxo do FFmpeg</h3>
+        <div class="info-box">
+          <code>ffmpeg -f x11grab -video_size 1280x720 -framerate 15 -i :99.0 -fmjpeg -q:v 5 -</code>
+          <br><small>Captura tela do Xvfb display :99, 15 FPS, qualidade 5 (1-31, menor=melhor), envia para stdout.</small>
+        </div>
+
+        <h3>Formato HTTP</h3>
+        <pre>HTTP/1.1 200 OK
+Content-Type: multipart/x-mixed-replace;boundary=frame
+
+--frame
+Content-Type: image/jpeg
+Content-Length: 48321
+
+&lt;bytes JPEG&gt;
+--frame
+Content-Type: image/jpeg
+Content-Length: 47502
+
+&lt;bytes JPEG&gt;
+...</pre>
+        <p>O cliente mantém a conexão aberta e renderiza cada parte como um novo frame.</p>
+      </section>
+
+      <section>
+        <h2>🔄 Pipeline Completo de Streaming</h2>
+
+        <div class="info-box">
+          <strong>Pipeline:</strong> Xvfb (framebuffer) → FFmpeg (x11grab) → MJPEG stdout → Fastify streaming response → frontend &lt;img&gt;.
+        </div>
+
+        <div class="architecture-diagram" style="font-size: 12px; line-height: 1.4;">
+┌────────────────────────────────────────────────────────────────────────────┐
+│  Xvfb (display :99)      Chrome rodando em headless                         │
+│     ┌─────────────┐         ┌──────────���─────────┐                        │
+│     │ Framebuffer │←───────►│ Renderiza página   │                        │
+│     └─────────────┘         └────────────────────┘                        │
+│           ▲                                                               │
+│           │ x11grab                                                       │
+│           │                                                               │
+│     ┌─────┴────────────┐                                                 │
+│     │   FFmpeg         │                                                 │
+│     │ -f x11grab      │                                                 │
+│     │ -framerate 15   │                                                 │
+│     │ -q:v 5          │                                                 │
+│     └─────┬────────────┘                                                 │
+│           │ stdout MJPEG (boundary frames)                              │
+│           ▼                                                               │
+│  Fastify route: GET /api/sessions/:id/stream                            │
+│           │ streaming response (Content-Type: multipart/x-mixed-replace)│
+│           ▼                                                               │
+│  Frontend: &lt;img src="/api/sessions/.../stream"&gt; ou fetch+blob        │
+└────────────────────────────────────────────────────────────────────────────┘
+        </div>
+      </section>
+
+      <section>
+        <h2>🖼️ Consumindo o Stream no Frontend</h2>
+
+        <h3>Método 1: &lt;img&gt; tag (simples)</h3>
+        <pre><code>// React component
+export function BrowserViewer({ sessionId, token }) {
+  const streamUrl = `/api/sessions/${sessionId}/stream?token=${token}`;
+
+  return (
+    &lt;div className="viewer"&gt;
+      &lt;img
+        src={streamUrl}
+        alt="Browser remoto"
+        style={{ width: '100%', height: 'auto' }}
+        onLoad={() => console.log('Stream conectado')}
+        onError={(e) => console.error('Stream falhou', e)}
+      /&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+
+        <div class="info-box">
+          <strong>Vantagem:</strong> Simplicidade. Navegador lida automaticamente com multipart.
+          <br><strong>Desvantagem:</strong> Não controla FPS, não retrocede, Buffer mínimo.
+        </div>
+
+        <h3>Método 2: fetch() + Blob (mais controle)</h3>
+        <pre><code>async function startStream(sessionId, token) {
+  const url = `/api/sessions/${sessionId}/stream?token=${token}`;
+  const res = await fetch(url);
+  const reader = res.body.getReader();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    // Processar chunks binários (camada adicional de parsing do multipart)
+    // Requer biblioteca externa para parse de boundary
+  }
+}</code></pre>
+
+        <div class="warning-box">
+          <strong>Nota:</strong> O parse manual de multipart é complexo. Use <code>&lt;img&gt;</code> na maioria dos casos.
+        </div>
+
+        <h3>Método 3: WebSocket (opcional, se implementado)</h3>
+        <p>Algumas implementações expõem <code>ws://server/ws/stream?session=...</code> enviando frames MJPEG binários. Consulte config.</p>
+      </section>
+
+      <section>
+        <h2>⚙️ Configurando Resolução e FPS</h2>
+        <p>A qualidade do streaming é determinada no momento da criação da sessão. O Session Manager passa parâmetros para o FFmpeg.</p>
+
+        <h3>Parâmetros de criação de sessão</h3>
+        <table>
+          <thead><tr><th>Campo</th><th>Tipo</th><th>Padrão</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>width</code></td><td>number</td><td>1280</td><td>Largura em pixels. Valores comuns: 800, 1024, 1280, 1920.</td></tr>
+            <tr><td><code>height</code></td><td>number</td><td>720</td><td>Altura em pixels. Valores comuns: 600, 720, 1080.</td></tr>
+            <tr><td><code>fps</code></td><td>number</td><td>15</td><td>Frame rate. Máximo prático: 30 FPS (maior consome CPU).</td></tr>
+            <tr><td><code>quality</code></td><td>number</td><td>5</td><td>Qualidade FFmpeg (1-31, menor=melhor). 2-5 é boa.</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Exemplo de criação com parâmetros customizados</h3>
+        <pre><code>POST /api/sessions
+{
+  "url": "https://example.com",
+  "width": 1920,
+  "height": 1080,
+  "fps": 20,
+  "quality": 3
+}</code></pre>
+
+        <h3>Trade-offs</h3>
+        <table class="comparison-table">
+          <thead><tr><th>Resolução</th><th>FPS</th><th>Qualidade</th><th>Impacto</th></tr></thead>
+          <tbody>
+            <tr><td>1280×720</td><td>15</td><td>5</td><td>Padrão — boa qualidade, ~1-2 Mbps</td></tr>
+            <tr><td>1920×1080</td><td>15</td><td>5</td><td>Alta resolução — ~3-5 Mbps</td></tr>
+            <tr><td>1280×720</td><td>30</td><td>3</td><td>Alto FPS — CPU increased 2×</td></tr>
+            <tr><td>800×600</td><td>10</td><td>7</td><td>Econômico — ~0.5 Mbps</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>📊 Latência e Performance</h2>
+
+        <h3>Componentes da latência</h3>
+        <ul style="padding-left: 24px; line-height: 1.8;">
+          <li><strong>Capture (Xvfb → FFmpeg):</strong> 1–5 ms</li>
+          <li><strong>Encode (FFmpeg JPEG):</strong> 10–30 ms</li>
+          <li><strong>Network (server → client):</strong> 10–100 ms (depende da rede)</li>
+          <li><strong>Render (navegador):</strong> 5–15 ms</li>
+          <li><strong>Total típico:</strong> 80–150 ms round-trip</li>
+        </ul>
+
+        <h3>FPS observado</h3>
+        <p>O FFmpeg tenta manter o <code>-framerate</code> configurado, mas o ritmo é limitado pelo encode e pela rede. Em redes locais: 12–15 FPS. Em redes remotas com alta latência: pode cair para 5–8 FPS.</p>
+
+        <div class="warning-box">
+          <strong>⚠️ Limite de MJPEG:</strong> Cada frame é uma imagem completa (independente). Isso consome mais largura de banda que H.264/AV1. É adequado para controle manual, não para vídeos longos.
+        </div>
+      </section>
+
+      <section>
+        <h2>🔧 Solução de Problemas de Streaming</h2>
+
+        <h3>❌ A imagem não aparece (broken ou vazia)</h3>
+        <p><strong>Causas comuns:</strong></p>
+        <ul style="padding-left: 24px;">
+          <li>Sessão ainda não inicializou (Chrome/FFmpeg não estão prontos). Aguarde 3–5 segundos após criação.</li>
+          <li>Token expirado ou inválido.</li>
+          <li>CORS bloqueando (se frontend em domínio diferente). Verifique <code>CORS_ORIGIN</code>.</li>
+          <li>FFmpeg crash. Verifique logs do servidor.</li>
+        </ul>
+
+        <h3>❌ Streaming muito lento ou com frames congelados</h3>
+        <p><strong>Causas:</strong></p>
+        <ul style="padding-left: 24px;">
+          <li>Resolução/FPS muito altos para o CPU disponível.</li>
+          <li>Rede instável (alta perda de pacotes).</li>
+          <li>Processo FFmpeg consumindo 100% CPU — usar qualidade mais baixa (<code>quality: 7</code>).</li>
+        </ul>
+
+        <h3>❌ Erro 404 ou 403 no /stream</h3>
+        <p>Verifique:</p>
+        <ul style="padding-left: 24px;">
+          <li>Session ID correto.</li>
+          <li>Token válido e não expirado.</li>
+          <li>Session não foi encerrada por timeout.</li>
+        </ul>
+
+        <h3>🔍 Diagnóstico via logs</h3>
+        <pre><code>pm2 logs serende | grep -E "(ffmpeg|stream|session.*sess_)"</code></pre>
+      </section>
+
+      <section>
+        <h2>💡 Otimizações Recomendadas</h2>
+
+        <ul style="padding-left: 24px; line-height: 1.8;">
+          <li>Use resolução mínima necessária. Para formulários web, 1024×768 é suficiente.</li>
+          <li>Reduza FPS para 10 em aplicações que não precisam de movimento rápido.</li>
+          <li>Ajuste <code>quality</code> entre 5 e 8 — qualidade acima de 5 melhora pouco e dobra CPU.</li>
+          <li>Habilite <code>DISPLAY_BASE</code> no .env para evitar conflitos de Xvfb.</li>
+          <li>Monitore uso de CPU; se estiver alto, reduza resolução/FPS.</li>
+          <li>Em produção, use Nginx como proxy reverso com gzip desabilitado (já é JPEG).</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>✅ Checklist de Conclusão</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" id="v1"><label for="v1">Entendi o formato MJPEG e como o FFmpeg emite frames.</label></li>
+          <li><input type="checkbox" id="v2"><label for="v2">Sei consumir o stream usando &lt;img&gt; tag (método simples).</label></li>
+          <li><input type="checkbox" id="v3"><label for="v3">Conheço as configurações de width, height, fps e quality.</label></li>
+          <li><input type="checkbox" id="v4"><label for="v4">Entendo as limitações de latência e banda do MJPEG.</label></li>
+          <li><input type="checkbox" id="v5"><label for="v5">Sei diagnosticar problemas comuns de streaming.</label></li>
+        </ul>
+      </section>
+
+      <nav class="module-nav">
+        <a href="module-04-sessoes.html" class="prev">← Módulo 4: Sessões</a>
+        <a href="module-06-input.html" class="next">Próximo: Controle de Input →</a>
+      </nav>
+    </article>
+  </div>
+</body>
+</html>

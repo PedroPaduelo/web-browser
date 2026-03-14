@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Treinamento — Módulo 3: Autenticação — Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .training-nav { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 32px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); }
+    .training-nav .container { display: flex; justify-content: space-between; align-items: center; }
+    .training-nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; }
+    .training-nav a:hover { color: var(--accent); }
+    .progress-bar { height: 4px; background: var(--bg-tertiary); margin: 24px 0; border-radius: 2px; overflow: hidden; }
+    .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--info)); width: 37.5%; transition: width 0.3s ease; }
+    .module-meta { display: flex; gap: 24px; margin: 24px 0; flex-wrap: wrap; }
+    .module-meta .meta-item { background: var(--bg-secondary); border: 1px solid var(--border); padding: 12px 20px; border-radius: 8px; font-size: 14px; color: var(--text-secondary); }
+    .module-meta .meta-item strong { color: var(--text-primary); display: block; margin-bottom: 4px; font-size: 13px; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 12px; }
+    .checklist li:last-child { border-bottom: none; }
+    .checklist input[type="checkbox"] { margin-top: 4px; accent-color: var(--accent); width: 18px; height: 18px; }
+    pre { background: var(--bg-secondary); border: 1px solid var(--border); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    code { font-family: 'Monaco', 'Menlo', monospace; }
+    .info-box { background: rgba(6, 182, 212, 0.1); border-left: 4px solid var(--info); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .warning-box { background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--warning); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .flow-diagram { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 20px 0; padding: 16px; background: var(--bg-secondary); border-radius: 8px; }
+    .flow-diagram .step-box { background: var(--bg-tertiary); border: 1px solid var(--border); padding: 8px 16px; border-radius: 6px; min-width: 100px; text-align: center; }
+    .flow-diagram .arrow { color: var(--text-secondary); font-size: 20px; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    th, td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+    th { background: var(--bg-tertiary); font-weight: 600; }
+    .module-nav { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+    .module-nav a { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; transition: all 0.2s ease; }
+    .module-nav a.prev { color: var(--text-secondary); border: 1px solid var(--border); }
+    .module-nav a.prev:hover { border-color: var(--accent); color: var(--accent); }
+    .module-nav a.next { background: var(--accent); color: white; }
+    .module-nav a.next:hover { background: var(--accent-hover); }
+  </style>
+</head>
+<body>
+  <nav class="training-nav">
+    <div class="container">
+      <a href="module-02-instalacao.html">← Módulo 2: Instalação</a>
+      <span>Treinamento • Módulo 3 de 8</span>
+      <a href="module-04-sessoes.html">Próximo: Sessões →</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="progress-bar"><div class="fill"></div></div>
+
+    <article>
+      <header>
+        <h1>Módulo 3: Autenticação e Gestão de Tenants</h1>
+        <p class="subtitle">Entenda o sistema de autenticação JWT, criação e validação de chaves API, e isolamento por tenant.</p>
+      </header>
+
+      <section class="module-meta">
+        <div class="meta-item"><strong>Duração estimada</strong>25 minutos</div>
+        <div class="meta-item"><strong>Dificuldade</strong>Básico/Intermediário</div>
+        <div class="meta-item"><strong>Pré-requisitos</strong>Servidor instalado (Módulo 2)</div>
+      </section>
+
+      <section>
+        <h2>🎯 Objetivos deste módulo</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" disabled><div><strong>Compreender o modelo de tenant isolation</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Cada cliente (tenant) tem seu próprio espaço de arquivos e chave API única.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Aprender a criar e gerenciar chaves API</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Fluxo completo: geração → armazenamento seguro → derivação de tenantId.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Entender o fluxo JWT</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Login, geração de token, verificação em cada requisição e renovação.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Integrar autenticação no frontend</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Exemplos práticos de login, uso do token e refresh.</p></div></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>🔐 Modelo de Segurança</h2>
+        <div class="info-box">
+          <strong>Princípio fundamental:</strong> Cada requisição ao Serende deve incluir um JWT válido no header <code>Authorization: Bearer &lt;token&gt;</code>. O token contém o <code>tenantId</code> que determina o isolamento de arquivos e sessões.
+        </div>
+
+        <h3>Componentes</h3>
+        <table>
+          <thead><tr><th>Componente</th><th>Responsabilidade</th></tr></thead>
+          <tbody>
+            <tr><td><code>key-store</code> (SQLite)</td><td>Armazena <code>{ keyHash, tenantId }</code>. A chave é hasheada com SHA256, nunca armazenada em texto puro.</td></tr>
+            <tr><td><code>auth.js</code></td><td>Funções <code>generateToken</code>, <code>verifyToken</code>, <code>deriveTenantId</code>, e middleware <code>authMiddleware</code>.</td></tr>
+            <tr><td><code>JWT_SECRET</code></td><td>Segredo HMAC usado para assinar tokens (HS256). Deve ser mantido em .env e ter alta entropia.</td></tr>
+            <tr><td><code>JWT_EXPIRY</code></td><td>Tempo de vida do token (padrão: 24h).</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>🔄 Fluxo de Autenticação Detalhado</h2>
+
+        <div class="flow-diagram">
+          <div class="step-box">1. Client</div>
+          <div class="arrow">→</div>
+          <div class="step-box">2. POST /api/auth/login</div>
+          <div class="arrow">→</div>
+          <div class="step-box">3. validateKey</div>
+          <div class="arrow">→</div>
+          <div class="step-box">4. generateToken</div>
+          <div class="arrow">→</div>
+          <div class="step-box">5. JWT</div>
+        </div>
+
+        <h3>Passo a passo</h3>
+        <ol style="padding-left: 24px; line-height: 1.8;">
+          <li><strong>Cliente</strong> possui uma <em>API Key</em> (ex: <code>sk_demo_abc123</code>) obtida previamente do administrador.</li>
+          <li>Envia <code>POST /api/auth/login</code> com JSON <code>{ "apiKey": "sk_demo_..." }</code>.</li>
+          <li><strong>Backend</strong> calcula <code>hash = SHA256(apiKey)</code> e busca no SQLite via <code>key-store.get(hash)</code>.</li>
+          <li>Se encontrado, obtém <code>tenantId</code>. Caso contrário, retorna <code>401 Invalid API key</code>.</li>
+          <li>Gera JWT com payload <code>{ tenantId, iat, exp }</code> usando <code>jsonwebtoken.sign</code> com <code>JWT_SECRET</code>.</li>
+          <li>Retorna <code>{ token, tenantId }</code> ao cliente.</li>
+          <li>Nas requisições seguintes, o cliente inclui <code>Authorization: Bearer &lt;token&gt;</code>.</li>
+          <li><strong>Middleware de autenticação</strong> valida o token com <code>jwt.verify</code>. Se válido, anexa <code>req.tenantId</code> e prossegue.</li>
+        </ol>
+
+        <div class="info-box">
+          <strong>Nota sobrederivação:</strong> O <code>tenantId</code> é derivado diretamente da chave. Isso permite que diferentes clientes tenham acesso a diferentes namespaces de arquivos. <em>Não use a mesma chave para múltiplos tenants.</em>
+        </div>
+      </section>
+
+      <section>
+        <h2>🔑 Criando Chaves API</h2>
+        <p>O Serende inclui um script utilitário para criar chaves. Só administradores com acesso ao filesystem podem criá-las.</p>
+
+        <h3>ScriptCLI</h3>
+        <pre><code>node dist/scripts/create-key.js --tenant &lt;nome-tenant&gt;</code></pre>
+
+        <h3>Exemplo</h3>
+        <pre><code>$ node dist/scripts/create-key.js --tenant acme-corp
+🏷️  Tenant: acme-corp
+🔑 API Key (salve em local seguro): sk_acme_8f3e2a1b...
+🔒 Hash (armazenado no SQLite): a3f5c9...</code></pre>
+
+        <h3>Formato da chave</h3>
+        <ul style="padding-left: 24px; line-height: 1.8;">
+          <li><code>sk_</code> prefixo (significa "secret key")</li>
+          <li><code>&lt;tenant&gt;_</code> identificador do tenant</li>
+          <li>16+ caracteres aleatórios hex/base64</li>
+          <li>Exemplo completo: <code>sk_acme_8f3e2a1b9c4d5e6f</code></li>
+        </ul>
+
+        <div class="warning-box">
+          <strong>⚠️ Segurança:</strong> Trate chaves API como senhas. Nunca as comite em repositórios, não as envie por email sem criptografia, e armazene apenas em cofres de segredos (Vault, .env, variáveis de ambiente do deploy).
+        </div>
+      </section>
+
+      <section>
+        <h2>📋 Variáveis Relacionadas à Autenticação</h2>
+        <table>
+          <thead><tr><th>Variável</th><th>Obrigatória</th><th>Exemplo</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>JWT_SECRET</code></td><td>✅</td><td><code>k9$8F!p2#xR@mN7vLq4*Zy3sW</code></td><td>Chave HMAC-SHA256 (mínimo 32 chars, alta entropia).</td></tr>
+            <tr><td><code>JWT_EXPIRY</code></td><td>❌</td><td><code>24h</code></td><td>Tempo de vida do token. Use <code>30m</code> para testes, <code>24h</code> para produção.</td></tr>
+            <tr><td><code>ADMIN_SECRET</code></td><td>✅</td><td><code>admin_42!secretKey</code></td><td>Segredo para endpoints de administração. Diferente de <code>JWT_SECRET</code>.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>💻 Integração Frontend — Exemplo Prático</h2>
+        <p>O frontend do Serende (React) inclui componentes de login. Veja como integrar em um app custom.</p>
+
+        <h3>1. Tela de login</h3>
+        <pre><code>// LoginScreen.tsx (exemplo)
+const [apiKey, setApiKey] = useState('');
+
+const handleLogin = async () => {
+  const res = await fetch('https://serende.example.com/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey })
+  });
+
+  if (!res.ok) {
+    alert('Chave API inválida');
+    return;
+  }
+
+  const { token, tenantId } = await res.json();
+  localStorage.setItem('serende_token', token);
+  localStorage.setItem('serende_tenant', tenantId);
+  window.location.href = '/dashboard';
+};</code></pre>
+
+        <h3>2. Cliente HTTP com token automático</h3>
+        <pre><code>// auth-client.ts
+const token = localStorage.getItem('serende_token');
+
+export async function apiFetch(url, options = {}) {
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (res.status === 401) {
+    // token expirado ou inválido → redirect para login
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
+
+  return res;
+}</code></pre>
+
+        <h3>3. Uso em componentes</h3>
+        <pre><code>// Criar uma sessão
+const createSession = async () => {
+  const res = await apiFetch('/api/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ url: 'https://example.com' })
+  });
+  const data = await res.json();
+  return data.sessionId;
+};</code></pre>
+      </section>
+
+      <section>
+        <h2>🔍 Debug e Verificação</h2>
+
+        <h3>Decodificar JWT (sem verificar assinatura)</h3>
+        <pre><code># Instale jwt-cli: npm install -g jwt-cli
+jwt decode &lt;seu-token-aqui&gt;</code></pre>
+        <p>Você verá o <code>tenantId</code> no payload.</p>
+
+        <h3>Verificar chave no SQLite</h3>
+        <pre><code>sqlite3 data/key-store.db "SELECT * FROM api_keys WHERE keyHash = '&lt;SHA256 da chave&gt;';"</code></pre>
+
+        <h3>Testar autenticação com curl</h3>
+        <pre><code>TOKEN=$(curl -s -X POST http://localhost:3333/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"apiKey":"sk_demo_..."}' | jq -r .token)
+
+# Agora use o token:
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3333/api/sessions</code></pre>
+      </section>
+
+      <section>
+        <h2>✅ Checklist de Conclusão</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" id="a1"><label for="a1">Entendi o modelo de tenant isolation e sua importância.</label></li>
+          <li><input type="checkbox" id="a2"><label for="a2">Sei criar chaves API via script e entender o formato.</label></li>
+          <li><input type="checkbox" id="a3"><label for="a3">Compreendo o fluxo JWT completo (login → verify → uso).</label></li>
+          <li><input type="checkbox" id="a4"><label for="a4">Consigo integrar autenticação em um frontend (React exemplo).</label></li>
+          <li><input type="checkbox" id="a5"><label for="a5">Sei debugar problemas de autenticação (token decode, SQLite lookup).</label></li>
+        </ul>
+      </section>
+
+      <nav class="module-nav">
+        <a href="module-02-instalacao.html" class="prev">← Módulo 2: Instalação</a>
+        <a href="module-04-sessoes.html" class="next">Próximo: Sessões →</a>
+      </nav>
+    </article>
+  </div>
+</body>
+</html>

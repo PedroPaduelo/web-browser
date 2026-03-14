@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Treinamento — Módulo 6: Controle de Input — Serende</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .training-nav { background: var(--bg-secondary); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 32px; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); }
+    .training-nav .container { display: flex; justify-content: space-between; align-items: center; }
+    .training-nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; }
+    .training-nav a:hover { color: var(--accent); }
+    .progress-bar { height: 4px; background: var(--bg-tertiary); margin: 24px 0; border-radius: 2px; overflow: hidden; }
+    .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--info)); width: 75%; transition: width 0.3s ease; }
+    .module-meta { display: flex; gap: 24px; margin: 24px 0; flex-wrap: wrap; }
+    .module-meta .meta-item { background: var(--bg-secondary); border: 1px solid var(--border); padding: 12px 20px; border-radius: 8px; font-size: 14px; color: var(--text-secondary); }
+    .module-meta .meta-item strong { color: var(--text-primary); display: block; margin-bottom: 4px; font-size: 13px; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { padding: 12px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 12px; }
+    .checklist li:last-child { border-bottom: none; }
+    .checklist input[type="checkbox"] { margin-top: 4px; accent-color: var(--accent); width: 18px; height: 18px; }
+    pre { background: var(--bg-secondary); border: 1px solid var(--border); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    code { font-family: 'Monaco', 'Menlo', monospace; }
+    .info-box { background: rgba(6, 182, 212, 0.1); border-left: 4px solid var(--info); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .warning-box { background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--warning); padding: 16px 20px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+    .module-nav { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); }
+    .module-nav a { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; transition: all 0.2s ease; }
+    .module-nav a.prev { color: var(--text-secondary); border: 1px solid var(--border); }
+    .module-nav a.prev:hover { border-color: var(--accent); color: var(--accent); }
+    .module-nav a.next { background: var(--accent); color: white; }
+    .module-nav a.next:hover { background: var(--accent-hover); }
+    .table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    .table th, .table td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+    .table th { background: var(--bg-tertiary); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <nav class="training-nav">
+    <div class="container">
+      <a href="module-05-visualizacao.html">← Módulo 5: Visualização</a>
+      <span>Treinamento • Módulo 6 de 8</span>
+      <a href="module-07-streaming.html">Próximo: Streaming e Áudio →</a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="progress-bar"><div class="fill"></div></div>
+
+    <article>
+      <header>
+        <h1>Módulo 6: Controle de Input (Mouse e Teclado)</h1>
+        <p class="subtitle">Aprenda como o sistema processa eventos de input, como enviar comandos via API e garantir consistência no cliente.</p>
+      </header>
+
+      <section class="module-meta">
+        <div class="meta-item"><strong>Duração estimada</strong>30 minutos</div>
+        <div class="meta-item"><strong>Dificuldade</strong>Intermediário</div>
+        <div class="meta-item"><strong>Pré-requisitos</strong>Módulo 5</div>
+      </section>
+
+      <section>
+        <h2>🎯 Objetivos deste módulo</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" disabled><div><strong>Entender o fluxo de input no backend</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">JSON → Node → Python X11 → Xvfb → Chrome.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Enviar eventos de mouse e teclado via API</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Formatos suportados e exemplos.</p></div></li>
+          <li><input type="checkbox" disabled><div><strong>Mapear teclas e garantir segurança</strong><p style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">Validação de códigos, injeção e limites de taxa.</p></div></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>🔧 Arquitetura do Input</h2>
+        <p>O input é tratado por três camadas:</p>
+        <ol style="padding-left: 24px; line-height: 1.8;">
+          <li><strong>HTTP/WS API</strong> no Node.js: recebe JSON do cliente.</li>
+          <li><strong>Input Handler</strong> em Node.js (+ Python): valida e envia para Python via stdin pipe.</li>
+          <li><strong>Python X11 (x11-input.py)</strong>: converte para eventos XTest e envia para o display associado.</li>
+        </ol>
+
+        <div class="info-box">
+          <strong>Observação:</strong> Todas as ações de input são logadas e metrificadas (Activity Tracker) para prevenir abuso.
+        </div>
+
+        <h3>Tipos de eventos aceitos</h3>
+        <table class="table">
+          <thead><tr><th>Tipo</th><th>Campos</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><code>mousemove</code></td><td><code>x, y</code></td><td>Move o cursor em coordenadas absolutas.</td></tr>
+            <tr><td><code>mousedown</code></td><td><code>x, y, button</code></td><td>Pressiona o botão do mouse.</td></tr>
+            <tr><td><code>mouseup</code></td><td><code>x, y, button</code></td><td>Solta o botão do mouse.</td></tr>
+            <tr><td><code>keydown</code></td><td><code>key</code></td><td>Pressiona tecla no teclado.</td></tr>
+            <tr><td><code>keyup</code></td><td><code>key</code></td><td>Solta tecla.</td></tr>
+            <tr><td><code>wheel</code></td><td><code>deltaX, deltaY</code></td><td>Scroll de roda.</td></tr>
+            <tr><td><code>scroll</code></td><td><code>x, y</code></td><td>Scroll por coordenada (se suportado).</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>📡 Endpoint de Input</h2>
+        <pre><code>POST /api/sessions/:sessionId/input
+Authorization: Bearer &lt;token&gt;
+Content-Type: application/json
+
+{
+  "events": [
+    { "type": "mousemove", "x": 640, "y": 360 },
+    { "type": "mousedown", "x": 640, "y": 360, "button": 1 },
+    { "type": "mouseup", "x": 640, "y": 360, "button": 1 },
+    { "type": "keydown", "key": "a" },
+    { "type": "keyup", "key": "a" }
+  ]
+}</code></pre>
+
+        <div class="info-box">
+          <strong>Requisito:</strong> Sessão ativa, token válido e sessão autenticada para o tenant correto.
+        </div>
+
+        <h3>Resposta padrão</h3>
+        <pre><code>{
+  "success": true,
+  "processed": 5,
+  "failed": 0
+}</code></pre>
+      </section>
+
+      <section>
+        <h2>🐍 Detalhes do x11-input.py</h2>
+        <p>O script Python recebe JSON no stdin, parseia e dispara eventos X11 via XTest.</p>
+
+        <h3>Exemplo de evento JSON</h3>
+        <pre><code>{
+  "type": "mousemove",
+  "x": 400,
+  "y": 300
+}</code></pre>
+
+        <h3>Mapeamento de teclas</h3>
+        <p>Usa tabela de <code>keysyms</code>. Exemplo supportado:</p>
+        <ul style="padding-left: 24px; line-height: 1.8;">
+          <li><code>Enter</code> → XK_Return</li>
+          <li><code>Backspace</code> → XK_BackSpace</li>
+          <li><code>Escape</code> → XK_Escape</li>
+          <li><code>Ctrl</code>, <code>Shift</code>, <code>Alt</code></li>
+          <li><code>a-z</code>, <code>0-9</code>, símbolos</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>⚠️ Segurança e Limites</h2>
+
+        <ul style="padding-left: 24px; line-height: 1.8;">
+          <li><strong>Validação obrigatória de input:</strong> O servidor valida o tipo, campos obrigatórios e ranges (x/y dentro da resolução).</li>
+          <li><strong>Rate Limit:</strong> 100 microssegundos entre eventos (configurável). Excesso gera 429.</li>
+          <li><strong>Anti-abuso:</strong> O Activity Tracker pode encerrar sessões com padrões suspeitos (cliques contínuos, flood).</li>
+          <li><strong>Sem execução de shell:</strong> Não existem comandos de shell enviados via input — apenas eventos X11.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>🧪 Testando Input com curl</h2>
+        <pre><code>TOKEN=eyJ...
+SESSION_ID=sess_abc123
+
+curl -X POST http://localhost:3333/api/sessions/$SESSION_ID/input \
+ -H "Authorization: Bearer $TOKEN" \
+ -H "Content-Type: application/json" \
+ -d '{"events":[{"type":"mousemove","x":600,"y":350},{"type":"mousedown","x":600,"y":350,"button":1},{"type":"mouseup","x":600,"y":350,"button":1}]}'</code></pre>
+
+        <div class="info-box">
+          <strong>Resultado esperado:</strong> A interface do browser remoto deve navegar no clique.
+        </div>
+      </section>
+
+      <section>
+        <h2>✅ Checklist de Conclusão</h2>
+        <ul class="checklist">
+          <li><input type="checkbox" id="i1"><label for="i1">Entendi o fluxo completo de input (Cliente → API → Python X11 → Chrome).</label></li>
+          <li><input type="checkbox" id="i2"><label for="i2">Sei enviar eventos mouse/teclado via API.</label></li>
+          <li><input type="checkbox" id="i3"><label for="i3">Consigo mapear teclas e prevenir inputs inválidos.</label></li>
+          <li><input type="checkbox" id="i4"><label for="i4">Conheço as salvaguardas de segurança e rate limiting.</label></li>
+        </ul>
+      </section>
+
+      <nav class="module-nav">
+        <a href="module-05-visualizacao.html" class="prev">← Módulo 5: Visualização</a>
+        <a href="module-07-streaming.html" class="next">Próximo: Streaming e Áudio →</a>
+      </nav>
+    </article>
+  </div>
+</body>
+</html>
