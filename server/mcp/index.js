@@ -1,11 +1,18 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
+import dotenv from 'dotenv';
 
 import crypto from 'node:crypto';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, '.env'), override: true });
 
 const SERENDE_API = process.env.SERENDE_API || 'http://localhost:4201';
 const SERENDE_PUBLIC_URL = process.env.SERENDE_PUBLIC_URL || 'https://serende.ddw1sl.easypanel.host';
