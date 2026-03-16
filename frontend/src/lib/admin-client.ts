@@ -1,3 +1,4 @@
+const API_URL = import.meta.env.VITE_API_URL || ''
 const ADMIN_SECRET_KEY = 'serende_admin_secret'
 
 export function setAdminSecret(secret: string) {
@@ -23,7 +24,8 @@ export async function adminFetch(url: string, options: RequestInit = {}): Promis
   if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
     headers.set('Content-Type', 'application/json')
   }
-  return fetch(url, { ...options, headers })
+  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`
+  return fetch(fullUrl, { ...options, headers })
 }
 
 export interface AdminStats {
