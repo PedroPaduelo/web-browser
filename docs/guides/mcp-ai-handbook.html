@@ -884,32 +884,97 @@ Chrome Headless + Xvfb (display virtual)
         <div class="section-header">
           <div class="section-number">02</div>
           <h2 class="section-title">Setup Inicial</h2>
-          <p class="section-description">Como configurar o MCP no Claude Desktop</p>
+          <p class="section-description">O MCP Serende é um servidor HTTP — basta configurar a URL e API key</p>
         </div>
 
         <div class="card">
           <div class="card-header">
-            <div class="card-icon">🔑</div>
+            <div class="card-icon">🖥️</div>
             <div>
-              <div class="card-title">API Key</div>
-              <div class="card-subtitle">Autenticação via header X-API-Key</div>
+              <div class="card-title">Claude Desktop</div>
+              <div class="card-subtitle">claude_desktop_config.json</div>
             </div>
           </div>
           <div class="card-content">
-            Configure a API key no arquivo <code>claude_desktop_config.json</code>:
+            Abra as configurações do Claude Desktop e adicione o MCP como <strong>HTTP</strong>:
+
             <div class="code-block">
               <pre>{
   "mcpServers": {
-    "serende-browser": {
-      "command": "node",
-      "args": ["/path/to/server/mcp/index.js"],
-      "env": {
-        "SERENDE_API_KEY": "serende-dev-key-2024"
+    "remote-browser": {
+      "type": "http",
+      "url": "https://SEU-DOMINIO.com:4202/mcp",
+      "headers": {
+        "X-API-Key": "serende-dev-key-2024"
       }
     }
   }
 }</pre>
             </div>
+
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted);">
+              <strong>Importante:</strong> O tipo é <code>"http"</code>, não <code>"stdio"</code>.
+              O Serende roda como servidor HTTP independente — múltiplos clientes podem conectar simultaneamente.
+            </p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 1rem;">
+          <div class="card-header">
+            <div class="card-icon">⌨️</div>
+            <div>
+              <div class="card-title">Claude Code (CLI)</div>
+              <div class="card-subtitle">.mcp.json na raiz do projeto</div>
+            </div>
+          </div>
+          <div class="card-content">
+            Crie um arquivo <code>.mcp.json</code> na raiz do seu projeto:
+
+            <div class="code-block">
+              <pre>{
+  "mcpServers": {
+    "remote-browser": {
+      "type": "http",
+      "url": "https://SEU-DOMINIO.com:4202/mcp",
+      "headers": {
+        "X-API-Key": "serende-dev-key-2024"
+      }
+    }
+  }
+}</pre>
+            </div>
+
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-muted);">
+              Reinicie o Claude Code após adicionar o arquivo. As 49 tools aparecerão automaticamente.
+            </p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 1rem;">
+          <div class="card-header">
+            <div class="card-icon">🔑</div>
+            <div>
+              <div class="card-title">Autenticação</div>
+              <div class="card-subtitle">API Key via header X-API-Key</div>
+            </div>
+          </div>
+          <div class="card-content">
+            A autenticação é feita automaticamente pelo cliente MCP via header <code>X-API-Key</code>.
+
+            <p style="margin-top: 0.75rem; font-size: 0.85rem;">
+              Internamente, o MCP server:
+            </p>
+            <ul style="margin-top: 0.5rem; padding-left: 1.5rem; font-size: 0.85rem; color: var(--text-secondary);">
+              <li>Recebe a API key no header</li>
+              <li>Autentica com o backend Serende (<code>POST /api/auth/login</code>)</li>
+              <li>Recebe um JWT token (24h de validade)</li>
+              <li>Deriva um <code>tenantId</code> único via SHA256 para isolamento</li>
+              <li>Usa o JWT em todas as chamadas subsequentes</li>
+            </ul>
+
+            <p style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted);">
+              Cada API key gera um tenant isolado — sessões, profiles e dados não vazam entre clientes.
+            </p>
           </div>
         </div>
       </section>
