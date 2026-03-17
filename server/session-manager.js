@@ -217,10 +217,58 @@ async function startSession(sessionId, tenantId, options = {}) {
 
   console.log(`[Session:${sessionId}] CDP screencast ready (no ffmpeg)`);
 
+  // Monitor de saúde — verifica se Xvfb e Chrome estão vivos a cada 30s
+  const healthCheckInterval = setInterval(() => {
+    const currentSession = sessions.get(sessionId);
+    if (!currentSession) {
+      clearInterval(healthCheckInterval);
+      return;
+    }
+
+    // Verificar se Xvfb ainda está rodando (via lock file + processo)
+    const lockExists = fs.existsSync(`/tmp/.X${displayNum}-lock`);
+    const xvfbAlive = xvfb.pid && !xvfb.killed;
+    const chromeAlive = chrome.pid && !chrome.killed;
+
+    if (!lockExists || !xvfbAlive) {
+      console.error(`[Session:${sessionId}] Health check FAILED: Xvfb dead (lock=${lockExists}, alive=${xvfbAlive})`);
+      clearInterval(healthCheckInterval);
+      stopSession(sessionId, 'xvfb_died');
+      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
+      return;
+    }
+
+    if (!chromeAlive) {
+      console.error(`[Session:${sessionId}] Health check FAILED: Chrome dead`);
+      clearInterval(healthCheckInterval);
+      stopSession(sessionId, 'chrome_died');
+      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
+      return;
+    }
+  }, 30000);
+
   chrome.on('exit', (code, signal) => {
-    console.log(`[Session:${sessionId}] Chrome exited unexpectedly (code=${code}, signal=${signal})`);
+    // Code 0 e signal null = saida normal (stopSession foi chamado)
+    if (code === 0 && signal === null && !sessions.has(sessionId)) {
+      console.log(`[Session:${sessionId}] Chrome exited normally (clean shutdown)`);
+      return;
+    }
+    // Code != 0 ou signal presente = crash
+    console.log(`[Session:${sessionId}] Chrome CRASHED (code=${code}, signal=${signal})`);
+    clearInterval(healthCheckInterval);
     if (sessions.has(sessionId)) {
-      stopSession(sessionId);
+      stopSession(sessionId, 'chrome_crash');
+      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
+    }
+  });
+
+  // Xvfb exit handler — se Xvfb morrer, matar Chrome também
+  xvfb.on('exit', (code, signal) => {
+    console.log(`[Session:${sessionId}] Xvfb exited (code=${code}, signal=${signal})`);
+    clearInterval(healthCheckInterval);
+    if (sessions.has(sessionId)) {
+      killProcess(chrome);
+      stopSession(sessionId, 'xvfb_died');
       if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
     }
   });
@@ -282,6 +330,26 @@ async function stopSession(sessionId, reason = 'manual') {
 
   setTimeout(() => {
     killProcess(session.xvfb);
+
+    // Limpar lock files do Xvfb para evitar conflitos em restarts futuros
+    try {
+      if (fs.existsSync(`/tmp/.X${session.displayNum}-lock`)) {
+        fs.unlinkSync(`/tmp/.X${session.displayNum}-lock`);
+        console.log(`[Session:${sessionId}] Cleaned lock file /tmp/.X${session.displayNum}-lock`);
+      }
+    } catch (e) {
+      console.warn(`[Session:${sessionId}] Failed to clean lock file:`, e.message);
+    }
+
+    try {
+      if (fs.existsSync(`/tmp/.X11-unix/X${session.displayNum}`)) {
+        fs.unlinkSync(`/tmp/.X11-unix/X${session.displayNum}`);
+        console.log(`[Session:${sessionId}] Cleaned socket /tmp/.X11-unix/X${session.displayNum}`);
+      }
+    } catch (e) {
+      console.warn(`[Session:${sessionId}] Failed to clean socket:`, e.message);
+    }
+
     releaseDisplay(session.displayNum);
     // NÃO remover userDataDir — é persistente!
     console.log(`[Session:${sessionId}] Session stopped (total: ${sessions.size})`);

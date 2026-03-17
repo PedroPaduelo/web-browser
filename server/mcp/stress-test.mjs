@@ -1,0 +1,1 @@
+/workspace/temp-orquestrador/users/5aaf347f-952f-4355-8513-ac3f4024b43e/projetos/serende/stress-test.mjs

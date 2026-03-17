@@ -31,6 +31,12 @@ _kc_cache = {}
 
 def init_display():
     global d, screen, root
+
+    # Disable Xauth by creating a dummy .Xauthority file
+    # Xlib will fail if XAUTHORITY is set to empty string
+    # Instead, we set it to /dev/null to bypass auth
+    os.environ['XAUTHORITY'] = '/dev/null'
+
     d = display.Display(DISPLAY_NUM)
     screen = d.screen()
     root = screen.root

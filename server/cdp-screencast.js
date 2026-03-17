@@ -13,6 +13,8 @@ class CDPScreencast {
     this.onFrame = null;
     this.frameCount = 0;
     this.lastLogTime = Date.now();
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
   }
 
   start(onFrame) {
@@ -53,6 +55,7 @@ class CDPScreencast {
     let enableId = null;
 
     ws.on('open', () => {
+      this.reconnectAttempts = 0; // Reset on successful connect
       console.log(`[CDP:${this.cdpPort}] WebSocket conectado ao Chrome`);
       enableId = idCounter++;
       ws.send(JSON.stringify({ id: enableId, method: 'Page.enable' }));
@@ -107,7 +110,13 @@ class CDPScreencast {
     ws.on('close', () => {
       this.ws = null;
       if (!this.stopped) {
-        this.reconnectTimer = setTimeout(() => this._connect(), 1000);
+        this.reconnectAttempts++;
+        if (this.reconnectAttempts <= this.maxReconnectAttempts) {
+          const delay = Math.min(1000 * this.reconnectAttempts, 5000);
+          this.reconnectTimer = setTimeout(() => this._connect(), delay);
+        } else {
+          console.error(`[CDP:${this.cdpPort}] Max reconnect attempts reached, giving up`);
+        }
       }
     });
 

@@ -18,8 +18,9 @@ const SERENDE_API = process.env.SERENDE_API || 'http://localhost:4201';
 const SERENDE_PUBLIC_URL = process.env.SERENDE_PUBLIC_URL || 'https://serende.ddw1sl.easypanel.host';
 const MCP_PORT = parseInt(process.env.MCP_PORT) || 4202;
 
-// --- State (per-tenant isolation) ---
-const tenantSessions = new Map();  // tenantId → sessionId
+// --- State ---
+// tokenCache é global (cache de autenticação, seguro compartilhar)
+// tenantSessions é por-instância (movido para dentro de createServer)
 const tokenCache = new Map();      // tenantId → { token, expiresAt }
 
 // AsyncLocalStorage to track which tenant is making the current request
@@ -103,13 +104,6 @@ async function api(method, path, body) {
   return data;
 }
 
-function requireSession() {
-  const tenantId = getCurrentTenantId();
-  const sessionId = tenantSessions.get(tenantId);
-  if (!sessionId) throw new Error('No active session for this tenant. Use session_start first.');
-  return sessionId;
-}
-
 function ok(text) {
   return { content: [{ type: 'text', text }] };
 }
@@ -159,6 +153,16 @@ function reactToggleCheckbox(el, checked) {
 }`;
 
 function createServer() {
+  // Isolado por instância — cada conexão MCP tem seu próprio estado de sessão
+  const tenantSessions = new Map();  // tenantId → sessionId
+
+  function requireSession() {
+    const tenantId = getCurrentTenantId();
+    const sessionId = tenantSessions.get(tenantId);
+    if (!sessionId) throw new Error('No active session for this tenant. Use session_start first.');
+    return sessionId;
+  }
+
   const server = new McpServer({
     name: 'serende-browser',
     version: '3.0.0',
@@ -1618,7 +1622,7 @@ app.post('/mcp/json', async (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', activeSessions: transports.size, activeTenants: tenantSessions.size });
+  res.json({ status: 'ok', activeSessions: transports.size });
 });
 
 app.listen(MCP_PORT, '0.0.0.0', () => {

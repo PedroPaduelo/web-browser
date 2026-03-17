@@ -6,41 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/workspace/temp-orquestrador/users/5aaf347f-952f-4355-8513-ac3f4024b43e/projetos/serende/.claude/hooks/restrict-directory.sh"
+            "command": "/workspace/temp-orquestrador/users/5aaf347f-952f-4355-8513-ac3f4024b43e/projetos/remote-browser/.claude/hooks/restrict-directory.sh"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "timeout": 5000,
-            "command": "if echo \"$TOOL_INPUT\" | grep -qE \"rm\\s+(-rf|-r\\s+-f|--recursive)\\s+/\"; then echo '{\"decision\":\"block\",\"reason\":\"Comando rm -rf bloqueado por seguranca\"}' >&2; exit 2; fi",
-            "statusMessage": "Verificando seguranca do comando..."
-          }
-        ],
-        "matcher": "Bash"
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "timeout": 30000,
-            "command": "npx eslint --fix \"$TOOL_INPUT_FILE_PATH\" 2>/dev/null || true",
-            "isAsync": true,
-            "statusMessage": "Rodando linter..."
-          },
-          {
-            "type": "command",
-            "timeout": 30000,
-            "command": "npx eslint --fix \"$TOOL_INPUT_FILE_PATH\" 2>/dev/null || true",
-            "isAsync": true,
-            "statusMessage": "Rodando linter..."
-          }
-        ],
-        "matcher": "Write|Edit"
       }
     ]
   }

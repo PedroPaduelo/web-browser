@@ -4,11 +4,18 @@
       "type": "http",
       "url": "https://nommand-mcp-easypanel.ddw1sl.easypanel.host/mcp"
     },
+    "remote-browser": {
+      "type": "http",
+      "url": "https://serende-mcp.ddw1sl.easypanel.host/mcp",
+      "headers": {
+        "X-API-Key": "serende-dev-key-2024"
+      }
+    },
     "orquestrador": {
       "type": "http",
       "url": "http://0.0.0.0:3334/mcp",
       "headers": {
-        "Authorization": "Bearer exk_Af3QIkM4nUT06F6xN3IMKjExXiWZLq9Oijstj7imqxk"
+        "Authorization": "Bearer exk_qKT4g__hD-ErSOp6rinOEV0BAiYmodNM9fS0SGwUz9I"
       }
     },
     "context7": {
@@ -22,16 +29,8 @@
       "type": "http",
       "url": "https://api.z.ai/api/mcp/web_reader/mcp",
       "headers": {
-        "Authorization": "Bearer a1b0ec2671f246ad8cccc3440e2cbf89.axlWCIyrWxp5fIPW"
+        "Authorization": "Bearer 11ce1f2ce711429eab57622035d9a747.Voe52fbtcVU25oLZ"
       }
-    },
-    "browser_in": {
-      "type": "http",
-      "url": "https://serende-mcp.ddw1sl.easypanel.host/mcp"
-    },
-    "browser": {
-      "type": "http",
-      "url": "http://localhost:8080/mcp"
     }
   }
 }
