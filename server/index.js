@@ -89,6 +89,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// --- Limpar processos órfãos do display range na inicialização ---
+// Se o backend crashou antes, Xvfb e Chrome podem ter ficado rodando
+(function cleanupOrphanedProcesses() {
+  const { execSync } = require('child_process');
+  const fs = require('fs');
+  try {
+    // Matar qualquer Xvfb nos displays 100-199 (range do sistema)
+    execSync('pkill -f "Xvfb :[1-9][0-9][0-9]" 2>/dev/null || true', { stdio: 'ignore' });
+    // Limpar lock files e sockets
+    for (let d = 100; d <= 199; d++) {
+      try { if (fs.existsSync(`/tmp/.X${d}-lock`)) fs.unlinkSync(`/tmp/.X${d}-lock`); } catch {}
+      try { if (fs.existsSync(`/tmp/.X11-unix/X${d}`)) fs.unlinkSync(`/tmp/.X11-unix/X${d}`); } catch {}
+    }
+    console.log('[Startup] Cleaned up orphaned Xvfb processes and lock files');
+  } catch (e) {
+    console.warn('[Startup] Cleanup failed (non-fatal):', e.message);
+  }
+})();
+
 const sessionResources = new Map();
 
 sessionManager.onSessionDied((sessionId) => {
@@ -834,3 +853,13 @@ function cleanup() {
 
 process.on('SIGINT', cleanup);
 process.on('SIGTERM', cleanup);
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] uncaughtException — NÃO reiniciando:', err.message, err.stack);
+  // Não matar o processo — PM2 não precisa reiniciar por erro de sessão
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[WARN] unhandledRejection:', reason instanceof Error ? reason.message : reason);
+  // Não matar o processo
+});

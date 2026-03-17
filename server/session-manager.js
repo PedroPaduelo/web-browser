@@ -93,7 +93,6 @@ async function startSession(sessionId, tenantId, options = {}) {
   xvfb.stdout.on('data', (d) => console.log(`[Xvfb:${sessionId}:stdout]`, d.toString().trim()));
   xvfb.stderr.on('data', (d) => console.error(`[Xvfb:${sessionId}:stderr]`, d.toString().trim()));
   xvfb.on('error', (err) => console.error(`[Session:${sessionId}] Xvfb spawn error:`, err.message));
-  xvfb.on('exit', (code, signal) => console.log(`[Session:${sessionId}] Xvfb exited code=${code} signal=${signal}`));
 
   await sleep(800);
 
@@ -186,7 +185,6 @@ async function startSession(sessionId, tenantId, options = {}) {
     else if (line && (line.includes('ERROR:') || line.includes('WARN:'))) console.error(`[Chrome:${sessionId}]`, line.slice(0, 200));
   });
   chrome.on('error', (err) => console.error(`[Session:${sessionId}] Chrome spawn error:`, err.message));
-  chrome.on('exit', (code, signal) => console.log(`[Session:${sessionId}] Chrome exited early code=${code} signal=${signal}`));
 
   await sleep(1500);
   console.log(`[Session:${sessionId}] Chrome check: pid=${chrome.pid} killed=${chrome.killed}`);
@@ -225,52 +223,48 @@ async function startSession(sessionId, tenantId, options = {}) {
       return;
     }
 
-    // Verificar se Xvfb ainda está rodando (via lock file + processo)
-    const lockExists = fs.existsSync(`/tmp/.X${displayNum}-lock`);
-    const xvfbAlive = xvfb.pid && !xvfb.killed;
-    const chromeAlive = chrome.pid && !chrome.killed;
+    // exitCode !== null = processo já saiu
+    const xvfbDead = xvfb.exitCode !== null || xvfb.killed;
+    const chromeDead = chrome.exitCode !== null || chrome.killed;
 
-    if (!lockExists || !xvfbAlive) {
-      console.error(`[Session:${sessionId}] Health check FAILED: Xvfb dead (lock=${lockExists}, alive=${xvfbAlive})`);
+    if (xvfbDead) {
+      console.error(`[Session:${sessionId}] Health check FAILED: Xvfb dead`);
       clearInterval(healthCheckInterval);
-      stopSession(sessionId, 'xvfb_died');
-      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
+      if (sessions.has(sessionId)) {
+        killProcess(chrome);
+        stopSession(sessionId, 'xvfb_died').catch(() => {});
+        if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
+      }
       return;
     }
 
-    if (!chromeAlive) {
+    if (chromeDead) {
       console.error(`[Session:${sessionId}] Health check FAILED: Chrome dead`);
       clearInterval(healthCheckInterval);
-      stopSession(sessionId, 'chrome_died');
-      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
+      if (sessions.has(sessionId)) {
+        stopSession(sessionId, 'chrome_died').catch(() => {});
+        if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
+      }
       return;
     }
   }, 30000);
 
   chrome.on('exit', (code, signal) => {
-    // Code 0 e signal null = saida normal (stopSession foi chamado)
-    if (code === 0 && signal === null && !sessions.has(sessionId)) {
-      console.log(`[Session:${sessionId}] Chrome exited normally (clean shutdown)`);
-      return;
-    }
-    // Code != 0 ou signal presente = crash
-    console.log(`[Session:${sessionId}] Chrome CRASHED (code=${code}, signal=${signal})`);
     clearInterval(healthCheckInterval);
-    if (sessions.has(sessionId)) {
-      stopSession(sessionId, 'chrome_crash');
-      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
-    }
+    if (!sessions.has(sessionId)) return; // já foi parado via stopSession
+    console.log(`[Session:${sessionId}] Chrome CRASHED (code=${code}, signal=${signal})`);
+    stopSession(sessionId, 'chrome_crash').catch(() => {});
+    if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
   });
 
   // Xvfb exit handler — se Xvfb morrer, matar Chrome também
   xvfb.on('exit', (code, signal) => {
-    console.log(`[Session:${sessionId}] Xvfb exited (code=${code}, signal=${signal})`);
     clearInterval(healthCheckInterval);
-    if (sessions.has(sessionId)) {
-      killProcess(chrome);
-      stopSession(sessionId, 'xvfb_died');
-      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
-    }
+    if (!sessions.has(sessionId)) return;
+    console.log(`[Session:${sessionId}] Xvfb CRASHED (code=${code}, signal=${signal})`);
+    killProcess(chrome);
+    stopSession(sessionId, 'xvfb_died').catch(() => {});
+    if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
   });
 
   const sessionData = {
