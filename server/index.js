@@ -618,6 +618,18 @@ app.get('/api/admin/sessions', adminAuth, (req, res) => {
   }
 });
 
+app.get('/api/admin/sessions/:sessionId/token', adminAuth, (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = sessionManager.getSession(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    const token = generateToken(session.tenantId, { maxSessions: 10 });
+    res.json({ token, sessionId, tenantId: session.tenantId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/admin/sessions/:sessionId', adminAuth, (req, res) => {
   try {
     const { sessionId } = req.params;

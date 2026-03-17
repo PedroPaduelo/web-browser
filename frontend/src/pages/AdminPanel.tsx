@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   setAdminSecret, getAdminSecret, clearAdminSecret, isAdminAuthenticated,
   getAdminStats, getAdminKeys, createAdminKey, updateAdminKey, revokeAdminKey, regenerateAdminKey,
-  getAdminSessions, deleteAdminSession,
+  getAdminSessions, deleteAdminSession, getAdminSessionToken,
   type AdminStats, type AdminKey, type AdminSession, type CreateKeyResponse,
 } from '../lib/admin-client'
 
@@ -169,6 +169,17 @@ export default function AdminPanel() {
     }
   }
 
+  const handleOpenSession = async (sessionId: string) => {
+    try {
+      const token = await getAdminSessionToken(sessionId)
+      const url = `${window.location.origin}?session=${sessionId}&token=${encodeURIComponent(token)}`
+      window.open(url, '_blank')
+    } catch {
+      // fallback sem token
+      window.open(`${window.location.origin}?session=${sessionId}`, '_blank')
+    }
+  }
+
   const copyKey = async (key: string) => {
     try {
       await navigator.clipboard.writeText(key)
@@ -322,7 +333,7 @@ export default function AdminPanel() {
                           style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
                         >Copiar</button>
                         <button
-                          onClick={() => window.open(sessionUrl, '_blank')}
+                          onClick={() => handleOpenSession(s.sessionId)}
                           style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap' }}
                         >Abrir</button>
                         <button

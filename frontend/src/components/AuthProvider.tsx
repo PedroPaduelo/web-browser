@@ -18,6 +18,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Auto-login via ?token= na URL (gerado pelo admin ao abrir sessão)
+    const params = new URLSearchParams(window.location.search)
+    const urlToken = params.get('token')
+    if (urlToken) {
+      localStorage.setItem('serende_token', urlToken)
+      // Remover token da URL sem recarregar
+      params.delete('token')
+      const newSearch = params.toString()
+      const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash
+      window.history.replaceState({}, '', newUrl)
+    }
+
     if (checkAuth()) {
       const token = getToken()
       if (token) {
