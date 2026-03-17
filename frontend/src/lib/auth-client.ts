@@ -3,6 +3,7 @@ const WS_URL = import.meta.env.VITE_WS_URL || ''
 
 const TOKEN_KEY = 'serende_token'
 const TENANT_KEY = 'serende_tenantId'
+const API_KEY_KEY = 'serende_apikey'
 
 export async function login(apiKey: string): Promise<{ token: string; tenantId: string }> {
   const res = await fetch(`${API_URL}/api/auth/login`, {
@@ -19,7 +20,12 @@ export async function login(apiKey: string): Promise<{ token: string; tenantId: 
   const data = await res.json()
   localStorage.setItem(TOKEN_KEY, data.token)
   localStorage.setItem(TENANT_KEY, data.tenantId || data.userId)
+  localStorage.setItem(API_KEY_KEY, apiKey)
   return { token: data.token, tenantId: data.tenantId || data.userId }
+}
+
+export function getSavedApiKey(): string | null {
+  return localStorage.getItem(API_KEY_KEY)
 }
 
 export function logout() {

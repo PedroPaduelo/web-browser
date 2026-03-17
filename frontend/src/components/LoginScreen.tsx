@@ -1,9 +1,15 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from './AuthProvider'
+import { getSavedApiKey } from '../lib/auth-client'
 
 export default function LoginScreen() {
   const { login } = useAuth()
   const [apiKey, setApiKey] = useState('')
+
+  useEffect(() => {
+    const saved = getSavedApiKey()
+    if (saved) setApiKey(saved)
+  }, [])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

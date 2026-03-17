@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
-import { login as authLogin, logout as authLogout, isAuthenticated as checkAuth, getTenantId, getToken } from '../lib/auth-client'
+import { login as authLogin, logout as authLogout, isAuthenticated as checkAuth, getTenantId, getToken, getSavedApiKey } from '../lib/auth-client'
 
 interface AuthContextType {
   isAuthenticated: boolean
@@ -54,8 +54,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false)
       }
     } else {
-      authLogout()
-      setLoading(false)
+      // Token expirado — tenta renovar automaticamente com a apiKey salva
+      const savedKey = getSavedApiKey()
+      if (savedKey) {
+        authLogin(savedKey)
+          .then(data => {
+            setAuthenticated(true)
+            setTenantId(data.tenantId)
+          })
+          .catch(() => {
+            authLogout()
+            setAuthenticated(false)
+          })
+          .finally(() => setLoading(false))
+      } else {
+        authLogout()
+        setLoading(false)
+      }
     }
   }, [])
 
