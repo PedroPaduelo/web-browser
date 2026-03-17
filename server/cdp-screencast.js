@@ -11,6 +11,8 @@ class CDPScreencast {
     this.stopped = false;
     this.reconnectTimer = null;
     this.onFrame = null;
+    this.frameCount = 0;
+    this.lastLogTime = Date.now();
   }
 
   start(onFrame) {
@@ -51,6 +53,7 @@ class CDPScreencast {
     let enableId = null;
 
     ws.on('open', () => {
+      console.log(`[CDP:${this.cdpPort}] WebSocket conectado ao Chrome`);
       enableId = idCounter++;
       ws.send(JSON.stringify({ id: enableId, method: 'Page.enable' }));
     });
@@ -61,6 +64,7 @@ class CDPScreencast {
 
       // Resposta do Page.enable — iniciar screencast
       if (msg.id === enableId && msg.result !== undefined) {
+        console.log(`[CDP:${this.cdpPort}] Page.enable OK, iniciando screencast...`);
         ws.send(JSON.stringify({
           id: idCounter++,
           method: 'Page.startScreencast',
@@ -79,7 +83,15 @@ class CDPScreencast {
         try {
           const frame = Buffer.from(b64, 'base64');
           if (this.onFrame) this.onFrame(frame);
-        } catch {}
+          this.frameCount++;
+          const now = Date.now();
+          if (now - this.lastLogTime >= 5000) {
+            console.log(`[CDP:${this.cdpPort}] ${this.frameCount} frames enviados, ultimo ${frame.length} bytes`);
+            this.lastLogTime = now;
+          }
+        } catch (e) {
+          console.error(`[CDP:${this.cdpPort}] Erro processar frame:`, e.message);
+        }
 
         // ACK obrigatório — Chrome para de enviar se não receber
         try {

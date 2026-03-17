@@ -26,7 +26,6 @@ class StreamManager {
     this.clients.add(ws);
     if (ws._socket) {
       ws._socket.setNoDelay(true);
-      ws._socket.cork && ws._socket.cork();
     }
 
     if (this.lastFrame) {
@@ -111,8 +110,8 @@ class StreamManager {
 
     for (const ws of this.clients) {
       if (ws.readyState !== 1) continue;
-      // skip se o buffer do socket estiver cheio (backpressure)
-      if (ws.bufferedAmount > 256 * 1024) continue;
+      // Skip se backpressure muito alto (>4MB = cliente muito lento)
+      if (ws.bufferedAmount > 4 * 1024 * 1024) continue;
       try {
         ws.send(frame, { binary: true, fin: true, compress: false });
       } catch {}
