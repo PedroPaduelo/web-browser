@@ -170,13 +170,15 @@ export default function AdminPanel() {
   }
 
   const handleOpenSession = async (sessionId: string) => {
+    // Abre janela imediatamente (síncrono) para não ser bloqueado pelo browser
+    const newWin = window.open('about:blank', '_blank')
     try {
       const token = await getAdminSessionToken(sessionId)
       const url = `${window.location.origin}?session=${sessionId}&token=${encodeURIComponent(token)}`
-      window.open(url, '_blank')
+      if (newWin) newWin.location.href = url
     } catch {
       // fallback sem token
-      window.open(`${window.location.origin}?session=${sessionId}`, '_blank')
+      if (newWin) newWin.location.href = `${window.location.origin}?session=${sessionId}`
     }
   }
 
