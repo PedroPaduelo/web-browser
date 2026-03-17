@@ -130,3 +130,8 @@ export async function getAdminSessions(): Promise<AdminSession[]> {
   const data = await res.json()
   return data.sessions
 }
+
+export async function deleteAdminSession(sessionId: string): Promise<void> {
+  const res = await adminFetch(`/api/admin/sessions/${sessionId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed')
+}

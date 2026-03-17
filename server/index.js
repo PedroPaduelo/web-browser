@@ -618,6 +618,28 @@ app.get('/api/admin/sessions', adminAuth, (req, res) => {
   }
 });
 
+app.delete('/api/admin/sessions/:sessionId', adminAuth, (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = sessionManager.getSession(sessionId);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    const resources = sessionResources.get(sessionId);
+    if (resources) {
+      resources.screencast.stop();
+      resources.streamManager.stop();
+      resources.inputHandler.stop();
+      sessionResources.delete(sessionId);
+    }
+
+    sessionManager.stopSession(sessionId);
+    closeCdpClient(session.cdpPort);
+    res.json({ message: 'Session stopped' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/admin/stats', adminAuth, (req, res) => {
   try {
     const keyStats = keyStore.getStats();

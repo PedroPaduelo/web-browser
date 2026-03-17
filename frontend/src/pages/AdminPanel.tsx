@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   setAdminSecret, getAdminSecret, clearAdminSecret, isAdminAuthenticated,
   getAdminStats, getAdminKeys, createAdminKey, updateAdminKey, revokeAdminKey, regenerateAdminKey,
-  getAdminSessions,
+  getAdminSessions, deleteAdminSession,
   type AdminStats, type AdminKey, type AdminSession, type CreateKeyResponse,
 } from '../lib/admin-client'
 
@@ -156,6 +156,19 @@ export default function AdminPanel() {
     }
   }
 
+  const handleCloseSession = async (sessionId: string) => {
+    if (!confirm('Fechar esta sessão? O usuário será desconectado.')) return
+    setActionLoading(true)
+    try {
+      await deleteAdminSession(sessionId)
+      await loadData()
+    } catch {
+      // ignore
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const copyKey = async (key: string) => {
     try {
       await navigator.clipboard.writeText(key)
@@ -280,21 +293,24 @@ export default function AdminPanel() {
         {/* Expanded Sessions */}
         {expandedTenant && (
           <div style={{ background: colors.bgCard, borderRadius: 10, border: `1px solid ${colors.border}`, padding: 16, marginBottom: 24 }}>
-            <h3 style={{ fontSize: 14, marginBottom: 12, color: colors.textMuted }}>
-              Sessoes ativas — {keys.find(k => k.id === expandedTenant)?.name || expandedTenant}
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ fontSize: 14, color: colors.textMuted }}>
+                Sessoes ativas — {keys.find(k => k.id === expandedTenant)?.name || expandedTenant}
+              </h3>
+              <button onClick={() => setExpandedTenant(null)} style={{ background: 'none', border: 'none', color: colors.textDim, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
+            </div>
             {tenantSessions(expandedTenant).length === 0 ? (
               <p style={{ color: colors.textDim, fontSize: 13 }}>Nenhuma sessao ativa</p>
             ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ display: 'grid', gap: 8, maxHeight: 400, overflowY: 'auto', paddingRight: 4 }}>
                 {tenantSessions(expandedTenant).map(s => {
                   const sessionUrl = `${window.location.origin}?session=${s.sessionId}`
                   return (
                     <div key={s.sessionId} style={{ background: colors.bgInput, padding: 12, borderRadius: 8, fontSize: 13 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
                         <span><code>{s.sessionId.slice(0, 8)}...</code></span>
-                        <span>{s.resolution.width}x{s.resolution.height}</span>
-                        <span>Uptime: {formatDuration(s.uptime)}</span>
+                        <span style={{ color: colors.textMuted }}>{s.resolution.width}x{s.resolution.height}</span>
+                        <span style={{ color: colors.textMuted }}>Uptime: {formatDuration(s.uptime)}</span>
                         {s.timeout && <span style={{ color: s.timeout.warningSoon ? colors.warning : colors.textMuted }}>
                           Idle: {formatDuration(Math.floor(s.timeout.inactive / 1000))}
                         </span>}
@@ -302,9 +318,18 @@ export default function AdminPanel() {
                       <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                         <code style={{ flex: 1, fontSize: 11, color: colors.accent, wordBreak: 'break-all' }}>{sessionUrl}</code>
                         <button
-                          onClick={() => { navigator.clipboard.writeText(sessionUrl); }}
-                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11 }}
-                        >Copiar Link</button>
+                          onClick={() => navigator.clipboard.writeText(sessionUrl)}
+                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
+                        >Copiar</button>
+                        <button
+                          onClick={() => window.open(sessionUrl, '_blank')}
+                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap' }}
+                        >Abrir</button>
+                        <button
+                          onClick={() => handleCloseSession(s.sessionId)}
+                          disabled={actionLoading}
+                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.danger, whiteSpace: 'nowrap' }}
+                        >Fechar</button>
                       </div>
                       {(() => {
                         const k = keys.find(k => k.id === expandedTenant)
