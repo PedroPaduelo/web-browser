@@ -178,14 +178,6 @@ export default function AdminPanel() {
     }
   }
 
-  const handleOpenSession = (sessionId: string) => {
-    const token = sessionTokens[sessionId]
-    const url = token
-      ? `${window.location.origin}?session=${sessionId}&token=${encodeURIComponent(token)}`
-      : `${window.location.origin}?session=${sessionId}`
-    window.open(url, '_blank')
-  }
-
   const copyKey = async (key: string) => {
     try {
       await navigator.clipboard.writeText(key)
@@ -321,7 +313,11 @@ export default function AdminPanel() {
             ) : (
               <div style={{ display: 'grid', gap: 8, maxHeight: 400, overflowY: 'auto', paddingRight: 4 }}>
                 {tenantSessions(expandedTenant).map(s => {
+                  const token = sessionTokens[s.sessionId]
                   const sessionUrl = `${window.location.origin}?session=${s.sessionId}`
+                  const openUrl = token
+                    ? `${window.location.origin}?session=${s.sessionId}&token=${encodeURIComponent(token)}`
+                    : sessionUrl
                   return (
                     <div key={s.sessionId} style={{ background: colors.bgInput, padding: 12, borderRadius: 8, fontSize: 13 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
@@ -338,10 +334,12 @@ export default function AdminPanel() {
                           onClick={() => navigator.clipboard.writeText(sessionUrl)}
                           style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
                         >Copiar</button>
-                        <button
-                          onClick={() => handleOpenSession(s.sessionId)}
-                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap' }}
-                        >Abrir</button>
+                        <a
+                          href={openUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap', textDecoration: 'none' }}
+                        >Abrir</a>
                         <button
                           onClick={() => handleCloseSession(s.sessionId)}
                           disabled={actionLoading}
