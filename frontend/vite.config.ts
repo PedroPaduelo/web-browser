@@ -8,6 +8,12 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    allowedHosts: ['serende.ddw1sl.easypanel.host', 'serende-frontend.ddw1sl.easypanel.host'],
+    port: 4204,
+    allowedHosts: 'all',
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: 4204,
+    allowedHosts: 'all',
   },
 })

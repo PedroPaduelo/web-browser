@@ -1,7 +1,7 @@
 {
   "projectName": "serende",
   "createdAt": "2026-03-17T04:55:00Z",
-  "updatedAt": "2026-03-17T09:25:00Z",
+  "updatedAt": "2026-03-17T11:40:00Z",
   "services": [
     {
       "name": "backend",
@@ -13,13 +13,22 @@
       "startCommand": "pm2 start server/index.js --name serende-backend"
     },
     {
+      "name": "frontend",
+      "port": 4204,
+      "pm2Name": "serende-frontend",
+      "domain": "serende-frontend.ddw1sl.easypanel.host",
+      "url": "https://serende-frontend.ddw1sl.easypanel.host",
+      "type": "frontend",
+      "startCommand": "cd frontend && pm2 start npx --name serende-frontend -- vite preview --port 4204 --host 0.0.0.0"
+    },
+    {
       "name": "mcp-server",
       "port": 4203,
       "pm2Name": "serende-mcp",
       "domain": "serende-mcp.ddw1sl.easypanel.host",
       "url": "https://serende-mcp.ddw1sl.easypanel.host",
       "type": "mcp",
-      "startCommand": "cd /workspace/temp-orquestrador/users/5aaf347f-952f-4355-8513-ac3f4024b43e/projetos/remote-browser/server/mcp && node index.js"
+      "startCommand": "pm2 start server/mcp/index.js --name serende-mcp"
     }
   ]
 }
