@@ -7,6 +7,32 @@ interface Props {
   sessionId: string | null
 }
 
+function getRenderedCanvasRect(canvas: HTMLCanvasElement) {
+  const rect = canvas.getBoundingClientRect()
+  const cw = canvas.width
+  const ch = canvas.height
+  if (!cw || !ch) return { x: rect.left, y: rect.top, w: rect.width, h: rect.height }
+
+  const containerAspect = rect.width / rect.height
+  const canvasAspect = cw / ch
+
+  let renderW: number, renderH: number, offsetX: number, offsetY: number
+
+  if (canvasAspect > containerAspect) {
+    renderW = rect.width
+    renderH = rect.width / canvasAspect
+    offsetX = 0
+    offsetY = (rect.height - renderH) / 2
+  } else {
+    renderH = rect.height
+    renderW = rect.height * canvasAspect
+    offsetX = (rect.width - renderW) / 2
+    offsetY = 0
+  }
+
+  return { x: rect.left + offsetX, y: rect.top + offsetY, w: renderW, h: renderH }
+}
+
 export default function BrowserViewer({ setCanvas, resolution = { width: 1280, height: 720 }, sessionId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -25,10 +51,15 @@ export default function BrowserViewer({ setCanvas, resolution = { width: 1280, h
   }, [])
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    const el = containerRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    setCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top, visible: true })
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const cr = getRenderedCanvasRect(canvas)
+    const containerRect = containerRef.current?.getBoundingClientRect()
+    if (!containerRect) return
+    // Posiciona cursor relativo ao container, mas limitado à área do canvas
+    const relX = e.clientX - containerRect.left
+    const relY = e.clientY - containerRect.top
+    setCursor({ x: relX, y: relY, visible: true })
   }, [])
 
   const handleMouseLeave = useCallback(() => {

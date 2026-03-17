@@ -13,7 +13,8 @@ const DISPLAY_MAX = 199;
 const CDP_BASE_PORT = 9222;
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-const CHROME_BIN = path.join(PROJECT_ROOT, 'chrome-install', 'opt', 'google', 'chrome', 'google-chrome');
+// Use the actual chrome binary directly instead of the wrapper script to avoid SIGTRAP issues
+const CHROME_BIN = path.join(PROJECT_ROOT, 'chrome-install', 'opt', 'google', 'chrome', 'chrome');
 const CHROME_LIB = path.join(PROJECT_ROOT, 'chrome-install', 'opt', 'google', 'chrome');
 const EXTRA_LIB = path.join(PROJECT_ROOT, 'chrome-install', 'usr', 'lib', 'x86_64-linux-gnu');
 
@@ -74,6 +75,9 @@ async function startSession(sessionId, tenantId, options = {}) {
   const [width, height] = resolution.split('x').map(Number);
 
   try { execSync(`pkill -f "Xvfb ${display}"`, { stdio: 'ignore' }); } catch {}
+  // Clean stale lock files
+  try { const fs2 = require('fs'); fs2.unlinkSync(`/tmp/.X${displayNum}-lock`); } catch {}
+  try { const fs2 = require('fs'); fs2.unlinkSync(`/tmp/.X11-unix/X${displayNum}`); } catch {}
   await sleep(300);
 
   console.log(`[Session:${sessionId}] Starting Xvfb on ${display} at ${resolution}`);
@@ -84,12 +88,19 @@ async function startSession(sessionId, tenantId, options = {}) {
     '+extension', 'GLX',
     '+render',
     '-noreset',
-  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
-  xvfb.stderr.on('data', (d) => console.error(`[Xvfb:${sessionId}]`, d.toString().trim()));
-  xvfb.on('error', (err) => console.error(`[Session:${sessionId}] Xvfb error:`, err.message));
+  xvfb.stdout.on('data', (d) => console.log(`[Xvfb:${sessionId}:stdout]`, d.toString().trim()));
+  xvfb.stderr.on('data', (d) => console.error(`[Xvfb:${sessionId}:stderr]`, d.toString().trim()));
+  xvfb.on('error', (err) => console.error(`[Session:${sessionId}] Xvfb spawn error:`, err.message));
+  xvfb.on('exit', (code, signal) => console.log(`[Session:${sessionId}] Xvfb exited code=${code} signal=${signal}`));
 
   await sleep(800);
+
+  // Verify Xvfb is actually running
+  const xvfbAlive = xvfb.pid && !xvfb.killed;
+  const lockExists = require('fs').existsSync(`/tmp/.X${displayNum}-lock`);
+  console.log(`[Session:${sessionId}] Xvfb check: pid=${xvfb.pid} alive=${xvfbAlive} lock=${lockExists}`);
 
   fs.mkdirSync(userDataDir, { recursive: true });
 
@@ -113,8 +124,15 @@ async function startSession(sessionId, tenantId, options = {}) {
 
   const chromeArgs = [
     '--no-sandbox',
+    '--disable-setuid-sandbox',
     '--disable-gpu',
     '--disable-dev-shm-usage',
+    '--disable-breakpad',
+    '--disable-crash-reporter',
+    '--disable-in-process-stack-traces',
+    '--disable-oopr-debug-crash-dump',
+    '--no-crash-upload',
+    '--disable-gpu-sandbox',
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-translate',
@@ -140,19 +158,22 @@ async function startSession(sessionId, tenantId, options = {}) {
     '--restore-last-session=false',
     `--remote-debugging-port=${cdpPort}`,
     '--remote-debugging-address=127.0.0.1',
+    `--app=${startUrl}`, // App mode: sem barra de endereço/abas, viewport == screen
   ];
 
   if (extensionPath) {
     chromeArgs.push(`--load-extension=${extensionPath}`);
   }
 
-  chromeArgs.push(startUrl);
-
   console.log(`[Session:${sessionId}] Starting Chrome on ${display} cdpPort=${cdpPort}`);
   const chromeEnv = {
     ...process.env,
     DISPLAY: display,
     LD_LIBRARY_PATH: [CHROME_LIB, EXTRA_LIB, process.env.LD_LIBRARY_PATH || ''].filter(Boolean).join(':'),
+    CHROME_DEVEL_SANDBOX: '/dev/null',
+    HOME: '/tmp',
+    XDG_RUNTIME_DIR: '/tmp',
+    TMPDIR: '/tmp',
   };
   const chrome = spawn(CHROME_BIN, chromeArgs, {
     env: chromeEnv,
@@ -161,12 +182,14 @@ async function startSession(sessionId, tenantId, options = {}) {
 
   chrome.stderr.on('data', (d) => {
     const line = d.toString().trim();
-    if (line && !line.includes('ERROR:') && !line.includes('WARN:')) return;
-    if (line) console.error(`[Chrome:${sessionId}]`, line);
+    if (line.includes('DevTools listening')) console.log(`[Chrome:${sessionId}] ${line}`);
+    else if (line && (line.includes('ERROR:') || line.includes('WARN:'))) console.error(`[Chrome:${sessionId}]`, line.slice(0, 200));
   });
-  chrome.on('error', (err) => console.error(`[Session:${sessionId}] Chrome error:`, err.message));
+  chrome.on('error', (err) => console.error(`[Session:${sessionId}] Chrome spawn error:`, err.message));
+  chrome.on('exit', (code, signal) => console.log(`[Session:${sessionId}] Chrome exited early code=${code} signal=${signal}`));
 
   await sleep(1500);
+  console.log(`[Session:${sessionId}] Chrome check: pid=${chrome.pid} killed=${chrome.killed}`);
 
   let cdpUrl = null;
   for (let i = 0; i < 15; i++) {
@@ -174,13 +197,16 @@ async function startSession(sessionId, tenantId, options = {}) {
       const res = await fetch(`http://127.0.0.1:${cdpPort}/json/version`);
       const data = await res.json();
       cdpUrl = data.webSocketDebuggerUrl;
+      console.log(`[Session:${sessionId}] CDP connected on attempt ${i+1}: ${cdpUrl}`);
       break;
-    } catch {
+    } catch(e) {
+      if (i === 0 || i === 5 || i === 14) console.log(`[Session:${sessionId}] CDP attempt ${i+1}/15 failed: ${e.message}`);
       await sleep(500);
     }
   }
 
   if (!cdpUrl) {
+    console.error(`[Session:${sessionId}] CDP FAILED - Chrome pid=${chrome.pid} killed=${chrome.killed}`);
     killProcess(chrome);
     killProcess(xvfb);
     releaseDisplay(displayNum);
