@@ -5,5 +5,11 @@ dist/
 .env.*
 !.env.example
 *.deb
+container/
+mediasoup-server/
+orchestrator/
+turn/
 /tmp/
 .DS_Store
+server/data/
+data/

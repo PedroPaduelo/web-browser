@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState, useCallback } from 'react'
 import { useInputRelay } from '../hooks/useInputRelay'
 
 interface Props {
@@ -10,6 +10,7 @@ interface Props {
 export default function BrowserViewer({ setCanvas, resolution = { width: 1280, height: 720 }, sessionId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const [cursor, setCursor] = useState({ x: -100, y: -100, visible: false })
 
   useInputRelay(canvasRef, containerRef, true, resolution, sessionId)
 
@@ -24,20 +25,43 @@ export default function BrowserViewer({ setCanvas, resolution = { width: 1280, h
     }
   }, [])
 
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const el = containerRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setCursor({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      visible: true,
+    })
+  }, [])
+
+  const handleMouseLeave = useCallback(() => {
+    setCursor(prev => ({ ...prev, visible: false }))
+  }, [])
+
+  const handleMouseEnter = useCallback(() => {
+    setCursor(prev => ({ ...prev, visible: true }))
+  }, [])
+
   return (
     <div
       ref={containerRef}
       tabIndex={0}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      onMouseEnter={handleMouseEnter}
       style={{
         position: 'relative',
         width: '100%',
         height: '100%',
-        cursor: 'default',
+        cursor: 'none',
         outline: 'none',
         background: '#000',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        userSelect: 'none',
       }}
     >
       <canvas
@@ -46,8 +70,34 @@ export default function BrowserViewer({ setCanvas, resolution = { width: 1280, h
           width: '100%',
           height: '100%',
           objectFit: 'contain',
+          display: 'block',
         }}
       />
+      {/* Software cursor overlay — resposta visual imediata sem esperar o frame do stream */}
+      {cursor.visible && (
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 20 20"
+          style={{
+            position: 'absolute',
+            left: cursor.x,
+            top: cursor.y,
+            pointerEvents: 'none',
+            transform: 'translate(-1px, -1px)',
+            filter: 'drop-shadow(1px 1px 1px rgba(0,0,0,0.8))',
+            zIndex: 10,
+          }}
+        >
+          <path
+            d="M2 2 L2 14 L5.5 10.5 L8 16 L10 15 L7.5 9.5 L12 9.5 Z"
+            fill="white"
+            stroke="black"
+            strokeWidth="1"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
     </div>
   )
 }

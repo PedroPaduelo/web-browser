@@ -14,7 +14,7 @@ const db = require('./db');
 const keyStore = require('./key-store');
 const sessionManager = require('./session-manager');
 const StreamManager = require('./stream-manager');
-const { createInputHandler } = require('./input-handler');
+const { createInputHandler } = require('./cdp-input-handler');
 const { generateToken, verifyToken, deriveTenantId, authMiddleware } = require('./auth');
 const profileManager = require('./profile-manager');
 const tenantManager = require('./tenant-manager');
@@ -296,7 +296,9 @@ app.post('/api/input', authMiddleware, trackActivity, (req, res) => {
   if (!msg.type) return res.status(400).json({ error: 'Missing type' });
 
   const resources = sessionResources.get(sessionId);
-  if (resources) resources.inputHandler.sendInput(msg);
+  if (resources) {
+    resources.inputHandler.sendInput(msg);
+  }
   res.json({ ok: true });
 });
 
@@ -501,6 +503,10 @@ app.post('/api/navigate/:sessionId', authMiddleware, trackActivity, async (req, 
   if (!url) return res.status(400).json({ error: 'Missing url' });
   try {
     await cdpRequest(session.cdpPort, 'Page.navigate', { url });
+    const resources = sessionResources.get(req.params.sessionId);
+    if (resources?.inputHandler?.reconnect) {
+      setTimeout(() => resources.inputHandler.reconnect(), 1000);
+    }
     res.json({ ok: true, url });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -697,7 +703,9 @@ server.on('upgrade', (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws._socket && ws._socket.setNoDelay(true);
       activeWsConnections.set(ws, { token, sessionId });
-      ws.on('close', () => activeWsConnections.delete(ws));
+      ws.on('close', () => {
+        activeWsConnections.delete(ws);
+      });
       ws.on('message', (data) => {
         try {
           resources.inputHandler.sendInput(JSON.parse(data));

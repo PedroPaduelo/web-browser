@@ -93,6 +93,24 @@ async function startSession(sessionId, tenantId, options = {}) {
 
   fs.mkdirSync(userDataDir, { recursive: true });
 
+  // Forçar Chrome a NÃO restaurar sessão anterior — abrir startUrl limpo
+  const prefsPath = path.join(userDataDir, 'Default', 'Preferences');
+  fs.mkdirSync(path.join(userDataDir, 'Default'), { recursive: true });
+  try {
+    let prefs = {};
+    if (fs.existsSync(prefsPath)) {
+      prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf-8'));
+    }
+    prefs.session = prefs.session || {};
+    prefs.session.restore_on_startup = 4; // 4 = open specific URLs (not restore)
+    prefs.session.startup_urls = [startUrl];
+    delete prefs.sessions;
+    if (prefs.profile) prefs.profile.exit_type = 'Normal';
+    fs.writeFileSync(prefsPath, JSON.stringify(prefs));
+  } catch (e) {
+    console.warn(`[Session:${sessionId}] Failed to patch Preferences:`, e.message);
+  }
+
   const chromeArgs = [
     '--no-sandbox',
     '--disable-gpu',
@@ -116,6 +134,10 @@ async function startSession(sessionId, tenantId, options = {}) {
     '--window-position=0,0',
     '--autoplay-policy=no-user-gesture-required',
     '--start-maximized',
+    '--no-session-id',
+    '--disable-session-crashed-bubble',
+    '--disable-infobars',
+    '--restore-last-session=false',
     `--remote-debugging-port=${cdpPort}`,
     '--remote-debugging-address=127.0.0.1',
   ];
@@ -176,11 +198,10 @@ async function startSession(sessionId, tenantId, options = {}) {
     '-framerate', '30',
     '-video_size', resolution,
     '-draw_mouse', '0',
-    '-thread_queue_size', '16',
+    '-thread_queue_size', '4',
     '-i', display,
     '-f', 'mjpeg',
-    '-q:v', '5',
-    '-huffman', 'optimal',
+    '-q:v', '4',
     '-an',
     '-flush_packets', '1',
     'pipe:1',
