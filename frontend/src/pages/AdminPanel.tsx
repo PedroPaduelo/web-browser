@@ -34,6 +34,7 @@ export default function AdminPanel() {
   const [keys, setKeys] = useState<AdminKey[]>([])
   const [sessions, setSessions] = useState<AdminSession[]>([])
   const [sessionTokens, setSessionTokens] = useState<Record<string, string>>({})
+  const [openedUrl, setOpenedUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const [showCreate, setShowCreate] = useState(false)
@@ -219,6 +220,27 @@ export default function AdminPanel() {
   // --- DASHBOARD ---
   return (
     <div style={{ width: '100%', minHeight: '100vh', background: colors.bg, color: colors.text, padding: 24, boxSizing: 'border-box' }}>
+
+      {/* Modal URL da sessão */}
+      {openedUrl && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setOpenedUrl(null)}>
+          <div style={{ background: colors.bgCard, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24, maxWidth: 560, width: '90%' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: 15, marginBottom: 12, color: colors.text }}>Abrir sessão</h3>
+            <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>Copie o link abaixo e abra no seu browser:</p>
+            <div style={{ background: colors.bgInput, borderRadius: 8, padding: 10, wordBreak: 'break-all', fontSize: 12, color: colors.accent, marginBottom: 16 }}>
+              {openedUrl}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => { navigator.clipboard.writeText(openedUrl).catch(() => {}); }} style={btnStyle(colors.bgInput, colors.border)}>Copiar Link</button>
+              <a href={openedUrl} target="_blank" rel="noopener" style={{ ...btnStyle(colors.accent, 'transparent'), color: '#fff', textDecoration: 'none', padding: '6px 16px', borderRadius: 8, fontSize: 13, display: 'inline-block' }}>Abrir ↗</a>
+              <button onClick={() => setOpenedUrl(null)} style={btnStyle(colors.bgInput, colors.border)}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
@@ -334,12 +356,10 @@ export default function AdminPanel() {
                           onClick={() => navigator.clipboard.writeText(sessionUrl)}
                           style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
                         >Copiar</button>
-                        <a
-                          href={openUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap', textDecoration: 'none' }}
-                        >Abrir</a>
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(openUrl).catch(() => {}); setOpenedUrl(openUrl) }}
+                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap' }}
+                        >Abrir</button>
                         <button
                           onClick={() => handleCloseSession(s.sessionId)}
                           disabled={actionLoading}
