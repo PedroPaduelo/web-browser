@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useInputRelay } from '../hooks/useInputRelay'
+import { useWebRTC } from '../hooks/useWebRTC'
 
 interface Props {
   setCanvas: (canvas: HTMLCanvasElement | null) => void
@@ -12,11 +13,20 @@ export default function BrowserViewer({ setCanvas, resolution = { width: 1280, h
   const containerRef = useRef<HTMLDivElement>(null)
   const [cursor, setCursor] = useState({ x: -100, y: -100, visible: false })
 
+  // WebRTC — stream primário de baixa latência
+  const { state: rtcState, videoRef } = useWebRTC(!!sessionId, sessionId)
+  const rtcConnected = rtcState === 'connected'
+  const rtcFailed = rtcState === 'failed' || rtcState === 'closed'
+
+  // Mostrar canvas MJPEG apenas se WebRTC falhou
+  const showCanvas = rtcFailed
+  const showVideo = !rtcFailed
+
   useInputRelay(canvasRef, containerRef, true, resolution, sessionId)
 
   useEffect(() => {
+    // Sempre manter canvas MJPEG conectado como fallback (mas oculto via CSS)
     setCanvas(canvasRef.current)
-    return () => setCanvas(null)
   }, [setCanvas])
 
   useEffect(() => {
@@ -29,11 +39,7 @@ export default function BrowserViewer({ setCanvas, resolution = { width: 1280, h
     const el = containerRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
-    setCursor({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-      visible: true,
-    })
+    setCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top, visible: true })
   }, [])
 
   const handleMouseLeave = useCallback(() => {
@@ -64,16 +70,61 @@ export default function BrowserViewer({ setCanvas, resolution = { width: 1280, h
         userSelect: 'none',
       }}
     >
+      {/* WebRTC — stream primário via <video> */}
+      {showVideo && (
+        <video
+          ref={videoRef as any}
+          autoPlay
+          playsInline
+          muted
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            display: 'block',
+          }}
+        />
+      )}
+
+      {/* MJPEG fallback — canvas, aparece apenas se WebRTC falhou */}
       <canvas
         ref={canvasRef}
         style={{
           width: '100%',
           height: '100%',
           objectFit: 'contain',
-          display: 'block',
+          display: showCanvas ? 'block' : 'none',
         }}
       />
-      {/* Software cursor overlay — resposta visual imediata sem esperar o frame do stream */}
+
+      {/* Loading overlay — enquanto WebRTC conecta */}
+      {rtcState === 'connecting' && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '12px',
+          background: 'rgba(0,0,0,0.7)',
+          color: '#9ca3af',
+          fontSize: '14px',
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            width: '24px', height: '24px',
+            border: '2px solid rgba(255,255,255,0.1)',
+            borderTopColor: '#22c55e',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+          }} />
+          Conectando via WebRTC...
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+
+      {/* Software cursor overlay — resposta visual instantânea */}
       {cursor.visible && (
         <svg
           width="20"
