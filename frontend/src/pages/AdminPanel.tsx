@@ -33,6 +33,7 @@ export default function AdminPanel() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [keys, setKeys] = useState<AdminKey[]>([])
   const [sessions, setSessions] = useState<AdminSession[]>([])
+  const [sessionTokens, setSessionTokens] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
 
   const [showCreate, setShowCreate] = useState(false)
@@ -53,6 +54,14 @@ export default function AdminPanel() {
       setStats(s)
       setKeys(k)
       setSessions(sess)
+      // Pré-carrega tokens de todas as sessões em background
+      const tokens: Record<string, string> = {}
+      await Promise.all(sess.map(async (session) => {
+        try {
+          tokens[session.sessionId] = await getAdminSessionToken(session.sessionId)
+        } catch { /* ignore */ }
+      }))
+      setSessionTokens(tokens)
     } catch {
       // ignore
     } finally {
@@ -169,17 +178,12 @@ export default function AdminPanel() {
     }
   }
 
-  const handleOpenSession = async (sessionId: string) => {
-    // Abre janela imediatamente (síncrono) para não ser bloqueado pelo browser
-    const newWin = window.open('about:blank', '_blank')
-    try {
-      const token = await getAdminSessionToken(sessionId)
-      const url = `${window.location.origin}?session=${sessionId}&token=${encodeURIComponent(token)}`
-      if (newWin) newWin.location.href = url
-    } catch {
-      // fallback sem token
-      if (newWin) newWin.location.href = `${window.location.origin}?session=${sessionId}`
-    }
+  const handleOpenSession = (sessionId: string) => {
+    const token = sessionTokens[sessionId]
+    const url = token
+      ? `${window.location.origin}?session=${sessionId}&token=${encodeURIComponent(token)}`
+      : `${window.location.origin}?session=${sessionId}`
+    window.open(url, '_blank')
   }
 
   const copyKey = async (key: string) => {
