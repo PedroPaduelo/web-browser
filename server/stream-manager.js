@@ -13,6 +13,13 @@ class StreamManager {
     this.lastFpsTime = Date.now();
     this.fps = 0;
     this.lastFrame = null;
+    this.mode = 'none'; // 'ffmpeg' | 'cdp'
+  }
+
+  // Injetar frame diretamente (CDP screencast mode)
+  pushFrame(frameBuffer) {
+    this.lastFrame = frameBuffer;
+    this.broadcastFrame(frameBuffer);
   }
 
   addClient(ws) {
@@ -32,6 +39,7 @@ class StreamManager {
   startCapture(ffmpegStdout) {
     if (!ffmpegStdout) return;
 
+    this.mode = 'ffmpeg';
     this.ffmpegStream = ffmpegStdout;
     this.bufLen = 0;
 
@@ -125,7 +133,8 @@ class StreamManager {
     return {
       clients: this.clients.size,
       fps: this.fps,
-      capturing: !!this.ffmpegStream,
+      capturing: this.mode !== 'none',
+      mode: this.mode,
     };
   }
 }

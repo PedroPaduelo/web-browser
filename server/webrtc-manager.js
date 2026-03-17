@@ -154,7 +154,7 @@ class WebRTCSession {
 
     await Promise.race([
       iceGatheringPromise,
-      new Promise((resolve) => setTimeout(resolve, 4000)),
+      new Promise((resolve) => setTimeout(resolve, 1500)),
     ]);
 
     this.peers.set(peerId, pc);

@@ -189,31 +189,7 @@ async function startSession(sessionId, tenantId, options = {}) {
 
   console.log(`[Session:${sessionId}] Chrome CDP ready: ${cdpUrl}`);
 
-  const ffmpegArgs = [
-    '-probesize', '32',
-    '-analyzeduration', '0',
-    '-fflags', 'nobuffer+flush_packets',
-    '-flags', 'low_delay',
-    '-f', 'x11grab',
-    '-framerate', '30',
-    '-video_size', resolution,
-    '-draw_mouse', '0',
-    '-thread_queue_size', '4',
-    '-i', display,
-    '-f', 'mjpeg',
-    '-q:v', '4',
-    '-an',
-    '-flush_packets', '1',
-    'pipe:1',
-  ];
-
-  console.log(`[Session:${sessionId}] Starting ffmpeg capture on ${display}`);
-  const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
-    env: { ...process.env, DISPLAY: display },
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
-
-  ffmpeg.on('error', (err) => console.error(`[Session:${sessionId}] ffmpeg error:`, err.message));
+  console.log(`[Session:${sessionId}] CDP screencast ready (no ffmpeg)`);
 
   chrome.on('exit', (code, signal) => {
     console.log(`[Session:${sessionId}] Chrome exited unexpectedly (code=${code}, signal=${signal})`);
@@ -223,19 +199,12 @@ async function startSession(sessionId, tenantId, options = {}) {
     }
   });
 
-  ffmpeg.on('exit', (code, signal) => {
-    if (sessions.has(sessionId)) {
-      console.log(`[Session:${sessionId}] ffmpeg exited unexpectedly (code=${code}, signal=${signal})`);
-    }
-  });
-
   const sessionData = {
     sessionId,
     tenantId,
     userId: tenantId,
     xvfb,
     chrome,
-    ffmpeg,
     cdpUrl,
     cdpPort,
     resolution: { width, height },
@@ -283,7 +252,6 @@ async function stopSession(sessionId, reason = 'manual') {
     session.timeoutId = null;
   }
 
-  killProcess(session.ffmpeg);
   killProcess(session.chrome);
 
   setTimeout(() => {

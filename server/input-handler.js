@@ -2,43 +2,50 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 function createInputHandler(displayNum = '100') {
-  let x11Process = null;
+  let proc = null;
+  let alive = false;
+  let retries = 0;
 
-  const scriptPath = path.join(__dirname, 'x11-input.py');
-  x11Process = spawn('python3', [scriptPath], {
-    env: { ...process.env, SERENDE_DISPLAY: `:${displayNum}` },
-    stdio: ['pipe', 'ignore', 'pipe'],
-  });
+  function start() {
+    const scriptPath = path.join(__dirname, 'x11-input.py');
+    proc = spawn('python3', ['-u', scriptPath], {
+      env: { ...process.env, SERENDE_DISPLAY: `:${displayNum}`, PYTHONUNBUFFERED: '1' },
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
 
-  x11Process.stderr.on('data', (d) => {
-    console.log(d.toString().trim());
-  });
+    proc.stderr.on('data', (d) => {
+      const msg = d.toString().trim();
+      if (msg.includes('Connected to display')) {
+        alive = true;
+        retries = 0;
+      }
+    });
 
-  x11Process.on('error', (err) => {
-    console.error(`[X11Input:${displayNum}] Process error:`, err.message);
-    x11Process = null;
-  });
+    proc.on('error', () => { alive = false; proc = null; });
+    proc.on('exit', () => {
+      alive = false;
+      proc = null;
+      if (retries < 3) {
+        retries++;
+        setTimeout(start, 300);
+      }
+    });
+  }
 
-  x11Process.on('exit', (code) => {
-    console.log(`[X11Input:${displayNum}] Process exited with code ${code}`);
-    x11Process = null;
-  });
-
-  console.log(`[X11Input:${displayNum}] Started python-xlib input handler`);
+  start();
 
   return {
     sendInput(msg) {
-      if (!x11Process || !x11Process.stdin.writable) return;
-      try {
-        x11Process.stdin.write(JSON.stringify(msg) + '\n');
-      } catch {}
+      if (!alive || !proc) return;
+      proc.stdin.write(JSON.stringify(msg) + '\n');
     },
     stop() {
-      if (x11Process) {
-        try { x11Process.stdin.end(); } catch {}
-        try { x11Process.kill(); } catch {}
-        x11Process = null;
-        console.log(`[X11Input:${displayNum}] Stopped`);
+      alive = false;
+      retries = 99;
+      if (proc) {
+        try { proc.stdin.end(); } catch {}
+        try { proc.kill(); } catch {}
+        proc = null;
       }
     },
   };

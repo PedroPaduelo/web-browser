@@ -3,7 +3,7 @@ import { createWsClient } from '../lib/ws-client'
 import { mapScroll, mapKeyDown, mapKeyUp, Resolution } from '../lib/input-mapper'
 import { getAuthWsUrl } from '../lib/auth-client'
 
-const THROTTLE_MS = 4
+const THROTTLE_MS = 0
 
 let cachedCanvasRect: { x: number; y: number; w: number; h: number; ts: number } | null = null
 

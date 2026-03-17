@@ -20,9 +20,11 @@ export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCR
   const fpsCountRef = useRef(0)
   const fpsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortRef = useRef(false)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const disconnect = useCallback(() => {
     abortRef.current = true
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
     if (fpsTimerRef.current) clearInterval(fpsTimerRef.current)
 
     if (peerIdRef.current && sessionId) {
@@ -50,13 +52,31 @@ export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCR
     abortRef.current = false
     setState('connecting')
 
+    // Timeout de 5s: se WebRTC não conectar, marca como failed para usar MJPEG fallback
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      if (abortRef.current) return
+      if (!pcRef.current) return
+      const s = pcRef.current.iceConnectionState
+      if (s !== 'connected' && s !== 'completed') {
+        console.warn('[WebRTC] Connection timeout after 5s, falling back to MJPEG')
+        setState('failed')
+        try { pcRef.current.close() } catch {}
+        pcRef.current = null
+        if (peerIdRef.current && sessionId) {
+          authFetch(`/api/webrtc/${sessionId}/peer/${peerIdRef.current}`, { method: 'DELETE' }).catch(() => {})
+          peerIdRef.current = null
+        }
+      }
+    }, 5000)
+
     try {
       // 1. pedir offer ao servidor
       const offerRes = await authFetch(`/api/webrtc/${sessionId}/offer`, { method: 'POST' })
       if (!offerRes.ok) throw new Error(`Offer failed: ${offerRes.status}`)
       const { peerId, sdp, type, candidates } = await offerRes.json()
 
-      if (abortRef.current) return
+      if (abortRef.current) { if (timeoutRef.current) clearTimeout(timeoutRef.current); return }
       peerIdRef.current = peerId
 
       // 2. criar PeerConnection local
@@ -97,15 +117,6 @@ export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCR
         }
       }
 
-      pc.oniceconnectionstatechange = () => {
-        const s = pc.iceConnectionState
-        if (s === 'connected' || s === 'completed') {
-          setState('connected')
-        } else if (s === 'failed' || s === 'closed' || s === 'disconnected') {
-          setState('failed')
-        }
-      }
-
       // 6. criar answer local
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
@@ -120,7 +131,7 @@ export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCR
         setTimeout(resolve, 2000) // timeout 2s
       })
 
-      if (abortRef.current) { try { pc.close() } catch {}; return }
+      if (abortRef.current) { if (timeoutRef.current) clearTimeout(timeoutRef.current); try { pc.close() } catch {}; return }
 
       // 7. enviar answer ao servidor
       const answerRes = await authFetch(`/api/webrtc/${sessionId}/answer`, {
@@ -135,7 +146,19 @@ export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCR
         fpsCountRef.current = 0
       }, 1000)
 
+      // Ao conectar com sucesso, limpar o timeout
+      pc.oniceconnectionstatechange = () => {
+        const s = pc.iceConnectionState
+        if (s === 'connected' || s === 'completed') {
+          if (timeoutRef.current) clearTimeout(timeoutRef.current)
+          setState('connected')
+        } else if (s === 'failed' || s === 'closed' || s === 'disconnected') {
+          setState('failed')
+        }
+      }
+
     } catch (err) {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
       console.warn('[WebRTC] connect failed:', err)
       if (!abortRef.current) setState('failed')
     }

@@ -14,7 +14,7 @@ const db = require('./db');
 const keyStore = require('./key-store');
 const sessionManager = require('./session-manager');
 const StreamManager = require('./stream-manager');
-const { WebRTCSession } = require('./webrtc-manager');
+const CDPScreencast = require('./cdp-screencast');
 const { createInputHandler } = require('./cdp-input-handler');
 const { generateToken, verifyToken, deriveTenantId, authMiddleware } = require('./auth');
 const profileManager = require('./profile-manager');
@@ -94,8 +94,8 @@ const sessionResources = new Map();
 sessionManager.onSessionDied((sessionId) => {
   const resources = sessionResources.get(sessionId);
   if (resources) {
+    resources.screencast.stop();
     resources.streamManager.stop();
-    resources.webrtcSession?.stop();
     resources.inputHandler.stop();
     sessionResources.delete(sessionId);
     console.log(`[API] Cleaned up resources for orphaned session ${sessionId}`);
@@ -215,17 +215,16 @@ app.post('/api/session', authMiddleware, async (req, res) => {
 
     const raw = sessionManager.getSessionRaw(sessionId);
 
-    // WebRTC session (baixa latência ~50ms) — usa próprio ffmpeg para rawvideo
-    const webrtcSession = new WebRTCSession(sessionId, raw.display, raw.resolution);
-    webrtcSession.startCapture();
-
-    // MJPEG fallback — mantido para compatibilidade
+    // CDP Screencast — Chrome envia frames JPEG direto via CDP (sem ffmpeg)
     const streamMgr = new StreamManager();
-    streamMgr.startCapture(raw.ffmpeg.stdout);
+    streamMgr.mode = 'cdp';
+
+    const screencast = new CDPScreencast(raw.cdpPort);
+    screencast.start((frame) => streamMgr.pushFrame(frame));
 
     const inputHdl = createInputHandler(raw.displayNum);
 
-    sessionResources.set(sessionId, { streamManager: streamMgr, webrtcSession, inputHandler: inputHdl });
+    sessionResources.set(sessionId, { streamManager: streamMgr, screencast, inputHandler: inputHdl });
 
     res.status(201).json({
       sessionId,
@@ -252,8 +251,8 @@ app.delete('/api/session/:sessionId', authMiddleware, (req, res) => {
 
   const resources = sessionResources.get(sessionId);
   if (resources) {
+    resources.screencast.stop();
     resources.streamManager.stop();
-    resources.webrtcSession?.stop();
     resources.inputHandler.stop();
     sessionResources.delete(sessionId);
   }
@@ -535,79 +534,6 @@ app.post('/api/evaluate/:sessionId', authMiddleware, trackActivity, async (req, 
   }
 });
 
-// --- WebRTC Signaling Routes ---
-
-// POST /api/webrtc/:sessionId/offer — servidor cria offer, cliente responde com answer
-app.post('/api/webrtc/:sessionId/offer', authMiddleware, trackActivity, async (req, res) => {
-  const session = getSessionAndValidate(req, res);
-  if (!session) return;
-
-  const resources = sessionResources.get(req.params.sessionId);
-  if (!resources?.webrtcSession) {
-    return res.status(503).json({ error: 'WebRTC not available for this session' });
-  }
-
-  const peerId = uuidv4();
-  try {
-    const offer = await resources.webrtcSession.createOffer(peerId);
-    res.json({ peerId, ...offer });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/webrtc/:sessionId/answer — cliente envia answer para o servidor
-app.post('/api/webrtc/:sessionId/answer', authMiddleware, trackActivity, async (req, res) => {
-  const session = getSessionAndValidate(req, res);
-  if (!session) return;
-
-  const { peerId, sdp } = req.body || {};
-  if (!peerId || !sdp) return res.status(400).json({ error: 'Missing peerId or sdp' });
-
-  const resources = sessionResources.get(req.params.sessionId);
-  if (!resources?.webrtcSession) {
-    return res.status(503).json({ error: 'WebRTC not available' });
-  }
-
-  try {
-    await resources.webrtcSession.setAnswer(peerId, sdp);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/webrtc/:sessionId/ice — cliente envia ICE candidate
-app.post('/api/webrtc/:sessionId/ice', authMiddleware, trackActivity, async (req, res) => {
-  const session = getSessionAndValidate(req, res);
-  if (!session) return;
-
-  const { peerId, candidate } = req.body || {};
-  if (!peerId) return res.status(400).json({ error: 'Missing peerId' });
-
-  const resources = sessionResources.get(req.params.sessionId);
-  if (!resources?.webrtcSession) {
-    return res.status(503).json({ error: 'WebRTC not available' });
-  }
-
-  try {
-    await resources.webrtcSession.addIceCandidate(peerId, candidate);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// DELETE /api/webrtc/:sessionId/peer/:peerId — cliente desconectando
-app.delete('/api/webrtc/:sessionId/peer/:peerId', authMiddleware, (req, res) => {
-  const session = getSessionAndValidate(req, res);
-  if (!session) return;
-
-  const resources = sessionResources.get(req.params.sessionId);
-  resources?.webrtcSession?.removePeer(req.params.peerId);
-  res.json({ ok: true });
-});
-
 // --- Admin Middleware ---
 
 function adminAuth(req, res, next) {
@@ -862,8 +788,8 @@ server.listen(PORT, '0.0.0.0', () => {
 function cleanup() {
   console.log('[Serende] Shutting down...');
   for (const [, resources] of sessionResources) {
+    resources.screencast.stop();
     resources.streamManager.stop();
-    resources.webrtcSession?.stop();
     resources.inputHandler.stop();
   }
   sessionResources.clear();

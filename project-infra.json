@@ -1,0 +1,25 @@
+{
+  "projectName": "serende",
+  "createdAt": "2026-03-17T04:55:00Z",
+  "updatedAt": "2026-03-17T04:55:00Z",
+  "services": [
+    {
+      "name": "backend",
+      "port": 3336,
+      "pm2Name": "serende-backend",
+      "domain": "serende.ddw1sl.easypanel.host",
+      "url": "https://serende.ddw1sl.easypanel.host",
+      "type": "api",
+      "startCommand": "pm2 start server/index.js --name serende-backend"
+    },
+    {
+      "name": "mcp-server",
+      "port": 4202,
+      "pm2Name": "serende-mcp",
+      "domain": null,
+      "url": null,
+      "type": "mcp",
+      "startCommand": "pm2 start server/mcp/index.js --name serende-mcp --interpreter node --node-args='--experimental-modules'"
+    }
+  ]
+}
