@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fluxo de Dados — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">Fluxo de Dados</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="arquitetura.html" class="text-sm text-dark-muted hover:text-white">Arquitetura</a>
+          <a href="../index.html" class="text-sm text-dark-muted hover:text-white">Home</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-primary-500/10 border border-primary-500/30 text-primary-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
+        Análise de Dados
+      </div>
+      <h1 class="text-4xl font-bold mb-4">Fluxo de Dados e Informação</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        Mapeamento detalhado de como os dados viajam pelo sistema: desde o input do usuário no browser até os eventos X11 no Chrome, e do vídeo capturado até o canvas no frontend.
+      </p>
+    </div>
+
+    <!-- Fluxo Principal -->
+    <h2 class="text-2xl font-bold mb-6">Diagrama de Fluxo de Dados</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12 overflow-x-auto">
+      <svg viewBox="0 0 1400 700" class="w-full h-auto min-w-[1000px]">
+        <defs>
+          <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#22c55e;stop-opacity:0.2" />
+            <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0.2" />
+          </linearGradient>
+        </defs>
+
+        <!-- USER ACTIONS -->
+        <rect x="20" y="40" width="180" height="80" rx="8" fill="#111" stroke="#8b5cf6" stroke-width="2"/>
+        <text x="110" y="70" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Usuário</text>
+        <text x="110" y="90" text-anchor="middle" fill="#a3a3a3" font-size="10">Mouse/Teclado</text>
+        <text x="110" y="105" text-anchor="middle" fill="#a3a3a3" font-size="10">Click, Scroll, Type</text>
+
+        <!-- Canvas Input -->
+        <rect x="20" y="160" width="180" height="80" rx="8" fill="#111" stroke="#06b6d4" stroke-width="2"/>
+        <text x="110" y="190" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Canvas Event</text>
+        <text x="110" y="210" text-anchor="middle" fill="#a3a3a3" font-size="10">mousemove, click</text>
+        <text x="110" y="225" text-anchor="middle" fill="#a3a3a3" font-size="10">keydown, scroll</text>
+
+        <!-- API Request -->
+        <rect x="260" y="160" width="160" height="80" rx="8" fill="#111" stroke="#3b82f6" stroke-width="2"/>
+        <text x="340" y="190" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">HTTP API</text>
+        <text x="340" y="210" text-anchor="middle" fill="#a3a3a3" font-size="10">POST /api/input</text>
+        <text x="340" y="225" text-anchor="middle" fill="#a3a3a3" font-size="10">{type, x, y, key}</text>
+
+        <!-- Input Handler -->
+        <rect x="480" y="160" width="160" height="80" rx="8" fill="#111" stroke="#06b6d4" stroke-width="2"/>
+        <text x="560" y="190" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Input Handler</text>
+        <text x="560" y="210" text-anchor="middle" fill="#a3a3a3" font-size="10">cdp-input-handler.js</text>
+        <text x="560" y="225" text-anchor="middle" fill="#a3a3a3" font-size="10">Javascript → X11</text>
+
+        <!-- X11 Display -->
+        <rect x="700" y="160" width="180" height="80" rx="8" fill="#111" stroke="#f59e0b" stroke-width="2"/>
+        <text x="790" y="190" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Display :100</text>
+        <text x="790" y="210" text-anchor="middle" fill="#a3a3a3" font-size="10">Xvfb Virtual</text>
+        <text x="790" y="225" text-anchor="middle" fill="#a3a3a3" font-size="10">XTest Events</text>
+
+        <!-- Chrome -->
+        <rect x="950" y="40" width="200" height="200" rx="8" fill="#111" stroke="#22c55e" stroke-width="2"/>
+        <text x="1050" y="75" text-anchor="middle" fill="#fff" font-size="14" font-weight="600">Chrome</text>
+        <text x="1050" y="95" text-anchor="middle" fill="#a3a3a3" font-size="10">Headless Mode</text>
+        <text x="1050" y="115" text-anchor="middle" fill="#a3a3a3" font-size="10">CDP Port 9222</text>
+
+        <!-- CDP Screencast -->
+        <rect x="950" y="300" width="200" height="100" rx="8" fill="#111" stroke="#ec4899" stroke-width="2"/>
+        <text x="1050" y="335" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">CDP Screencast</text>
+        <text x="1050" y="355" text-anchor="middle" fill="#a3a3a3" font-size="10">Page.startScreencast</text>
+        <text x="1050" y="375" text-anchor="middle" fill="#a3a3a3" font-size="10">JPEG frames</text>
+
+        <!-- Stream Manager -->
+        <rect x="700" y="300" width="180" height="100" rx="8" fill="#111" stroke="#8b5cf6" stroke-width="2"/>
+        <text x="790" y="340" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Stream Manager</text>
+        <text x="790" y="360" text-anchor="middle" fill="#a3a3a3" font-size="10">Broadcast</text>
+
+        <!-- WebSocket Server -->
+        <rect x="450" y="300" width="160" height="100" rx="8" fill="#111" stroke="#3b82f6" stroke-width="2"/>
+        <text x="530" y="340" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">WebSocket</text>
+        <text x="530" y="360" text-anchor="middle" fill="#a3a3a3" font-size="10">Server</text>
+
+        <!-- Canvas Frontend -->
+        <rect x="180" y="300" width="180" height="100" rx="8" fill="#111" stroke="#06b6d4" stroke-width="2"/>
+        <text x="270" y="340" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">Canvas</text>
+        <text x="270" y="360" text-anchor="middle" fill="#a3a3a3" font-size="10">frontend render</text>
+
+        <!-- Arrows -->
+        <!-- User to Canvas -->
+        <line x1="200" y1="120" x2="200" y2="160" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="160" y="140" fill="#a3a3a3" font-size="9">events</text>
+
+        <!-- Canvas to API -->
+        <line x1="200" y1="200" x2="260" y2="200" stroke="#06b6d4" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="230" y="215" fill="#a3a3a3" font-size="9">POST /input</text>
+
+        <!-- API to Input Handler -->
+        <line x1="420" y1="200" x2="480" y2="200" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="450" y="215" fill="#a3a3a3" font-size="9">JSON</text>
+
+        <!-- Input to X11 -->
+        <line x1="640" y1="200" x2="700" y2="200" stroke="#06b6d4" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="670" y="215" fill="#a3a3a3" font-size="9">X11 events</text>
+
+        <!-- X11 to Chrome -->
+        <line x1="880" y1="200" x2="950" y2="200" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="915" y="215" fill="#a3a3a3" font-size="9">inject</text>
+
+        <!-- Chrome Screencast to Stream -->
+        <line x1="1050" y1="280" x2="1050" y2="300" stroke="#ec4899" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="1080" y="290" fill="#a3a3a3" font-size="9">ws JPEG</text>
+
+        <!-- Stream to WS Server -->
+        <line x1="890" y1="350" x2="450" y2="350" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="670" y="370" fill="#a3a3a3" font-size="9">broadcast</text>
+
+        <!-- WS to Canvas -->
+        <line x1="370" y1="350" x2="270" y2="350" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)"/>
+        <text x="320" y="370" fill="#a3a3a3" font-size="9">binary frame</text>
+
+        <!-- Arrow marker -->
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#22c55e"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+
+    <!-- Flows Explanation -->
+    <h2 class="text-2xl font-bold mb-6">Explicação Detalhada dos Fluxos</h2>
+    <div class="space-y-6 mb-12">
+      <!-- Flow 1 -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold text-primary-400 mb-3 flex items-center gap-2">
+          <span class="w-6 h-6 rounded bg-primary-500/20 flex items-center justify-center text-xs">1</span>
+          Input do Usuário → Chrome
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+          <div>
+            <div class="text-dark-muted mb-1">Origem</div>
+            <div class="font-medium">Canvas Event</div>
+            <div class="text-dark-muted text-xs mt-1">mousemove, click, keydown</div>
+          </div>
+          <div>
+            <div class="text-dark-muted mb-1">Transporte</div>
+            <div class="font-medium">HTTP POST</div>
+            <div class="text-dark-muted text-xs mt-1">/api/input + JSON</div>
+          </div>
+          <div>
+            <div class="text-dark-muted mb-1">Processamento</div>
+            <div class="font-medium">Input Handler</div>
+            <div class="text-dark-muted text-xs mt-1">cdp-input-handler.js</div>
+          </div>
+          <div>
+            <div class="text-dark-muted mb-1">Destino</div>
+            <div class="font-medium">X11 Display</div>
+            <div class="text-dark-muted text-xs mt-1">XTestFakeInput → Chrome</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Flow 2 -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold text-blue-400 mb-3 flex items-center gap-2">
+          <span class="w-6 h-6 rounded bg-blue-500/20 flex items-center justify-center text-xs">2</span>
+          Captura de Vídeo → Frontend
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+          <div>
+            <div class="text-dark-muted mb-1">Origem</div>
+            <div class="font-medium">Chrome CDP</div>
+            <div class="text-dark-muted text-xs mt-1">Page.screencastFrame</div>
+          </div>
+          <div>
+            <div class="text-dark-muted mb-1">Transporte</div>
+            <div class="font-medium">WebSocket</div>
+            <div class="text-dark-muted text-xs mt-1">CDP → StreamManager</div>
+          </div>
+          <div>
+            <div class="text-dark-muted mb-1">Processamento</div>
+            <div class="font-medium">Stream Manager</div>
+            <div class="text-dark-muted text-xs mt-1">broadcast a todos</div>
+          </div>
+          <div>
+            <div class="text-dark-muted mb-1">Destino</div>
+            <div class="font-medium">Canvas</div>
+            <div class="text-dark-muted text-xs mt-1">drawImage(MJPEG)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Flow 3 -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold text-emerald-400 mb-3 flex items-center gap-2">
+          <span class="w-6 h-6 rounded bg-emerald-500/20 flex items-center justify-center text-xs">3</span>
+          Session Lifecycle & Timeout
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+          <div>
+            <div class="text-dark-muted mb-1">Criação</div>
+            <div class="font-medium">POST /api/session</div>
+            <div class="text-dark-muted text-xs mt-1">→ startSession()</div>
+          </div>
+          <div>
+            <div class="text-dark-muted mb-1">Atividade</div>
+            <div class="font-medium">trackActivity()</div>
+            <div class="text-dark-muted text-xs mt-1">reset lastActivity</div>
+          </div>
+          <div>
+            <div class="text-dark-muted mb-1">Timeout</div>
+            <div class="font-medium">30min inativo</div>
+            <div class="text-dark-muted text-xs mt-1">stopSession() auto</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Points -->
+    <h2 class="text-2xl font-bold mb-6">Pontos Críticos de Dados</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden mb-12">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-dark-border bg-dark-bg/50">
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Ponto</th>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Tipo de Dado</th>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Direção</th>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Risco</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">Canvas → API</code></td>
+            <td class="px-4 py-3 text-dark-muted">Eventos de input (x, y, tipo)</td>
+            <td class="px-4 py-3"><span class="text-blue-400">Frontend → Backend</span></td>
+            <td class="px-4 py-3"><span class="status-badge status-inactive">Baixo</span></td>
+          </tr>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">API → Input</code></td>
+            <td class="px-4 py-3 text-dark-muted">Comandos X11 (XTest)</td>
+            <td class="px-4 py-3"><span class="text-emerald-400">Backend → Sistema</span></td>
+            <td class="px-4 py-3"><span class="status-badge status-active">Médio (X11)</span></td>
+          </tr>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">Chrome → CDP</code></td>
+            <td class="px-4 py-3 text-dark-muted">Frames JPEG (screencast)</td>
+            <td class="px-4 py-3"><span class="text-amber-400">Chrome → Backend</span></td>
+            <td class="px-4 py-3"><span class="status-badge status-active">Alto (bandwidth)</span></td>
+          </tr>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">Stream → WS</code></td>
+            <td class="px-4 py-3 text-dark-muted">Frames binários broadcast</td>
+            <td class="px-4 py-3"><span class="text-purple-400">Backend → Cliente</span></td>
+            <td class="px-4 py-3"><span class="status-badge status-active">Alto (latência)</span></td>
+          </tr>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">WS → Canvas</code></td>
+            <td class="px-4 py-3 text-dark-muted">Blob JPEG → putImageData</td>
+            <td class="px-4 py-3"><span class="text-cyan-400">WebSocket → Frontend</span></td>
+            <td class="px-4 py-3"><span class="status-badge status-active">Médio (CPU decode)</span></td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">Profile I/O</code></td>
+            <td class="px-4 py-3 text-dark-muted">Cookies, localStorage, storage</td>
+            <td class="px-4 py-3"><span class="text-rose-400">Filesystem</span></td>
+            <td class="px-4 py-3"><span class="status-badge status-inactive">Baixo</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Backpressure -->
+    <h2 class="text-2xl font-bold mb-6">Backpressure & Controle de Fluxo</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-amber-400">⚠️ Backpressure no WebSocket</h3>
+        <p class="text-sm text-dark-muted mb-3">O StreamManager verifica <code>ws.bufferedAmount</code> antes de enviar frames. Se > 4MB, o frame é descartado para evitar memória excessiva no cliente.</p>
+        <pre class="text-xs mt-3"><code>// stream-manager.js, linha 114
+if (ws.bufferedAmount > 4 * 1024 * 1024) continue;</code></pre>
+      </div>
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-emerald-400">✅ ACK no CDP Screencast</h3>
+        <p class="text-sm text-dark-muted mb-3">O Chrome para de enviar frames se o ACK não for recebido. O backend envia <code>Page.screencastFrameAck</code> após processar cada frame.</p>
+        <pre class="text-xs mt-3"><code>// cdp-screencast.js, linha 101
+ws.send(JSON.stringify({
+  id: idCounter++,
+  method: 'Page.screencastFrameAck',
+  params: { sessionId },
+}));</code></pre>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="arquitetura.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: Arquitetura
+      </a>
+      <a href="autenticacao.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Próximo: Autenticação →
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

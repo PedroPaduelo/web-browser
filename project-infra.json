@@ -1,34 +1,16 @@
 {
-  "projectName": "serende",
-  "createdAt": "2026-03-17T04:55:00Z",
-  "updatedAt": "2026-03-17T11:40:00Z",
+  "projectName": "remote-browser",
+  "createdAt": "2025-03-20T00:00:00Z",
+  "updatedAt": "2026-03-20T12:00:00Z",
   "services": [
     {
-      "name": "backend",
-      "port": 3336,
-      "pm2Name": "serende-backend",
-      "domain": "serende.ddw1sl.easypanel.host",
-      "url": "https://serende.ddw1sl.easypanel.host",
-      "type": "api",
-      "startCommand": "pm2 start server/index.js --name serende-backend"
-    },
-    {
-      "name": "frontend",
-      "port": 4204,
-      "pm2Name": "serende-frontend",
-      "domain": "serende-frontend.ddw1sl.easypanel.host",
-      "url": "https://serende-frontend.ddw1sl.easypanel.host",
-      "type": "frontend",
-      "startCommand": "cd frontend && pm2 start npx --name serende-frontend -- vite preview --port 4204 --host 0.0.0.0"
-    },
-    {
-      "name": "mcp-server",
-      "port": 4203,
-      "pm2Name": "serende-mcp",
-      "domain": "serende-mcp.ddw1sl.easypanel.host",
-      "url": "https://serende-mcp.ddw1sl.easypanel.host",
-      "type": "mcp",
-      "startCommand": "pm2 start server/mcp/index.js --name serende-mcp"
+      "name": "docs",
+      "port": 4008,
+      "pm2Name": "docs-remote-browser",
+      "domain": "docs-remote-browser.ddw1sl.easypanel.host",
+      "url": "https://docs-remote-browser.ddw1sl.easypanel.host",
+      "type": "docs",
+      "startCommand": "pm2 start npx --name docs-remote-browser -- serve docs/ -l 4008 --no-clipboard"
     }
   ]
 }

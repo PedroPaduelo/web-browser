@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API REST Endpoints — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">API REST</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="frontend.html" class="text-sm text-dark-muted hover:text-white">Frontend</a>
+          <a href="mcp.html" class="text-sm text-dark-muted hover:text-white">MCP</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-fuchsia-500/10 border border-fuchsia-500/30 text-fuchsia-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-fuchsia-500"></span>
+        REST API
+      </div>
+      <h1 class="text-4xl font-bold mb-4">API REST Endpoints</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        A API Express fornece endpoints para autenticação, gerenciamento de sessões, input remoto e profile. Todos exigem JWT exceto auth.
+      </p>
+    </div>
+
+    <!-- API Tables -->
+    <h2 class="text-2xl font-bold mb-6">Endpoints</h2>
+    <div class="space-y-8 mb-12">
+      <!-- Auth -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden">
+        <div class="bg-dark-bg px-4 py-3 border-b border-dark-border">
+          <h3 class="font-semibold text-purple-400">🔐 Autenticação (Público)</h3>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-dark-bg/50">
+            <tr>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Método</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Rota</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="border-t border-dark-border">
+              <td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-xs font-medium">POST</span></td>
+              <td class="px-4 py-3"><code class="text-xs">/api/auth/login</code></td>
+              <td class="px-4 py-3 text-dark-muted">Autentica API Key → JWT</td>
+            </tr>
+            <tr class="border-t border-dark-border">
+              <td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400 text-xs font-medium">GET</span></td>
+              <td class="px-4 py-3"><code class="text-xs">/api/auth/verify</code></td>
+              <td class="px-4 py-3 text-dark-muted">Verifica token JWT</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Profile -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden">
+        <div class="bg-dark-bg px-4 py-3 border-b border-dark-border">
+          <h3 class="font-semibold text-violet-400">💾 Profile (Auth)</h3>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-dark-bg/50">
+            <tr>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Método</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Rota</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400 text-xs font-medium">GET</span></td><td class="px-4 py-3"><code class="text-xs">/api/profile</code></td><td class="px-4 py-3 text-dark-muted">Busca status do profile</td></tr>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 text-xs font-medium">DELETE</span></td><td class="px-4 py-3"><code class="text-xs">/api/profile</code></td><td class="px-4 py-3 text-dark-muted">Remove profile</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Sessions -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden">
+        <div class="bg-dark-bg px-4 py-3 border-b border-dark-border">
+          <h3 class="font-semibold text-amber-500">📺 Sessões (Auth)</h3>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-dark-bg/50">
+            <tr>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Método</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Rota</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-xs font-medium">POST</span></td><td class="px-4 py-3"><code class="text-xs">/api/session</code></td><td class="px-4 py-3 text-dark-muted">Cria nova sessão</td></tr>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 text-xs font-medium">DELETE</span></td><td class="px-4 py-3"><code class="text-xs">/api/session/:id</code></td><td class="px-4 py-3 text-dark-muted">Encerra sessão</td></tr>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400 text-xs font-medium">GET</span></td><td class="px-4 py-3"><code class="text-xs">/api/session</code></td><td class="px-4 py-3 text-dark-muted">Lista sessões ativas</td></tr>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400 text-xs font-medium">GET</span></td><td class="px-4 py-3"><code class="text-xs">/api/session/:id</code></td><td class="px-4 py-3 text-dark-muted">Detalhes da sessão</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Input -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden">
+        <div class="bg-dark-bg px-4 py-3 border-b border-dark-border">
+          <h3 class="font-semibold text-cyan-400">🖱️ Input (Auth + Track)</h3>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-dark-bg/50">
+            <tr>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Método</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Rota</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-xs font-medium">POST</span></td><td class="px-4 py-3"><code class="text-xs">/api/input</code></td><td class="px-4 py-3 text-dark-muted">Envia evento único</td></tr>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-xs font-medium">POST</span></td><td class="px-4 py-3"><code class="text-xs">/api/input/batch</code></td><td class="px-4 py-3 text-dark-muted">Envia batch de eventos</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- System -->
+      <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden">
+        <div class="bg-dark-bg px-4 py-3 border-b border-dark-border">
+          <h3 class="font-semibold text-emerald-400">⚙️ Sistema</h3>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-dark-bg/50">
+            <tr>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Método</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Rota</th>
+              <th class="text-left px-4 py-2 text-dark-muted font-medium uppercase text-xs">Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400 text-xs font-medium">GET</span></td><td class="px-4 py-3"><code class="text-xs">/api/health</code></td><td class="px-4 py-3 text-dark-muted">Health check (status, mem, sessions)</td></tr>
+            <tr class="border-t border-dark-border"><td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400 text-xs font-medium">GET</span></td><td class="px-4 py-3"><code class="text-xs">/api/session/:id/page</code></td><td class="px-4 py-3 text-dark-muted">(usado internamente) info da página</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Middlewares -->
+    <h2 class="text-2xl font-bold mb-6">Middlewares Aplicados</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-blue-400">✅ Global</h3>
+        <ul class="text-sm text-dark-muted space-y-2">
+          <li>• <code>helmet()</code> — Security headers</li>
+          <li>• <code>cors()</code> — CORS configurável</li>
+          <li>• <code>express.json({limit: '1mb'})</code></li>
+          <li>• <code>rateLimit()</code> — 100 req/min</li>
+          <li>• <code>requestId()</code> — X-Request-Id</li>
+        </ul>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-purple-400">🔒 Auth</h3>
+        <ul class="text-sm text-dark-muted space-y-2">
+          <li>• <code>authMiddleware</code> — valida JWT</li>
+          <li>• Verifica tenant match (cross-tenant block)</li>
+          <li>• Anexa <code>req.tenant</code>, <code>req.user</code></li>
+        </ul>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-amber-400">⏱️ Activity</h3>
+        <ul class="text-sm text-dark-muted space-y-2">
+          <li>• <code>trackActivity</code> — resets timeout</li>
+          <li>• Aplicado em rotas de input e navegação</li>
+          <li>• Chama <code>sessionManager.updateActivity()</code></li>
+        </ul>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-rose-400">🔢 Rate Limit Login</h3>
+        <ul class="text-sm text-dark-muted space-y-2">
+          <li>• 5 tentativas por IP / minuto</li>
+          <li>• Map em memória (não persistente)</li>
+          <li>• Cleanup automático a cada 5min</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Error Codes -->
+    <h2 class="text-2xl font-bold mb-6">Códigos de Erro Comuns</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div class="flex items-start gap-3">
+          <span class="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 text-xs font-bold mt-0.5">401</span>
+          <div><div class="font-medium">Unauthorized</div><div class="text-dark-muted text-xs mt-1">Token ausente, inválido ou expirado</div></div>
+        </div>
+        <div class="flex items-start gap-3">
+          <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 text-xs font-bold mt-0.5">429</span>
+          <div><div class="font-medium">Too Many Requests</div><div class="text-dark-muted text-xs mt-1">Rate limit excedido</div></div>
+        </div>
+        <div class="flex items-start gap-3">
+          <span class="px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 text-xs font-bold mt-0.5">403</span>
+          <div><div class="font-medium">Forbidden</div><div class="text-dark-muted text-xs mt-1">Sessão de outro tenant</div></div>
+        </div>
+        <div class="flex items-start gap-3">
+          <span class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-xs font-bold mt-0.5">404</span>
+          <div><div class="font-medium">Not Found</div><div class="text-dark-muted text-xs mt-1">Sessão não existe</div></div>
+        </div>
+        <div class="flex items-start gap-3">
+          <span class="px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400 text-xs font-bold mt-0.5">500</span>
+          <div><div class="font-medium">Internal Error</div><div class="text-dark-muted text-xs mt-1">Erro no servidor</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="frontend.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: Frontend
+      </a>
+      <a href="mcp.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Próximo: MCP →
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Frontend React — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">Frontend React</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="profile.html" class="text-sm text-dark-muted hover:text-white">Profile</a>
+          <a href="api.html" class="text-sm text-dark-muted hover:text-white">API</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
+        Frontend
+      </div>
+      <h1 class="text-4xl font-bold mb-4">Frontend React + Vite</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        Interface SPA com Canvas para renderização MJPEG, controles de sessão, toolbar de navegação e gerenciamento de estado local.
+      </p>
+    </div>
+
+    <!-- Structure -->
+    <h2 class="text-2xl font-bold mb-6">Estrutura do Frontend</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <pre class="text-sm"><code>frontend/
+├── src/
+│   ├── App.tsx                 ← Componente raiz
+│   ├── main.tsx               ← Entry point
+│   ├── components/
+│   │   ├── BrowserViewer.tsx   ← Canvas + cursor overlay
+│   │   ├── BrowserToolbar.tsx  ← URL bar + navegação
+│   │   ├── ConnectionStatus.tsx← Stats (FPS, state)
+│   │   ├── SessionControls.tsx ← Start/Stop buttons
+│   │   ├── AudioManager.tsx    ← Web Audio API
+│   │   ├── AudioControl.tsx    ← Volume/mute
+│   │   ├── LoginScreen.tsx     ← Tela de login
+│   │   └── AuthProvider.tsx    ← Auth context
+│   ├── hooks/
+│   │   ├── useSession.ts       ← Session lifecycle
+│   │   ├── useStream.ts        ← WebSocket stream
+│   │   ├── usePageInfo.ts      ← URL, title fetch
+│   │   ├── useInputRelay.ts    ← Input → API
+│   │   ├── useWebRTC.ts        ← WebRTC signaling
+│   │   └── useInputRelay.ts    ← Mouse→Canvas→API
+│   └── lib/
+│       ├── auth-client.ts      ← Auth helpers
+│       └── admin-client.ts     ← Admin API
+├── index.html
+├── vite.config.ts
+└── tailwind.config.js</code></pre>
+    </div>
+
+    <!-- BrowserViewer -->
+    <h2 class="text-2xl font-bold mb-6">Componente BrowserViewer</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12 mb-12 overflow-x-auto">
+      <p class="text-sm text-dark-muted mb-4">
+        Renderiza vídeo MJPEG em um canvas, com cursor overlay customizado e captura de eventos de input.
+      </p>
+      <pre class="text-xs"><code>export default function BrowserViewer({ setCanvas, resolution, sessionId }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [cursor, setCursor] = useState({ x: -100, y: -100, visible: false });
+
+  useInputRelay(canvasRef, containerRef, true, resolution, sessionId);
+
+  return (
+    <div ref={containerRef} tabIndex={0} onMouseMove={handleMouseMove}>
+      <canvas ref={canvasRef} />
+      {cursor.visible && (
+        <svg style={{ left: cursor.x, top: cursor.y }}>
+          {/* SVG cursor */}
+        </svg>
+      )}
+    </div>
+  );
+}</code></pre>
+    </div>
+
+    <!-- Hooks -->
+    <h2 class="text-2xl font-bold mb-6">Hooks Principais</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-blue-400">useSession</h3>
+        <p class="text-sm text-dark-muted mb-3">Gerencia estado da sessão (idle, creating, active, destroying).</p>
+        <pre class="text-xs bg-dark-bg p-3 rounded"><code>const { status, sessionInfo, createSession, destroySession } = useSession();
+
+return (
+  <SessionControls
+    status={status}
+    onStart={(res, url) => createSession({ resolution: res, startUrl: url })}
+    onStop={destroySession}
+  />
+);</code></pre>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-emerald-400">useStream</h3>
+        <p class="text-sm text-dark-muted mb-3">Conecta ao WebSocket de stream e renderiza no canvas.</p>
+        <pre class="text-xs bg-dark-bg p-3 rounded"><code>const { isConnected, fps } = useStream(isActive, sessionId);
+
+// Internamente:
+const ws = new WebSocket(`${WS_URL}/ws/stream?sessionId=...`);
+ws.onmessage = (event) => {
+  createImageBitmap(event.data).then(bitmap => {
+    ctx.drawImage(bitmap, 0, 0);
+  });
+};</code></pre>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-purple-400">usePageInfo</h3>
+        <p class="text-sm text-dark-muted mb-3">Busca URL e título da página ativa via API.</p>
+        <pre class="text-xs bg-dark-bg p-3 rounded"><code>const { pageInfo, refetch } = usePageInfo(sessionId);
+
+// GET /api/session/{id}/page
+// { url, title, favicon }</code></pre>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-amber-400">useInputRelay</h3>
+        <p class="text-sm text-dark-muted mb-3">Converte eventos do canvas em chamadas API.</p>
+        <pre class="text-xs bg-dark-bg p-3 rounded"><code>useInputRelay(canvasRef, containerRef, true, resolution, sessionId);
+
+// Captura: mousemove, mousedown, mouseup, keydown, wheel
+// Envia via POST /api/input</code></pre>
+      </div>
+    </div>
+
+    <!-- Input Flow -->
+    <h2 class="text-2xl font-bold mb-6">Fluxo de Input no Frontend</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <ol class="list-decimal list-inside space-y-3 text-sm text-dark-muted">
+        <li>Usuário move mouse sobre o canvas</li>
+        <li><code>handleMouseMove</code> calcula posição relativa ao canvas (coordenadas normalizadas)</li>
+        <li>Chama <code>sendInput({ type: 'mouseMove', x, y })</code></li>
+        <li><code>authFetch('/api/input', { method: 'POST', body })</code></li>
+        <li>Backend recebe, valida, encaminha ao X11 input handler</li>
+        <li>Chrome recebe evento X11 na display virtual</li>
+        <li>Cursor local (SVG) move instantaneamente, sem esperar round-trip</li>
+      </ol>
+    </div>
+
+    <!-- Vite Config -->
+    <h2 class="text-2xl font-bold mb-6">Configuração Vite</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6">
+      <pre class="text-xs"><code>// vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    allowedHosts: 'all',
+  },
+  build: {
+    outDir: '../frontend/dist',
+    sourcemap: true,
+  },
+});</code></pre>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="profile.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: Profile
+      </a>
+      <a href="api.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Próximo: API →
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

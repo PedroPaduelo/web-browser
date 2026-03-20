@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Input Relay — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">Input Relay</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="stream.html" class="text-sm text-dark-muted hover:text-white">Stream</a>
+          <a href="profile.html" class="text-sm text-dark-muted hover:text-white">Profile</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-cyan-500"></span>
+        Input
+      </div>
+      <h1 class="text-4xl font-bold mb-4">Input Relay (Mouse/Teclado)</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        Sistema que captura eventos do frontend e os injeta no Chrome via X11 (XTest). Permite controle remoto completo do navegador.
+      </p>
+    </div>
+
+    <!-- Flow -->
+    <h2 class="text-2xl font-bold mb-6">Fluxo de Input</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12 overflow-x-auto">
+      <svg viewBox="0 0 900 200" class="w-full h-auto min-w-[700px]">
+        <!-- Canvas -->
+        <rect x="20" y="60" width="140" height="80" rx="8" fill="#111" stroke="#8b5cf6" stroke-width="2"/>
+        <text x="90" y="90" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">Canvas</text>
+        <text x="90" y="110" text-anchor="middle" fill="#a3a3a3" font-size="9">mousemove/click</text>
+        <text x="90" y="125" text-anchor="middle" fill="#a3a3a3" font-size="9">keydown/scroll</text>
+
+        <!-- Input Handler -->
+        <rect x="220" y="60" width="160" height="80" rx="8" fill="#111" stroke="#3b82f6" stroke-width="2"/>
+        <text x="300" y="90" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">Input Handler</text>
+        <text x="300" y="110" text-anchor="middle" fill="#a3a3a3" font-size="9">cdp-input-handler.js</text>
+        <text x="300" y="125" text-anchor="middle" fill="#a3a3a3" font-size="9">transform to X11</text>
+
+        <!-- Python X11 -->
+        <rect x="440" y="60" width="140" height="80" rx="8" fill="#111" stroke="#22c55e" stroke-width="2"/>
+        <text x="510" y="90" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">Python X11</text>
+        <text x="510" y="110" text-anchor="middle" fill="#a3a3a3" font-size="9">x11-input.py</text>
+        <text x="510" y="125" text-anchor="middle" fill="#a3a3a3" font-size="9">XTestFakeInput</text>
+
+        <!-- X Display -->
+        <rect x="640" y="60" width="140" height="80" rx="8" fill="#111" stroke="#f59e0b" stroke-width="2"/>
+        <text x="710" y="90" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">Xvfb :100</text>
+        <text x="710" y="110" text-anchor="middle" fill="#a3a3a3" font-size="9">Virtual Display</text>
+        <text x="710" y="125" text-anchor="middle" fill="#a3a3a3" font-size="9">X11 Events</text>
+
+        <!-- Chrome -->
+        <rect x="840" y="60" width="140" height="80" rx="8" fill="#111" stroke="#ec4899" stroke-width="2"/>
+        <text x="910" y="90" text-anchor="middle" fill="#fff" font-size="11" font-weight="600">Chrome</text>
+        <text x="910" y="110" text-anchor="middle" fill="#a3a3a3" font-size="9">Receives</text>
+        <text x="910" y="125" text-anchor="middle" fill="#a3a3a3" font-size="9">Input Events</text>
+
+        <!-- Arrows -->
+        <line x1="160" y1="100" x2="220" y2="100" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="380" y1="100" x2="440" y2="100" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="580" y1="100" x2="640" y2="100" stroke="#22c55e" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="780" y1="100" x2="840" y2="100" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#22c55e"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+
+    <!-- Event Types -->
+    <h2 class="text-2xl font-bold mb-6">Tipos de Eventos Suportados</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden mb-12">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-dark-border bg-dark-bg/50">
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Tipo</th>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Parâmetros</th>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">X11 Equivalent</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><span class="status-badge status-active">mouseMove</span></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">{x, y}</code></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">MotionNotify</code></td>
+          </tr>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><span class="status-badge status-active">mouseDown</span></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">{x, y, button}</code></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">ButtonPress</code></td>
+          </tr>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><span class="status-badge status-active">mouseUp</span></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">{x, y, button}</code></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">ButtonRelease</code></td>
+          </tr>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><span class="status-badge status-active">keyDown</span></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">{key}</code></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">KeyPress</code></td>
+          </tr>
+          <tr class="border-b border-dark-border">
+            <td class="px-4 py-3"><span class="status-badge status-active">keyUp</span></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">{key}</code></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">KeyRelease</code></td>
+          </tr>
+          <tr>
+            <td class="px-4 py-3"><span class="status-badge status-active">scroll</span></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">{x, y, deltaY}</code></td>
+            <td class="px-4 py-3 text-dark-muted"><code class="text-xs">ButtonPress + Motion</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Code -->
+    <h2 class="text-2xl font-bold mb-6">Código: Input Handler</h2>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-blue-400">cdp-input-handler.js (Node)</h3>
+        <pre class="text-xs overflow-x-auto"><code>function createInputHandler(displayNum) {
+  return {
+    display: `:${displayNum}`,
+    sendInput(msg) {
+      const { type, x, y, key, button, deltaY } = msg;
+
+      if (type === 'mouseMove') {
+        sendX11(this.display, 'move', x, y);
+      }
+      if (type === 'mouseDown') {
+        sendX11(this.display, 'click', x, y, button);
+      }
+      if (type === 'keyDown') {
+        sendX11(this.display, 'key', key);
+      }
+      if (type === 'scroll') {
+        sendX11(this.display, 'scroll', x, y, deltaY);
+      }
+    },
+    stop() { /* cleanup */ }
+  };
+}</code></pre>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-emerald-400">x11-input.py (XTest)</h3>
+        <pre class="text-xs overflow-x-auto"><code>from Xlib import X, display
+from Xlib.ext import xtest
+
+d = display.Display(':100')
+root = d.screen().root
+
+def mouse_move(x, y):
+    xtest.fake_input(d, X.MotionNotify, x=x, y=y)
+    d.sync()
+
+def mouse_click(x, y, button=1):
+    xtest.fake_input(d, X.ButtonPress, button=button)
+    xtest.fake_input(d, X.ButtonRelease, button=button)
+    d.sync()
+
+def key_press(keycode):
+    xtest.fake_input(d, X.KeyPress, keycode=keycode)
+    xtest.fake_input(d, X.KeyRelease, keycode=keycode)
+    d.sync()</code></pre>
+      </div>
+    </div>
+
+    <!-- API Input -->
+    <h2 class="text-2xl font-bold mb-6">API de Input</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="font-semibold mb-3 text-purple-400">POST /api/input</h3>
+          <p class="text-sm text-dark-muted mb-3">Envia um evento único de input.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>// Request
+POST /api/input
+Authorization: Bearer {token}
+{
+  "sessionId": "uuid",
+  "type": "mouseMove",
+  "x": 640,
+  "y": 360
+}</code></pre>
+        </div>
+
+        <div>
+          <h3 class="font-semibold mb-3 text-cyan-400">POST /api/input/batch</h3>
+          <p class="text-sm text-dark-muted mb-3">Envia múltiplos eventos em uma requisição (otimização).</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>// Request
+POST /api/input/batch
+Authorization: Bearer {token}
+{
+  "sessionId": "uuid",
+  "actions": [
+    {"type": "mouseMove", "x": 100, "y": 100},
+    {"type": "mouseDown", "button": 1},
+    {"type": "mouseUp", "button": 1}
+  ]
+}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="stream.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: Stream
+      </a>
+      <a href="profile.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Próximo: Profile →
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

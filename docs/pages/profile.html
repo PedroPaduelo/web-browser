@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profile Manager — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">Profile Manager</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="input-relay.html" class="text-sm text-dark-muted hover:text-white">Input</a>
+          <a href="frontend.html" class="text-sm text-dark-muted hover:text-white">Frontend</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/30 text-violet-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
+        Persistência
+      </div>
+      <h1 class="text-4xl font-bold mb-4">Profile Manager</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        Gerencia cookies, localStorage e outros dados de sessão do Chrome. Permite persistir estado entre múltiplas sessões do mesmo tenant.
+      </p>
+    </div>
+
+    <!-- Profile Storage -->
+    <h2 class="text-2xl font-bold mb-6">Estrutura de Armazenamento</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <pre class="text-sm"><code>data/
+└── tenants/
+    └── {tenantId}/
+        ├── profiles/
+        │   ├── Default/           ← Chrome Default profile
+        │   │   ├── Cookies
+        │   │   ├── Local Storage/
+        │   │   ├── Session Storage/
+        │   │   ├── IndexedDB/
+        │   │   └── Preferences
+        │   └── metadata.json      ← Metadata (last updated)
+        └── sessions/
+            └── {sessionId}/
+                └── {cache, logs, etc}</code></pre>
+    </div>
+
+    <!-- Operations -->
+    <h2 class="text-2xl font-bold mb-6">Operações Principais</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">📋</div>
+          <h3 class="font-semibold">GET /api/profile</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Retorna se existe profile e metadados.</p>
+        <pre class="text-xs bg-dark-bg p-3 rounded"><code>{
+  "exists": true,
+  "metadata": {
+    "createdAt": "2025-03-17T...",
+    "updatedAt": "2025-03-19T...",
+    "size": "4.2MB"
+  }
+}</code></pre>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-rose-500/20 flex items-center justify-center text-rose-400">🗑️</div>
+          <h3 class="font-semibold">DELETE /api/profile</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Remove profile do tenant (cookies, storage).</p>
+        <pre class="text-xs bg-dark-bg p-3 rounded"><code>{ "message": "Profile cleared" }</code></pre>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400">📦</div>
+          <h3 class="font-semibold">Profile Copy</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Ao criar sessão, o profile é copiado para <code>data/tenants/{tid}/sessions/{sid}/</code>.</p>
+        <pre class="text-xs bg-dark-bg p-3 rounded"><code>const userDataDir = tenantManager
+  .copyProfileToSession(tenantId, sessionId);</code></pre>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center text-cyan-400">💾</div>
+          <h3 class="font-semibold">Profile Merge</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Ao encerrar sessão (não timeout), diffs são aplicados no profile principal.</p>
+        <pre class="text-xs bg-dark-bg p-3 rounded"><code>tenantManager.mergeProfileFromSession(
+  tenantId, sessionId
+);</code></pre>
+      </div>
+    </div>
+
+    <!-- Save State -->
+    <h2 class="text-2xl font-bold mb-6">Save Session State</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <p class="text-sm text-dark-muted mb-4">
+        O perfil do Chrome é sensível a mudanças externas. O <code>profile-manager.js</code> usa <code>x11-input.py</code> para escrever arquivo <code>Preferences</code> com configurações válidas.
+      </p>
+      <pre class="text-xs bg-dark-bg p-3 rounded"><code>async function saveSessionState(tenantId, displayNum) {
+  const x11 = new X11Input(`:${displayNum}`);
+  await x11.send('write_preferences', {
+    'session.restore_on_startup': 4,
+    'session.startup_urls': []
+  });
+  await x11.send('quit_chrome'); // Graceful quit
+  await x11.close();
+}</code></pre>
+    </div>
+
+    <!-- Frontend Usage -->
+    <h2 class="text-2xl font-bold mb-6">Uso no Frontend</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <pre class="text-xs"><code>// src/lib/auth-client.ts
+export async function getProfileInfo() {
+  const res = await authFetch('/api/profile');
+  return res.json(); // { exists, metadata }
+}
+
+export async function clearProfile() {
+  await authFetch('/api/profile', { method: 'DELETE' });
+}
+
+// No componente:
+useEffect(() => {
+  getProfileInfo().then(info => setHasProfile(info.exists));
+}, []);
+
+// Botão Limpar Profile:
+<button onClick={clearProfile}>
+  Limpar Profile
+</button></code></pre>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="input-relay.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: Input Relay
+      </a>
+      <a href="frontend.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Próximo: Frontend →
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autenticação — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">Autenticação</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="fluxo-dados.html" class="text-sm text-dark-muted hover:text-white">Fluxo</a>
+          <a href="sessoes.html" class="text-sm text-dark-muted hover:text-white">Sessões</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+        Segurança
+      </div>
+      <h1 class="text-4xl font-bold mb-4">Sistema de Autenticação</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        O Serende usa API Key como credencial inicial, que é trocada por um JWT. O tenant ID é derivado do hash da API Key, garantindo isolamento entre clientes.
+      </p>
+    </div>
+
+    <!-- Login Flow -->
+    <h2 class="text-2xl font-bold mb-6">Fluxo de Login</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12 overflow-x-auto">
+      <svg viewBox="0 0 900 200" class="w-full h-auto min-w-[700px]">
+        <!-- Step 1 -->
+        <rect x="20" y="70" width="140" height="60" rx="8" fill="#111" stroke="#8b5cf6" stroke-width="2"/>
+        <text x="90" y="100" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">1. API Key</text>
+        <text x="90" y="120" text-anchor="middle" fill="#a3a3a3" font-size="10">Usuário envia</text>
+        <text x="90" y="135" text-anchor="middle" fill="#a3a3a3" font-size="10">chave de acesso</text>
+
+        <!-- Step 2 -->
+        <rect x="220" y="70" width="160" height="60" rx="8" fill="#111" stroke="#3b82f6" stroke-width="2"/>
+        <text x="300" y="100" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">2. POST /auth/login</text>
+        <text x="300" y="120" text-anchor="middle" fill="#a3a3a3" font-size="10">Validação</text>
+        <text x="300" y="135" text-anchor="middle" fill="#a3a3a3" font-size="10">keyStore.lookup()</text>
+
+        <!-- Step 3 -->
+        <rect x="440" y="70" width="140" height="60" rx="8" fill="#111" stroke="#22c55e" stroke-width="2"/>
+        <text x="510" y="100" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">3. JWT Token</text>
+        <text x="510" y="120" text-anchor="middle" fill="#a3a3a3" font-size="10">jwt.sign()</text>
+        <text x="510" y="135" text-anchor="middle" fill="#a3a3a3" font-size="10">24h expiry</text>
+
+        <!-- Storage -->
+        <rect x="660" y="70" width="120" height="60" rx="8" fill="#111" stroke="#ec4899" stroke-width="2"/>
+        <text x="720" y="100" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">4. localStorage</text>
+        <text x="720" y="120" text-anchor="middle" fill="#a3a3a3" font-size="10">token + tenantId</text>
+
+        <!-- Arrows -->
+        <line x1="160" y1="100" x2="220" y2="100" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="380" y1="100" x2="440" y2="100" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="580" y1="100" x2="660" y2="100" stroke="#22c55e" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#22c55e"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+
+    <!-- Auth Code -->
+    <h2 class="text-2xl font-bold mb-6">Código de Autenticação</h2>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-blue-400">Login (auth.js)</h3>
+        <pre class="text-xs overflow-x-auto"><code>const { generateToken, verifyToken } = require('./auth');
+
+app.post('/api/auth/login', (req, res) => {
+  const { apiKey } = req.body;
+  const tenant = keyStore.validateKey(apiKey);
+  if (!tenant) return res.status(401).json({ error: 'Invalid API key' });
+
+  const token = generateToken(tenant.id, { maxSessions: tenant.maxSessions });
+  res.json({ token, tenantId: tenant.id });
+});</code></pre>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-purple-400">Middleware (auth.js)</h3>
+        <pre class="text-xs overflow-x-auto"><code>function authMiddleware(req, res, next) {
+  const token = req.headers.authorization?.slice(7);
+  const payload = verifyToken(token);
+  if (!payload) return res.status(401).json({ error: 'Token required' });
+
+  req.tenant = {
+    tenantId: payload.tenantId,
+    maxSessions: payload.maxSessions
+  };
+  next();
+}</code></pre>
+      </div>
+    </div>
+
+    <!-- Tenant Isolation -->
+    <h2 class="text-2xl font-bold mb-6">Isolamento de Tenants</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center text-violet-400">🔑</span>
+            <h3 class="font-semibold">API Key</h3>
+          </div>
+          <p class="text-sm text-dark-muted">Cada tenant recebe uma API Key única. O tenant ID é derivado via SHA256 do hash da chave.</p>
+          <pre class="text-xs mt-2 bg-dark-bg p-2 rounded"><code>deriveTenantId(apiKey) =
+  sha256(apiKey).slice(0,16)</code></pre>
+        </div>
+
+        <div>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">📁</span>
+            <h3 class="font-semibold">Profile Dir</h3>
+          </div>
+          <p class="text-sm text-dark-muted">Perfiles são armazenados em <code>data/tenants/{tenantId}/</code>. Isolamento físico no filesystem.</p>
+          <pre class="text-xs mt-2 bg-dark-bg p-2 rounded"><code>data/tenants/
+  └── {tenantId}/
+      ├── profiles/
+      └── sessions/</code></pre>
+        </div>
+
+        <div>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400">🔒</span>
+            <h3 class="font-semibold">Session Limit</h3>
+          </div>
+          <p class="text-sm text-dark-muted">Cada tenant pode ter limite custom de sessões simultâneas, definido no registro da API Key.</p>
+          <pre class="text-xs mt-2 bg-dark-bg p-2 rounded"><code>maxSessions: 5  // limite por tenant</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security Features -->
+    <h2 class="text-2xl font-bold mb-6">Recursos de Segurança</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-cyan-400">Rate Limiting</h3>
+        <ul class="text-sm text-dark-muted space-y-2">
+          <li>• Global: 100 req/min em /api/**</li>
+          <li>• Login: 5 tentativas/min por IP</li>
+          <li>• Implementação via express-rate-limit</li>
+        </ul>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-fuchsia-400">Helmet & CORS</h3>
+        <ul class="text-sm text-dark-muted space-y-2">
+          <li>• Helmet com CSP desabilitado (vídeo via canvas)</li>
+          <li>• CORS configurável via CORS_ORIGIN</li>
+          <li>• Credenciais habilitadas</li>
+        </ul>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-rose-400">Tenant Validation</h3>
+        <ul class="text-sm text-dark-muted space-y-2">
+          <li>• Verificação em todas as rotas protegidas</li>
+          <li>• session.tenantId === req.tenant.tenantId</li>
+          <li>• Bloqueio de cross-tenant access</li>
+        </ul>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-amber-400">SQLite KeyStore</h3>
+        <ul class="text-sm text-dark-muted space-y-2">
+          <li>• API Keys armazenadas em SQLite</li>
+          <li>• Suporte a migração legacy (AUTH_API_KEY)</li>
+          <li>• Enable/disable por tenant</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="fluxo-dados.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: Fluxo de Dados
+      </a>
+      <a href="sessoes.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Próximo: Sessões →
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stream de Vídeo — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">Stream de Vídeo</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="sessoes.html" class="text-sm text-dark-muted hover:text-white">Sessões</a>
+          <a href="input-relay.html" class="text-sm text-dark-muted hover:text-white">Input</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+        Streaming
+      </div>
+      <h1 class="text-4xl font-bold mb-4">Stream de Vídeo</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        O sistema usa Chrome DevTools Protocol (CDP) para capturar screenshots do navegador em tempo real. Os frames JPEG são transmitidos via WebSocket para o frontend.
+      </p>
+    </div>
+
+    <!-- CDP Screencast Flow -->
+    <h2 class="text-2xl font-bold mb-6">Fluxo CDP Screencast</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12 overflow-x-auto">
+      <svg viewBox="0 0 900 280" class="w-full h-auto min-w-[700px]">
+        <!-- Chrome -->
+        <rect x="20" y="30" width="180" height="100" rx="8" fill="#111" stroke="#22c55e" stroke-width="2"/>
+        <text x="110" y="60" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">Chrome</text>
+        <text x="110" y="80" text-anchor="middle" fill="#a3a3a3" font-size="10">Page.screencastFrame</text>
+        <text x="110" y="95" text-anchor="middle" fill="#a3a3a3" font-size="10">JPEG base64</text>
+
+        <!-- CDP WebSocket -->
+        <rect x="260" y="30" width="180" height="100" rx="8" fill="#111" stroke="#ec4899" stroke-width="2"/>
+        <text x="350" y="60" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">CDP WebSocket</text>
+        <text x="350" y="80" text-anchor="middle" fill="#a3a3a3" font-size="10">ws://127.0.0.1:{port}</text>
+        <text x="350" y="95" text-anchor="middle" fill="#a3a3a3" font-size="10">Binary frames</text>
+
+        <!-- CDPScreencast -->
+        <rect x="500" y="30" width="160" height="100" rx="8" fill="#111" stroke="#8b5cf6" stroke-width="2"/>
+        <text x="580" y="60" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">CDPScreencast</text>
+        <text x="580" y="80" text-anchor="middle" fill="#a3a3a3" font-size="10">cdp-screencast.js</text>
+        <text x="580" y="95" text-anchor="middle" fill="#a3a3a3" font-size="10">ACK after frame</text>
+
+        <!-- StreamManager -->
+        <rect x="260" y="170" width="180" height="80" rx="8" fill="#111" stroke="#3b82f6" stroke-width="2"/>
+        <text x="350" y="200" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">StreamManager</text>
+        <text x="350" y="220" text-anchor="middle" fill="#a3a3a3" font-size="10">broadcast to clients</text>
+
+        <!-- WebSocket Clients -->
+        <rect x="500" y="170" width="160" height="80" rx="8" fill="#111" stroke="#06b6d4" stroke-width="2"/>
+        <text x="580" y="200" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">WS Clients</text>
+        <text x="580" y="220" text-anchor="middle" fill="#a3a3a3" font-size="10">Multiple viewers</text>
+
+        <!-- Arrows -->
+        <line x1="200" y1="80" x2="260" y2="80" stroke="#22c55e" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="440" y1="80" x2="500" y2="80" stroke="#ec4899" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="580" y1="130" x2="580" y2="170" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="440" y1="210" x2="500" y2="210" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#22c55e"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+
+    <!-- CDP Screencast Code -->
+    <h2 class="text-2xl font-bold mb-6">Código: CDPScreencast</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12 overflow-x-auto">
+      <pre class="text-xs"><code>class CDPScreencast {
+  constructor(cdpPort) {
+    this.cdpPort = cdpPort;
+    this.ws = null;
+    this.frameCount = 0;
+  }
+
+  start(onFrame) {
+    this.onFrame = onFrame;
+    this._connect();
+  }
+
+  async _connect() {
+    // 1. Get WebSocket URL from CDP
+    const res = await fetch(`http://127.0.0.1:${this.cdpPort}/json`);
+    const targets = await res.json();
+    const page = targets.find(t => t.type === 'page');
+    const wsUrl = page.webSocketDebuggerUrl;
+
+    // 2. Connect WebSocket
+    this.ws = new WebSocket(wsUrl);
+
+    this.ws.on('open', () => {
+      // 3. Enable Page events
+      ws.send(JSON.stringify({ id: 1, method: 'Page.enable' }));
+    });
+
+    this.ws.on('message', (raw) => {
+      const msg = JSON.parse(raw);
+
+      // 4. Start screencast after Page.enable
+      if (msg.id === 1 && msg.result) {
+        ws.send(JSON.stringify({
+          id: 2,
+          method: 'Page.startScreencast',
+          params: { format: 'jpeg', quality: 80, everyNthFrame: 1 }
+        }));
+      }
+
+      // 5. Receive frame
+      if (msg.method === 'Page.screencastFrame') {
+        const { data: b64 } = msg.params;
+        const frame = Buffer.from(b64, 'base64');
+        this.onFrame(frame);
+        this.frameCount++;
+
+        // 6. ACK required!
+        ws.send(JSON.stringify({
+          id: 3,
+          method: 'Page.screencastFrameAck',
+          params: { sessionId: msg.params.sessionId }
+        }));
+      }
+    });
+  }
+}</code></pre>
+    </div>
+
+    <!-- StreamManager -->
+    <h2 class="text-2xl font-bold mb-6">StreamManager (Broadcast)</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="font-semibold mb-3 text-blue-400">Push Frame</h3>
+          <p class="text-sm text-dark-muted mb-3">O CDPScreencast chama <code>pushFrame()</code> para cada frame JPEG.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>pushFrame(frameBuffer) {
+  this.lastFrame = frameBuffer;
+  this.broadcastFrame(frameBuffer);
+}</code></pre>
+        </div>
+
+        <div>
+          <h3 class="font-semibold mb-3 text-amber-400">Broadcast</h3>
+          <p class="text-sm text-dark-muted mb-3">Envia para todos os clientes WebSocket conectados, com controle de backpressure.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>broadcastFrame(frame) {
+  for (const ws of this.clients) {
+    // Skip cliente lento (>4MB buffer)
+    if (ws.bufferedAmount > 4 * 1024 * 1024) continue;
+    ws.send(frame, { binary: true });
+  }
+}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Frontend Rendering -->
+    <h2 class="text-2xl font-bold mb-6">Frontend: Canvas Rendering</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12 overflow-x-auto">
+      <pre class="text-sm"><code>// useStream.ts hook
+const ws = new WebSocket(`wss://server/api/stream/${sessionId}`);
+
+ws.onmessage = (event) => {
+  const blob = event.data;
+
+  // Create ImageBitmap from JPEG
+  createImageBitmap(blob).then((bitmap) => {
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+  });
+};</code></pre>
+    </div>
+
+    <!-- Performance -->
+    <h2 class="text-2xl font-bold mb-6">Métricas de Performance</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5 text-center">
+        <div class="text-3xl font-bold text-emerald-400 mb-2">~30fps</div>
+        <div class="text-sm text-dark-muted">Taxa de Frames</div>
+        <div class="text-xs text-dark-muted mt-1">depending on quality</div>
+      </div>
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5 text-center">
+        <div class="text-3xl font-bold text-blue-400 mb-2">50-150KB</div>
+        <div class="text-sm text-dark-muted">Tamanho do Frame</div>
+        <div class="text-xs text-dark-muted mt-1">JPEG quality 80</div>
+      </div>
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5 text-center">
+        <div class="text-3xl font-bold text-purple-400 mb-2">~4MB/s</div>
+        <div class="text-sm text-dark-muted"> bandwidth</div>
+        <div class="text-xs text-dark-muted mt-1">1080p @ 30fps</div>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="sessoes.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: Sessões
+      </a>
+      <a href="input-relay.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Próximo: Input Relay →
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

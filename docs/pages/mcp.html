@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Server — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">MCP Server</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="api.html" class="text-sm text-dark-muted hover:text-white">API</a>
+          <a href="riscos.html" class="text-sm text-dark-muted hover:text-white">Riscos</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+        MCP
+      </div>
+      <h1 class="text-4xl font-bold mb-4">MCP Server Integration</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        Model Context Protocol server expõe ferramentas de navegação remota para Claude Desktop e IDEs compatíveis.
+      </p>
+    </div>
+
+    <!-- What is MCP -->
+    <h2 class="text-2xl font-bold mb-6">O que é MCP?</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <p class="text-dark-muted mb-4">
+        O <strong>Model Context Protocol (MCP)</strong> permite que LLMs acessem ferramentas externas de forma padronizada. O Serende expõe um servidor MCP que permite ao Claude controlar navegadores remotos.
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-dark-bg p-4 rounded-lg border border-dark-border">
+          <div class="font-medium text-blue-400 mb-2">🎯 Tools</div>
+          <p class="text-sm text-dark-muted">create_session, navigate, click, type, screenshot</p>
+        </div>
+        <div class="bg-dark-bg p-4 rounded-lg border border-dark-border">
+          <div class="font-medium text-emerald-400 mb-2">🔌 Transport</div>
+          <p class="text-sm text-dark-muted">stdio (Claude Desktop) ou http/sse (servidor remoto)</p>
+        </div>
+        <div class="bg-dark-bg p-4 rounded-lg border border-dark-border">
+          <div class="font-medium text-purple-400 mb-2">🤝 Context</div>
+          <p class="text-sm text-dark-muted">Compartilha tokens e URLs automaticamente</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tools -->
+    <h2 class="text-2xl font-bold mb-6">Ferramentas MCP Disponíveis</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden mb-12">
+      <table class="w-full text-sm">
+        <thead class="bg-dark-bg">
+          <tr>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Tool</th>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Parâmetros</th>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Descrição</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">serende_create_session</code></td><td class="px-4 py-3 text-dark-muted"><code>{url, resolution}</code></td><td class="px-4 py-3">Cria nova sessão Chrome</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">serende_close_session</code></td><td class="px-4 py-3 text-dark-muted"><code>{sessionId}</code></td><td class="px-4 py-3">Encerra sessão</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">serende_navigate</code></td><td class="px-4 py-3 text-dark-muted"><code>{sessionId, url}</code></td><td class="px-4 py-3">Navega para URL</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">serende_click</code></td><td class="px-4 py-3 text-dark-muted"><code>{sessionId, x, y, button}</code></td><td class="px-4 py-3">Clique em coordenadas</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">serende_type</code></td><td class="px-4 py-3 text-dark-muted"><code>{sessionId, text}</code></td><td class="px-4 py-3">Digita texto</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">serende_screenshot</code></td><td class="px-4 py-3 text-dark-muted"><code>{sessionId}</code></td><td class="px-4 py-3">Captura screenshot (base64)</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs bg-dark-bg px-1 rounded">serende_get_info</code></td><td class="px-4 py-3 text-dark-muted"><code>{sessionId}</code></td><td class="px-4 py-3">Retorna URL, título</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Config Claude Desktop -->
+    <h2 class="text-2xl font-bold mb-6">Configuração Claude Desktop</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <pre class="text-sm"><code>// ~/.config/claude-desktop/claude_desktop_config.json
+{
+  "mcpServers": {
+    "serende": {
+      "command": "npx",
+      "args": ["-y", "@serende/mcp-server"],
+      "env": {
+        "SERENDE_API_URL": "http://localhost:4201",
+        "SERENDE_API_KEY": "sk-xxx"
+      }
+    }
+  }
+}</code></pre>
+    </div>
+
+    <!-- Code Example -->
+    <h2 class="text-2xl font-bold mb-6">Exemplo de Uso</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6">
+      <p class="text-sm text-dark-muted mb-4">No Claude Desktop, após configurar o MCP server:</p>
+      <pre class="text-xs"><code>User: Abra uma sessão do navegador em https://google.com
+
+Claude: Vou criar uma sessão remota.
+└─ serende_create_session(url="https://google.com")
+
+[Claude pode então usar click, type, navigate...]
+
+User: Clique no botão de busca e digite "teste"
+
+Claude:
+└─ serende_click(sessionId, x=500, y=300)
+└─ serende_type(sessionId, text="teste")</code></pre>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="api.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: API
+      </a>
+      <a href="riscos.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Próximo: Riscos →
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

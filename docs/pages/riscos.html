@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Riscos e Pontos Críticos — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">Riscos</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="mcp.html" class="text-sm text-dark-muted hover:text-white">MCP</a>
+          <a href="arquitetura.html" class="text-sm text-primary-400 hover:text-primary-300">Arquitetura</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+        Alertas
+      </div>
+      <h1 class="text-4xl font-bold mb-4">Riscos e Pontos Críticos</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        Identificação de riscos no sistema: limites de recursos, vazamentos de memória, condições de corrida e pontos de falha.
+      </p>
+    </div>
+
+    <!-- Display Limits -->
+    <h2 class="text-2xl font-bold mb-6">Limite de Displays</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <div class="flex items-start gap-4">
+        <div class="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400 flex-shrink-0">⚠️</div>
+        <div>
+          <h3 class="font-semibold mb-2">Display Range :100-199</h3>
+          <p class="text-sm text-dark-muted mb-3">O sistema usa displays Xvfb de 100 a 199, limitando a 100 sessões simultâneas por instância. Se todas estiverem ocupadas, novas sessões falham.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>// session-manager.js
+const DISPLAY_MIN = 100;
+const DISPLAY_MAX = 199;  // Máximo 100 sessões
+
+function allocateDisplay() {
+  for (let d = DISPLAY_MIN; d <= DISPLAY_MAX; d++) {
+    if (!usedDisplays.has(d)) {
+      usedDisplays.add(d);
+      return d;
+    }
+  }
+  return null; // Erro: No display available
+}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Memory Leaks -->
+    <h2 class="text-2xl font-bold mb-6">Memory Leaks</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="font-semibold mb-3 text-purple-400">🎯 ImageBitmap</h3>
+          <p class="text-sm text-dark-muted mb-3">No frontend, cada frame deve chamar <code>bitmap.close()</code> após usar. Caso contrário, memória GPU acumula.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>ws.onmessage = (event) => {
+  createImageBitmap(event.data).then((bitmap) => {
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close(); // ⚠️ Obrigatório!
+  });
+};</code></pre>
+        </div>
+
+        <div>
+          <h3 class="font-semibold mb-3 text-amber-400">🗑️ Cleanup de Sessões</h3>
+          <p class="text-sm text-dark-muted mb-3">Se o processo morrer abruptamente, Xvfb e Chrome podem ficar órfãos. O startup cleanup tenta resolver, mas não é garantido.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>// index.js — limpeza na inicialização
+execSync('pkill -f "Xvfb :[1-9][0-9][0-9]"');
+for (let d = 100; d <= 199; d++) {
+  unlinkSync(`/tmp/.X${d}-lock`);
+  unlinkSync(`/tmp/.X11-unix/X${d}`);
+}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Race Conditions -->
+    <h2 class="text-2xl font-bold mb-6">Race Conditions</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <div class="space-y-4">
+        <div class="bg-dark-bg p-4 rounded border border-dark-border">
+          <h4 class="font-semibold text-red-400 mb-2">❌ Double-session-start</h4>
+          <p class="text-sm text-dark-muted">Usuário clica "Iniciar" duas vezes rápido. Pode criar duas sessões com mesmo tenant. Mitigação: disable button enquanto status === 'creating'.</p>
+        </div>
+
+        <div class="bg-dark-bg p-4 rounded border border-dark-border">
+          <h4 class="font-semibold text-orange-400 mb-2">⏱️ Timeout race</h4>
+          <p class="text-sm text-dark-muted">Se a sessão morrer minutos depois do timeout, o <code>sessionDied</code> callback pode disparar duas vezes. Atualmente o código ignora se sessão não existe mais.</p>
+        </div>
+
+        <div class="bg-dark-bg p-4 rounded border border-dark-border">
+          <h4 class="font-semibold text-yellow-400 mb-2">🔄 CDP reconnect</h4>
+          <p class="text-sm text-dark-muted">Se o WebSocket do CDP cair, o <code>CDPScreencast</code> tenta reconectar até 5 vezes. Pode criar múltiplas conexões se não limpar timers corretamente.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Backpressure -->
+    <h2 class="text-2xl font-bold mb-6">Backpressure</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <p class="text-sm text-dark-muted mb-4">O StreamManager verifica <code>ws.bufferedAmount</code> antes de enviar. Clientes muito lentos (mais de 4MB buffer) têm frames descartados.</p>
+      <div class="bg-dark-bg p-4 rounded border border-dark-border">
+        <pre class="text-xs"><code>// stream-manager.js
+broadcastFrame(frame) {
+  for (const ws of this.clients) {
+    if (ws.bufferedAmount > 4 * 1024 * 1024) continue; // Skip
+    ws.send(frame, { binary: true });
+  }
+}</code></pre>
+        <p class="text-xs text-dark-muted mt-2">⚠️ Isso causa perda de frames (video stutter), mas evita OOM no cliente.</p>
+      </div>
+    </div>
+
+    <!-- TODOs -->
+    <h2 class="text-2xl font-bold mb-6">Melhorias Recomendadas</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-blue-400">🐛 Bugs</h3>
+        <ul class="text-sm text-dark-muted space-y-2 list-disc list-inside">
+          <li>Lock files nem sempre são limpas após crash</li>
+          <li>Timeout warning não está implementado no frontend</li>
+          <li>Profile merge pode sobrescrever mudanças</li>
+        </ul>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-emerald-400">🚀 Performance</h3>
+        <ul class="text-sm text-dark-muted space-y-2 list-disc list-inline">
+          <li>Considerar usar WebRTC para reduzir latência</li>
+          <li>Implementar selective streaming (somente área dirty)</li>
+          <li>Compressão adicional (WebP se disponível)</li>
+        </ul>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-purple-400">🔒 Segurança</h3>
+        <ul class="text-sm text-dark-muted space-y-2 list-disc list-inline">
+          <li>Rate limit por tenant (não só por IP)</li>
+          <li>Audit log de todas as ações</li>
+          <li>TLS obrigatório para WSS</li>
+          <li>Sandbox mais restritiva no Chrome</li>
+        </ul>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <h3 class="font-semibold mb-3 text-amber-400">📈 Escala</h3>
+        <ul class="text-sm text-dark-muted space-y-2 list-disc list-inline">
+          <li>HPA/K8s para múltiplas instâncias</li>
+          <li>Shared nothing entre instâncias</li>
+          <li>Redis pub/sub para multi-instância stream</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Critical Points Table -->
+    <h2 class="text-2xl font-bold mb-6">Matriz de Risco</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden mb-12">
+      <table class="w-full text-sm">
+        <thead class="bg-dark-bg">
+          <tr>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Ponto Crítico</th>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Risco</th>
+            <th class="text-left px-4 py-3 text-dark-muted font-medium uppercase text-xs">Mitigação</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs">Display allocation</code></td><td class="px-4 py-3"><span class="status-badge status-active">Médio</span></td><td class="px-4 py-3 text-dark-muted">Limite hard, error handling</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs">ImageBitmap leaks</code></td><td class="px-4 py-3"><span class="status-badge status-active">Alto</span></td><td class="px-4 py-3 text-dark-muted">Sempre bitmap.close()</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs">Xvfb locks</code></td><td class="px-4 py-3"><span class="status-badge status-inactive">Baixo</span></td><td class="px-4 py-3 text-dark-muted">Cleanup no startup</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs">CDP reconnect storm</code></td><td class="px-4 py-3"><span class="status-badge status-inactive">Médio</span></td><td class="px-4 py-3 text-dark-muted">maxReconnectAttempts</td></tr>
+          <tr class="border-t border-dark-border"><td class="px-4 py-3"><code class="text-xs">Memory growth</code></td><td class="px-4 py-3"><span class="status-badge status-active">Alto</span></td><td class="px-4 py-3 text-dark-muted">Monitorar RSS heap</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="mcp.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: MCP
+      </a>
+      <a href="arquitetura.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Voltar: Arquitetura
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

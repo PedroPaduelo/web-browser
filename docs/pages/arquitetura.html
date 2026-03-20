@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Arquitetura do Sistema — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <!-- Navbar -->
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">Arquitetura do Sistema</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="../index.html" class="text-sm text-dark-muted hover:text-white">Home</a>
+          <a href="fluxo-dados.html" class="text-sm text-dark-muted hover:text-white">Fluxo de Dados</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <!-- Hero -->
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-primary-500/10 border border-primary-500/30 text-primary-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
+        Documentação Técnica
+      </div>
+      <h1 class="text-4xl font-bold mb-4">Arquitetura do Sistema</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        O Serende é composto por backend Node.js, frontend React e instâncias Chrome headless. Cada componente tem responsabilidades bem definidas e se comunicam via HTTP/WebSocket.
+      </p>
+    </div>
+
+    <!-- Diagrama Principal -->
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12 overflow-x-auto">
+      <h2 class="text-xl font-semibold mb-6">Visão Geral da Arquitetura</h2>
+      <svg viewBox="0 0 1200 600" class="w-full h-auto min-w-[800px]">
+        <!-- Background -->
+        <defs>
+          <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" style="stop-color:#22c55e;stop-opacity:0.1" />
+            <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:0.1" />
+          </linearGradient>
+        </defs>
+
+        <!-- Cliente Browser -->
+        <rect x="20" y="50" width="200" height="120" rx="8" fill="#111" stroke="#22c55e" stroke-width="2"/>
+        <text x="120" y="85" text-anchor="middle" fill="#fff" font-size="14" font-weight="600">Cliente</text>
+        <text x="120" y="105" text-anchor="middle" fill="#a3a3a3" font-size="11">Frontend React</text>
+        <text x="120" y="125" text-anchor="middle" fill="#a3a3a3" font-size="11">(Canvas + WS)</text>
+
+        <!-- API Gateway -->
+        <rect x="280" y="50" width="220" height="80" rx="8" fill="#111" stroke="#3b82f6" stroke-width="2"/>
+        <text x="390" y="85" text-anchor="middle" fill="#fff" font-size="14" font-weight="600">Backend API</text>
+        <text x="390" y="105" text-anchor="middle" fill="#a3a3a3" font-size="11">Express + WebSocket</text>
+
+        <!-- Session Manager -->
+        <rect x="300" y="180" width="180" height="100" rx="8" fill="#111" stroke="#8b5cf6" stroke-width="2"/>
+        <text x="390" y="215" text-anchor="middle" fill="#fff" font-size="14" font-weight="600">Session Manager</text>
+        <text x="390" y="235" text-anchor="middle" fill="#a3a3a3" font-size="10">Chrome lifecycle</text>
+
+        <!-- Tenant/Profile -->
+        <rect x="520" y="180" width="160" height="100" rx="8" fill="#111" stroke="#ec4899" stroke-width="2"/>
+        <text x="650" y="215" text-anchor="middle" fill="#fff" font-size="14" font-weight="600">Tenant/Profile</text>
+        <text x="650" y="235" text-anchor="middle" fill="#a3a3a3" font-size="10">Isolamento</text>
+
+        <!-- Chrome + Xvfb -->
+        <rect x="720" y="50" width="240" height="180" rx="8" fill="#111" stroke="#f59e0b" stroke-width="2"/>
+        <text x="840" y="85" text-anchor="middle" fill="#fff" font-size="14" font-weight="600">Chrome Headless</text>
+        <text x="840" y="105" text-anchor="middle" fill="#a3a3a3" font-size="10">Xvfb Display :100-199</text>
+        <text x="840" y="130" text-anchor="middle" fill="#a3a3a3" font-size="10">CDP Port 9222+</text>
+
+        <!-- Stream arrows -->
+        <line x1="220" y1="110" x2="280" y2="90" stroke="#22c55e" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="500" y1="90" x2="520" y2="110" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="480" y1="140" x2="300" y2="180" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="680" y1="140" x2="520" y2="180" stroke="#ec4899" stroke-width="2" marker-end="url(#arrow)"/>
+        <line x1="680" y1="90" x2="720" y2="110" stroke="#8b5cf6" stroke-width="2" marker-end="url(#arrow)"/>
+
+        <!-- Labels -->
+        <text x="250" y="100" fill="#a3a3a3" font-size="10">WebSocket</text>
+        <text x="400" y="70" fill="#a3a3a3" font-size="10">HTTP API</text>
+        <text x="590" y="130" fill="#a3a3a3" font-size="10">Controls</text>
+        <text x="590" y="150" fill="#a3a3a3" font-size="10">Profile</text>
+
+        <!-- Arrow marker -->
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#22c55e"/>
+          </marker>
+        </defs>
+      </svg>
+    </div>
+
+    <!-- Components Grid -->
+    <h2 class="text-2xl font-bold mb-6">Componentes do Sistema</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded bg-blue-500/20 flex items-center justify-center">
+            <span class="text-blue-400 text-sm">🌐</span>
+          </div>
+          <h3 class="font-semibold">Frontend React</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Interface SPA com Canvas para renderização MJPEG. Gerencia conexão WebSocket, controles de sessão e input relay.</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-xs">React 18</span>
+          <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-xs">Vite</span>
+          <span class="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-xs">Canvas API</span>
+        </div>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded bg-purple-500/20 flex items-center justify-center">
+            <span class="text-purple-400 text-sm">🔧</span>
+          </div>
+          <h3 class="font-semibold">Backend API</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Servidor Express com autenticação JWT, rate limiting, CORS e APIs REST para sessões, navegação e profile.</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 text-xs">Express</span>
+          <span class="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 text-xs">JWT</span>
+          <span class="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 text-xs">ws</span>
+        </div>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded bg-amber-500/20 flex items-center justify-center">
+            <span class="text-amber-400 text-sm">💻</span>
+          </div>
+          <h3 class="font-semibold">Session Manager</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Gerencia ciclo de vida das sessões Chrome: start, stop, health check, timeout tracker e allocation de displays.</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 text-xs">Xvfb</span>
+          <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 text-xs">Chrome</span>
+          <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 text-xs">CDP</span>
+        </div>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded bg-emerald-500/20 flex items-center justify-center">
+            <span class="text-emerald-400 text-sm">📺</span>
+          </div>
+          <h3 class="font-semibold">Stream Manager</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Recebe frames JPEG do CDP e faz broadcast via WebSocket para todos os clientes conectados com backpressure handling.</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-xs">WebSocket</span>
+          <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-xs">MJPEG</span>
+          <span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-xs">Broadcast</span>
+        </div>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded bg-cyan-500/20 flex items-center justify-center">
+            <span class="text-cyan-400 text-sm">🖱️</span>
+          </div>
+          <h3 class="font-semibold">Input Handler</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Converte eventos de mouse/teclado do frontend em eventos X11 (XTest) que são injetados no Chrome via display virtual.</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 text-xs">X11</span>
+          <span class="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 text-xs">XTest</span>
+          <span class="px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 text-xs">Python</span>
+        </div>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-8 h-8 rounded bg-rose-500/20 flex items-center justify-center">
+            <span class="text-rose-400 text-sm">🔑</span>
+          </div>
+          <h3 class="font-semibold">Auth & Tenant</h3>
+        </div>
+        <p class="text-sm text-dark-muted mb-3">Autenticação via API Key → JWT. Isolamento de tenants com limites de sessão e profile separado por tenantId.</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-xs">JWT</span>
+          <span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-xs">SQLite</span>
+          <span class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-xs">KeyStore</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stack Tecnológica -->
+    <h2 class="text-2xl font-bold mb-6">Stack Tecnológica</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-12">
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-6">
+        <h3 class="font-semibold mb-4 text-blue-400">Backend & Infra</h3>
+        <table class="w-full text-sm">
+          <tr><td class="text-dark-muted py-1">Runtime</td><td class="text-right">Node.js 18+</td></tr>
+          <tr><td class="text-dark-muted py-1">Framework</td><td class="text-right">Express</td></tr>
+          <tr><td class="text-dark-muted py-1">WebSocket</td><td class="text-right">ws</td></tr>
+          <tr><td class="text-dark-muted py-1">Browser</td><td class="text-right">Chrome (CDP)</td></tr>
+          <tr><td class="text-dark-muted py-1">Virtual Display</td><td class="text-right">Xvfb</td></tr>
+          <tr><td class="text-dark-muted py-1">Auth</td><td class="text-right">JWT (jsonwebtoken)</td></tr>
+          <tr><td class="text-dark-muted py-1">DB (keys)</td><td class="text-right">SQLite (better-sqlite3)</td></tr>
+        </table>
+      </div>
+
+      <div class="bg-dark-surface border border-dark-border rounded-xl p-6">
+        <h3 class="font-semibold mb-4 text-purple-400">Frontend</h3>
+        <table class="w-full text-sm">
+          <tr><td class="text-dark-muted py-1">Framework</td><td class="text-right">React 18</td></tr>
+          <tr><td class="text-dark-muted py-1">Build</td><td class="text-right">Vite</td></tr>
+          <tr><td class="text-dark-muted py-1">Styling</td><td class="text-right">Tailwind CSS</td></tr>
+          <tr><td class="text-dark-muted py-1">HTTP Client</td><td class="text-right">fetch API</td></tr>
+          <tr><td class="text-dark-muted py-1">WebSocket</td><td class="text-right">native WebSocket</td></tr>
+          <tr><td class="text-dark-muted py-1">Canvas</td><td class="text-right">HTML5 Canvas</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Data Flow Link -->
+    <div class="bg-gradient-to-r from-primary-500/10 to-blue-500/10 border border-primary-500/30 rounded-xl p-6 text-center">
+      <h3 class="font-semibold mb-2">Próximo: Fluxo de Dados</h3>
+      <p class="text-sm text-dark-muted mb-4">Entenda como os dados fluem do usuário até o Chrome e de volta, passando por cada camada.</p>
+      <a href="fluxo-dados.html" class="inline-flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium transition">
+        Ver Diagrama de Fluxo
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+        </svg>
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>

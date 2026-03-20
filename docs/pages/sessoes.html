@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sessões — Serende</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            dark: { bg: '#0a0a0a', surface: '#111', border: '#1a1a1a', text: '#e5e5e5', muted: '#a3a3a3' },
+            primary: '#22c55e'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="../styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body class="bg-dark-bg text-dark-text">
+  <nav class="border-b border-dark-border bg-dark-surface/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
+        <div class="flex items-center gap-3">
+          <a href="../index.html" class="text-dark-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </a>
+          <span class="text-sm font-medium">Gerenciamento de Sessões</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="autenticacao.html" class="text-sm text-dark-muted hover:text-white">Auth</a>
+          <a href="stream.html" class="text-sm text-dark-muted hover:text-white">Stream</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div class="mb-12">
+      <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium mb-4">
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+        Ciclo de Vida
+      </div>
+      <h1 class="text-4xl font-bold mb-4">Gerenciamento de Sessões</h1>
+      <p class="text-lg text-dark-muted max-w-3xl">
+        O Session Manager controla a criação, monitoramento e destruição de sessões Chrome. Cada sessão roda em um display Xvfb isolado com profile persistente.
+      </p>
+    </div>
+
+    <!-- Lifecycle -->
+    <h2 class="text-2xl font-bold mb-6">Ciclo de Vida de uma Sessão</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl overflow-hidden mb-12">
+      <div class="grid grid-cols-1 md:grid-cols-5 divide-y md:divide-y-0 md:divide-x divide-dark-border">
+        <div class="p-5">
+          <div class="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center mb-3 mx-auto">
+            <span class="text-blue-400 font-bold">1</span>
+          </div>
+          <h3 class="font-semibold text-center mb-2">Criação</h3>
+          <p class="text-xs text-dark-muted text-center">POST /api/session → startSession()</p>
+          <ul class="text-xs text-dark-muted mt-3 space-y-1">
+            <li>• Alloca display :100-199</li>
+            <li>• Inicia Xvfb</li>
+            <li>• Copia profile</li>
+            <li>• Inicia Chrome com CDP</li>
+          </ul>
+        </div>
+
+        <div class="p-5">
+          <div class="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center mb-3 mx-auto">
+            <span class="text-emerald-400 font-bold">2</span>
+          </div>
+          <h3 class="font-semibold text-center mb-2">Ativa</h3>
+          <p class="text-xs text-dark-muted text-center">Sessão rodando</p>
+          <ul class="text-xs text-dark-muted mt-3 space-y-1">
+            <li>• Chrome + Xvfb ativos</li>
+            <li>• CDP conectado</li>
+            <li>• StreamManager ativo</li>
+            <li>• Timeout tracker</li>
+          </ul>
+        </div>
+
+        <div class="p-5">
+          <div class="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center mb-3 mx-auto">
+            <span class="text-amber-400 font-bold">3</span>
+          </div>
+          <h3 class="font-semibold text-center mb-2">Timeout</h3>
+          <p class="text-xs text-dark-muted text-center">30min inativo</p>
+          <ul class="text-xs text-dark-muted mt-3 space-y-1">
+            <li>• Verificação a cada min</li>
+            <li>• lastActivity timestamp</li>
+            <li>• auto stopSession()</li>
+            <li>• merge profile</li>
+          </ul>
+        </div>
+
+        <div class="p-5">
+          <div class="w-10 h-10 rounded-full bg-rose-500/20 flex items-center justify-center mb-3 mx-auto">
+            <span class="text-rose-400 font-bold">4</span>
+          </div>
+          <h3 class="font-semibold text-center mb-2">Encerrada</h3>
+          <p class="text-xs text-dark-muted text-center">DELETE /api/session</p>
+          <ul class="text-xs text-dark-muted mt-3 space-y-1">
+            <li>• Mata Chrome</li>
+            <li>• Mata Xvfb</li>
+            <li>• Release display</li>
+            <li>• Cleanup</li>
+          </ul>
+        </div>
+
+        <div class="p-5">
+          <div class="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center mb-3 mx-auto">
+            <span class="text-purple-400 font-bold">5</span>
+          </div>
+          <h3 class="font-semibold text-center mb-2">Crash</h3>
+          <p class="text-xs text-dark-muted text-center">Health check fail</p>
+          <ul class="text-xs text-dark-muted mt-3 space-y-1">
+            <li>• Monitor 30s</li>
+            <li>• exitCode check</li>
+            <li>• auto stop</li>
+            <li>• callback</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Code: startSession -->
+    <h2 class="text-2xl font-bold mb-6">Código: startSession</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12 overflow-x-auto">
+      <pre class="text-sm"><code>async function startSession(sessionId, tenantId, options = {}) {
+  // 1. Limites
+  if (sessions.size >= MAX_SESSIONS) throw new Error('Global limit reached');
+  const tenantCount = getTenantSessionCount(tenantId);
+  if (tenantCount >= effectiveMax) throw new Error('Tenant limit reached');
+
+  // 2. Display allocation
+  const displayNum = allocateDisplay(); // :100-199
+  const cdpPort = CDP_BASE_PORT + (displayNum - DISPLAY_MIN);
+
+  // 3. Profile setup
+  const userDataDir = tenantManager.copyProfileToSession(tenantId, sessionId);
+
+  // 4. Start Xvfb
+  const xvfb = spawn('Xvfb', [display, '-screen', '0', `${res}x24`, ...]);
+
+  // 5. Start Chrome
+  const chrome = spawn(CHROME_BIN, {
+    DISPLAY: display,
+    '--remote-debugging-port': cdpPort,
+    '--user-data-dir': userDataDir,
+    '--app': startUrl,
+  });
+
+  // 6. Wait CDP
+  const cdpUrl = await waitForCDP(cdpPort);
+
+  // 7. Health check (30s interval)
+  const healthCheckInterval = setInterval(() => {
+    if (xvfb.killed || chrome.killed) {
+      stopSession(sessionId, 'died');
+    }
+  }, 30000);
+
+  // 8. Save session
+  sessions.set(sessionId, { xvfb, chrome, cdpUrl, ... });
+  return { sessionId, cdpUrl, resolution };
+}</code></pre>
+    </div>
+
+    <!-- Timeout Tracker -->
+    <h2 class="text-2xl font-bold mb-6">Sistema de Timeout</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold mb-3 text-emerald-400">Atividade</h3>
+          <p class="text-sm text-dark-muted mb-4">Cada request ao <code>/api/**</code> dispara <code>trackActivity()</code> que chama <code>sessionManager.updateActivity(sessionId)</code>.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>function trackActivity(req, res, next) {
+  const { sessionId } = req.params;
+  if (sessionId) {
+    sessionManager.updateActivity(sessionId);
+  }
+  next();
+}</code></pre>
+        </div>
+
+        <div>
+          <h3 class="font-semibold mb-3 text-amber-400">Verificação</h3>
+          <p class="text-sm text-dark-muted mb-4">O timeout roda em intervalos de 1 minuto. Verifica <code>Date.now() - lastActivity</code>.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>function checkTimeout() {
+  const inactive = Date.now() - session.lastActivity;
+  if (inactive >= SESSION_TIMEOUT_MS) {
+    stopSession(sessionId, 'timeout');
+  }
+}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Display Allocation -->
+    <h2 class="text-2xl font-bold mb-6">Display Allocation</h2>
+    <div class="bg-dark-surface border border-dark-border rounded-xl p-6 mb-12">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div>
+          <h3 class="font-semibold mb-3 text-blue-400">Range de Displays</h3>
+          <p class="text-sm text-dark-muted mb-3">Displays virtuais Xvfb usam números 100-199, permitindo até 100 sessões simultâneas por instância.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>const DISPLAY_MIN = 100;
+const DISPLAY_MAX = 199;
+
+function allocateDisplay() {
+  for (let d = DISPLAY_MIN; d <= DISPLAY_MAX; d++) {
+    if (!usedDisplays.has(d)) {
+      usedDisplays.add(d);
+      return d;
+    }
+  }
+  return null; // Sem displays livres
+}</code></pre>
+        </div>
+
+        <div>
+          <h3 class="font-semibold mb-3 text-purple-400">Cleanup</h3>
+          <p class="text-sm text-dark-muted mb-3">Na inicialização, o servidor limpa processos Xvfb órfãos e lock files para evitar conflitos.</p>
+          <pre class="text-xs bg-dark-bg p-3 rounded"><code>execSync('pkill -f "Xvfb :[1-9][0-9][0-9]"');
+for (let d = 100; d <= 199; d++) {
+  unlinkSync(`/tmp/.X${d}-lock`);
+  unlinkSync(`/tmp/.X11-unix/X${d}`);
+}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="flex justify-between items-center pt-8 border-t border-dark-border">
+      <a href="autenticacao.html" class="text-sm text-dark-muted hover:text-white flex items-center gap-2">
+        ← Anterior: Autenticação
+      </a>
+      <a href="stream.html" class="text-sm text-primary-400 hover:text-primary-300 flex items-center gap-2">
+        Próximo: Stream →
+      </a>
+    </div>
+  </div>
+
+  <footer class="border-t border-dark-border py-8 text-center text-sm text-dark-muted">
+    <p>Documentação técnica — Serende Remote Browser</p>
+  </footer>
+</body>
+</html>
