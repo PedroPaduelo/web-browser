@@ -553,6 +553,177 @@ app.post('/api/evaluate/:sessionId', authMiddleware, trackActivity, async (req, 
   }
 });
 
+// ========== NETWORK TRACKING ==========
+const networkEvents = new Map(); // sessionId -> { requests: [], responses: [], enabled: bool }
+
+async function enableNetworkTracking(cdpPort) {
+  try {
+    await cdpRequest(cdpPort, 'Network.enable', {});
+    await cdpRequest(cdpPort, 'Network.setRequestInterception', { patterns: [{ urlPattern: '*' }] });
+  } catch (err) {
+    console.error('[Network] Failed to enable:', err.message);
+  }
+}
+
+async function disableNetworkTracking(cdpPort) {
+  try {
+    await cdpRequest(cdpPort, 'Network.disable', {});
+  } catch (err) {
+    // ignore
+  }
+}
+
+// Register CDP event handlers for network
+function setupNetworkEvents(sessionId, cdpPort) {
+  if (networkEvents.has(sessionId)) return;
+
+  const events = { requests: [], responses: [], enabled: false };
+  networkEvents.set(sessionId, events);
+
+  // We'll use a polling approach since CDP events need separate WebSocket
+  // For now, just enable tracking and let the endpoint handle it
+}
+
+app.post('/api/network/:sessionId/start', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+
+  const sid = session.sessionId;
+  let events = networkEvents.get(sid);
+  if (!events) {
+    events = { requests: [], responses: [], enabled: false };
+    networkEvents.set(sid, events);
+  }
+
+  try {
+    await enableNetworkTracking(session.cdpPort);
+    events.enabled = true;
+    events.requests = [];
+    events.responses = [];
+    res.json({ status: 'enabled', message: 'Network tracking started' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/network/:sessionId/stop', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+
+  const sid = session.sessionId;
+  const events = networkEvents.get(sid);
+
+  try {
+    await disableNetworkTracking(session.cdpPort);
+    if (events) events.enabled = false;
+    res.json({ status: 'disabled', message: 'Network tracking stopped' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/network/:sessionId', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+
+  const sid = session.sessionId;
+  const events = networkEvents.get(sid);
+
+  if (!events) {
+    return res.json({ enabled: false, requests: [], responses: [] });
+  }
+
+  // Fetch all network events via CDP
+  if (events.enabled) {
+    try {
+      // Get all requests
+      const reqResult = await cdpRequest(session.cdpPort, 'Network.getRequests', {});
+      // Get all responses
+      const resResult = await cdpRequest(session.cdpPort, 'Network.getResponses', {});
+
+      events.requests = reqResult?.requests || [];
+      events.responses = resResult?.responses || [];
+    } catch (err) {
+      // CDP might not support these methods, try alternative
+      try {
+        const loadingResult = await cdpRequest(session.cdpPort, 'Network.getAllCookies', {});
+        events.responses = loadingResult?.cookies || [];
+      } catch (e) {
+        // Fallback: just return what we have
+      }
+    }
+  }
+
+  res.json({
+    enabled: events.enabled,
+    requests: events.requests,
+    responses: events.responses
+  });
+});
+
+// ========== COOKIES ==========
+
+app.get('/api/cookies/:sessionId', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+
+  try {
+    const result = await cdpRequest(session.cdpPort, 'Network.getAllCookies', {});
+    res.json({ cookies: result.cookies || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/cookies/:sessionId', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+
+  const { name, value, domain, path, secure, httpOnly, expires, sameSite } = req.body || {};
+  if (!name || !value) {
+    return res.status(400).json({ error: 'name and value required' });
+  }
+
+  try {
+    // First navigate to the domain to set cookies
+    const urlResult = await cdpRequest(session.cdpPort, 'Page.getNavigationHistory');
+    const currentUrl = urlResult?.entries?.[urlResult.currentIndex]?.url || 'https://example.com';
+    const url = new URL(currentUrl);
+
+    const result = await cdpRequest(session.cdpPort, 'Network.setCookie', {
+      name,
+      value,
+      domain: domain || url.hostname,
+      path: path || '/',
+      secure: secure ?? true,
+      httpOnly: httpOnly ?? false,
+      sameSite: sameSite || 'None',
+      expires: expires || undefined
+    });
+
+    res.json({ success: result.success === true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/cookies/:sessionId', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+
+  const { name, domain } = req.query || {};
+  if (!name) {
+    return res.status(400).json({ error: 'name query param required' });
+  }
+
+  try {
+    await cdpRequest(session.cdpPort, 'Network.deleteCookies', { name, domain: domain || undefined });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Admin Middleware ---
 
 function adminAuth(req, res, next) {

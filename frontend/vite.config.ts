@@ -9,11 +9,11 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 4204,
-    allowedHosts: 'all',
+    allowedHosts: true,
   },
   preview: {
     host: '0.0.0.0',
     port: 4204,
-    allowedHosts: 'all',
+    allowedHosts: true,
   },
 })

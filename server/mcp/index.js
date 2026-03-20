@@ -1196,7 +1196,7 @@ function createServer() {
     return ok(JSON.stringify(data.result || { count: 0, messages: [] }, null, 2));
   });
 
-  // ========== NEW: GET/SET COOKIES ==========
+  // ========== NEW: GET/SET COOKIES (CDP-based) ==========
 
   server.registerTool('get_cookies', {
     description: 'Get all cookies for the current page. Returns array of {name, value, domain, path, expires}.',
@@ -1205,18 +1205,16 @@ function createServer() {
     }),
   }, async ({ name }) => {
     const sid = requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
-        const pairs = document.cookie.split(';').map(c => c.trim()).filter(Boolean);
-        const cookies = pairs.map(p => {
-          const [n, ...v] = p.split('=');
-          return { name: n.trim(), value: v.join('=') };
-        });
-        const filter = ${JSON.stringify(name)};
-        return filter ? cookies.filter(c => c.name === filter) : cookies;
-      })()`,
-    });
-    return ok(JSON.stringify(data.result || [], null, 2));
+    // Use CDP-based endpoint for proper cookie retrieval
+    const data = await api('GET', `/api/cookies/${sid}`);
+    let cookies = data.cookies || [];
+
+    // Filter by name if specified
+    if (name) {
+      cookies = cookies.filter(c => c.name === name);
+    }
+
+    return ok(JSON.stringify(cookies, null, 2));
   });
 
   server.registerTool('set_cookie', {
@@ -1229,10 +1227,21 @@ function createServer() {
     }),
   }, async ({ name, value, maxAge, path }) => {
     const sid = requireSession();
-    await api('POST', `/api/evaluate/${sid}`, {
-      script: `document.cookie = ${JSON.stringify(`${name}=${value};max-age=${maxAge};path=${path}`)}`,
+    // Calculate expires from maxAge
+    const expires = maxAge ? Math.floor(Date.now() / 1000) + maxAge : undefined;
+
+    // Use CDP-based endpoint
+    const data = await api('POST', `/api/cookies/${sid}`, {
+      name,
+      value,
+      path,
+      expires
     });
-    return ok(`Cookie set: ${name}=${value}`);
+
+    if (data.success) {
+      return ok(`Cookie set: ${name}=${value}`);
+    }
+    return ok(`Cookie set (CDP response): ${JSON.stringify(data)}`);
   });
 
   server.registerTool('delete_cookie', {
@@ -1242,9 +1251,8 @@ function createServer() {
     }),
   }, async ({ name }) => {
     const sid = requireSession();
-    await api('POST', `/api/evaluate/${sid}`, {
-      script: `document.cookie = ${JSON.stringify(`${name}=;max-age=0;path=/`)}`,
-    });
+    // Use CDP-based endpoint
+    const data = await api('DELETE', `/api/cookies/${sid}?name=${encodeURIComponent(name)}`);
     return ok(`Cookie deleted: ${name}`);
   });
 
@@ -1398,64 +1406,51 @@ function createServer() {
     }),
   }, async ({ action, filterUrl, maxEntries }) => {
     const sid = requireSession();
+
+    // Use backend endpoints for network tracking (CDP-based)
     if (action === 'start') {
-      await api('POST', `/api/evaluate/${sid}`, {
-        script: `(() => {
-          if (window.__serende_network) return { ok: true, already: true };
-          window.__serende_network = [];
-          const origFetch = window.fetch;
-          window.fetch = async function(...args) {
-            const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
-            const method = args[1]?.method || 'GET';
-            const entry = { type: 'fetch', method, url: url.substring(0,200), timestamp: Date.now() };
-            try {
-              const res = await origFetch.apply(this, args);
-              entry.status = res.status;
-              entry.ok = res.ok;
-              window.__serende_network.push(entry);
-              if (window.__serende_network.length > 100) window.__serende_network.shift();
-              return res;
-            } catch(e) {
-              entry.error = e.message;
-              window.__serende_network.push(entry);
-              throw e;
-            }
-          };
-          const origXHR = XMLHttpRequest.prototype.open;
-          XMLHttpRequest.prototype.open = function(method, url) {
-            this.__serende_info = { type: 'xhr', method, url: String(url).substring(0,200), timestamp: Date.now() };
-            return origXHR.apply(this, arguments);
-          };
-          const origSend = XMLHttpRequest.prototype.send;
-          XMLHttpRequest.prototype.send = function() {
-            this.addEventListener('loadend', () => {
-              if (this.__serende_info) {
-                this.__serende_info.status = this.status;
-                this.__serende_info.ok = this.status >= 200 && this.status < 300;
-                window.__serende_network.push(this.__serende_info);
-                if (window.__serende_network.length > 100) window.__serende_network.shift();
-              }
-            });
-            return origSend.apply(this, arguments);
-          };
-          return { ok: true };
-        })()`,
-      });
-      return ok('Network capture started. Use action="get" to retrieve.');
+      const data = await api('POST', `/api/network/${sid}/start`);
+      return ok(data.message || 'Network capture started');
     }
     if (action === 'clear') {
-      await api('POST', `/api/evaluate/${sid}`, { script: 'window.__serende_network = []; true' });
-      return ok('Network buffer cleared.');
+      const data = await api('POST', `/api/network/${sid}/stop`);
+      return ok('Network buffer cleared');
     }
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
-        let entries = window.__serende_network || [];
-        const filter = ${JSON.stringify(filterUrl)};
-        if (filter) entries = entries.filter(e => e.url.includes(filter));
-        return { count: entries.length, entries: entries.slice(-${maxEntries}) };
-      })()`,
-    });
-    return ok(JSON.stringify(data.result || { count: 0, entries: [] }, null, 2));
+
+    // action === 'get' - retrieve network activity
+    const data = await api('GET', `/api/network/${sid}`);
+    if (!data || !data.enabled) {
+      return ok(JSON.stringify({ count: 0, entries: [], message: 'Network tracking not enabled. Use action="start" first.' }, null, 2));
+    }
+
+    // Filter and limit entries
+    let entries = [];
+    if (data.requests) {
+      entries = data.requests.map(req => ({
+        type: 'request',
+        url: req.url || req.urlFragment || '',
+        method: req.method || 'GET',
+        timestamp: req.timestamp
+      }));
+    }
+    if (data.responses) {
+      data.responses.forEach(res => {
+        entries.push({
+          type: 'response',
+          url: res.url || '',
+          status: res.status || res.statusCode || 0,
+          ok: (res.status || res.statusCode || 0) >= 200 && (res.status || res.statusCode || 0) < 300
+        });
+      });
+    }
+
+    // Apply filters
+    if (filterUrl) {
+      entries = entries.filter(e => e.url.includes(filterUrl));
+    }
+    entries = entries.slice(-maxEntries);
+
+    return ok(JSON.stringify({ count: entries.length, entries }, null, 2));
   });
 
   // ========== NEW: SCREENSHOT WITH DELAY ==========

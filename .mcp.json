@@ -24,13 +24,6 @@
       "headers": {
         "Authorization": "Bearer ctx7sk-a3853a85-f006-4527-b6fc-5c8bf4c36ac3"
       }
-    },
-    "web-search-prime": {
-      "type": "http",
-      "url": "https://api.z.ai/api/mcp/web_reader/mcp",
-      "headers": {
-        "Authorization": "Bearer 11ce1f2ce711429eab57622035d9a747.Voe52fbtcVU25oLZ"
-      }
     }
   }
 }
