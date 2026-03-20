@@ -1,21 +1,39 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useAuth } from './components/AuthProvider'
 import { useSession } from './hooks/useSession'
 import { useStream } from './hooks/useStream'
+import { usePageInfo } from './hooks/usePageInfo'
 import BrowserViewer from './components/BrowserViewer'
+import BrowserToolbar from './components/BrowserToolbar'
 import SessionControls from './components/SessionControls'
 import ConnectionStatus from './components/ConnectionStatus'
 import LoginScreen from './components/LoginScreen'
 
 export default function App() {
-  const { isAuthenticated, loading: authLoading, logout } = useAuth()
+  const { isAuthenticated, loading: authLoading, logout, token } = useAuth()
   const { status, sessionInfo, error, createSession, destroySession } = useSession()
 
   const isActive = status === 'active'
   const sessionId = sessionInfo?.sessionId || null
   const { isConnected, fps, connectionState, setCanvas } = useStream(isActive, sessionId)
+  const { pageInfo, refetch: refetchPageInfo } = usePageInfo(sessionId)
 
   const resolution = sessionInfo?.resolution || { width: 1280, height: 720 }
+
+  const handleNavigate = useCallback(async (url: string) => {
+    if (!sessionId || !token) return
+    try {
+      await fetch(`/api/navigate/${sessionId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      })
+      // Refresh URL after navigation
+      setTimeout(refetchPageInfo, 2000)
+    } catch (e) {
+      console.error('Navigation failed:', e)
+    }
+  }, [sessionId, token, refetchPageInfo])
 
   const handleStart = useCallback(async (res: string, startUrl: string) => {
     await createSession({ resolution: res, startUrl })
@@ -91,7 +109,14 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {isActive && (
+          <BrowserToolbar
+            sessionId={sessionId}
+            pageUrl={pageInfo.url}
+            onNavigate={handleNavigate}
+          />
+        )}
         {isActive ? (
           <BrowserViewer
             setCanvas={setCanvas}
@@ -100,11 +125,11 @@ export default function App() {
           />
         ) : (
           <div style={{
+            flex: 1,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            height: '100%',
             gap: '16px',
             color: '#6b7280',
           }}>

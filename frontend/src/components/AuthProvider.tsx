@@ -5,6 +5,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   tenantId: string | null
   userId: string | null
+  token: string | null
   loading: boolean
   login: (apiKey: string) => Promise<void>
   logout: () => void
@@ -15,6 +16,7 @@ const AuthContext = createContext<AuthContextType>(null!)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false)
   const [tenantId, setTenantId] = useState<string | null>(null)
+  const [token, setToken] = useState<string | null>(getToken())
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -43,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .then(data => {
             setAuthenticated(true)
             setTenantId(data.tenantId || data.userId)
+            setToken(getToken())
           })
           .catch(() => {
             authLogout()
@@ -61,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .then(data => {
             setAuthenticated(true)
             setTenantId(data.tenantId)
+            setToken(getToken())
           })
           .catch(() => {
             authLogout()
@@ -78,16 +82,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await authLogin(apiKey)
     setAuthenticated(true)
     setTenantId(data.tenantId)
+    setToken(getToken())
   }, [])
 
   const logout = useCallback(() => {
     authLogout()
     setAuthenticated(false)
     setTenantId(null)
+    setToken(null)
   }, [])
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated: authenticated, tenantId, userId: tenantId, loading, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated: authenticated, tenantId, userId: tenantId, token, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   )

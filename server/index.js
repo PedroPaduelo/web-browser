@@ -510,6 +510,88 @@ app.get('/api/screenshot/:sessionId', authMiddleware, trackActivity, async (req,
   }
 });
 
+// Screenshot com info (URL, title, timestamp) - para exibir no viewer com overlay
+app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+
+  try {
+    const pageUrl = await getPageTargetWsUrl(session.cdpPort);
+    if (!pageUrl) return res.status(500).json({ error: 'CDP not available' });
+
+    const ws = await import('./node_modules/ws/index.js');
+    const result = await new Promise((resolve, reject) => {
+      const client = new ws.default(pageUrl);
+      let id = 1;
+      let screenshotTaken = false;
+      let infoData = null;
+
+      client.on('open', () => {
+        client.send(JSON.stringify({ id: id++, method: 'Page.enable', params: {} }));
+      });
+
+      client.on('message', (data) => {
+        const msg = JSON.parse(data);
+
+        // First: get page info and scroll to top
+        if (msg.id === 1 && msg.result) {
+          id++;
+          // Get URL and title
+          client.send(JSON.stringify({
+            id: id++,
+            method: 'Runtime.evaluate',
+            params: { expression: '({ url: location.href, title: document.title, scrollHeight: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight), width: window.innerWidth, height: window.innerHeight })', returnByValue: true }
+          }));
+        }
+
+        // Store info
+        if (msg.result?.value && !infoData) {
+          infoData = msg.result.value;
+        }
+
+        // Second: take full page screenshot
+        if (msg.id === 2 && msg.result && !screenshotTaken) {
+          id++;
+          screenshotTaken = true;
+          // Full page screenshot - scroll to top first, then capture
+          client.send(JSON.stringify({
+            id: id++,
+            method: 'Emulation.setDeviceMetricsOverride',
+            params: {
+              width: 1920,
+              height: Math.max(infoData?.scrollHeight || 1080, 2000),
+              deviceScaleFactor: 1,
+              mobile: false
+            }
+          }));
+        }
+
+        // Third: capture after resize
+        if (msg.id === 3 && msg.result) {
+          client.send(JSON.stringify({ id: id++, method: 'Page.captureScreenshot', params: { format: 'jpeg', quality: 80 } }));
+        }
+
+        // Finally: return result
+        if (screenshotTaken && msg.result?.data) {
+          client.close();
+          resolve({ screenshot: msg.result.data, info: infoData || {} });
+        }
+
+        if (msg.error) { client.close(); reject(new Error(msg.error.message)); }
+      });
+      client.on('error', reject);
+      setTimeout(() => { client.close(); reject(new Error('Screenshot timeout')); }, 15000);
+    });
+
+    res.json({
+      screenshot: result.screenshot,
+      info: result.info || { url: '', title: 'Unknown', timestamp: Date.now() }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Screenshot failed: ' + err.message });
+  }
+});
+
 app.get('/api/url/:sessionId', authMiddleware, trackActivity, async (req, res) => {
   const session = getSessionAndValidate(req, res);
   if (!session) return;

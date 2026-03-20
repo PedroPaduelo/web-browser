@@ -20,7 +20,7 @@ const MCP_PORT = parseInt(process.env.MCP_PORT) || 4202;
 
 // --- State ---
 // tokenCache é global (cache de autenticação, seguro compartilhar)
-// tenantSessions é por-instância (movido para dentro de createServer)
+// sessionCache é por-instância (movido para dentro de createServer)
 const tokenCache = new Map();      // tenantId → { token, expiresAt }
 
 // AsyncLocalStorage to track which tenant is making the current request
@@ -152,15 +152,36 @@ function reactToggleCheckbox(el, checked) {
   el.dispatchEvent(new Event('change', { bubbles: true }));
 }`;
 
-function createServer() {
-  // Isolado por instância — cada conexão MCP tem seu próprio estado de sessão
-  const tenantSessions = new Map();  // tenantId → sessionId
+// Sessions cache (fallback, mas tentamos buscar do backend)
+const sessionCache = new Map();  // tenantId → sessionId (sobrevivem entre requisições HTTP)
 
-  function requireSession() {
+function createServer() {
+  // Para cada conexão MCP, tentamos usar o cache global primeiro
+  async function requireSession() {
     const tenantId = getCurrentTenantId();
-    const sessionId = tenantSessions.get(tenantId);
-    if (!sessionId) throw new Error('No active session for this tenant. Use session_start first.');
-    return sessionId;
+    let sessionId = sessionCache.get(tenantId);
+    // Se tem no cache, verifica se ainda é válida no backend
+    if (sessionId) {
+      try {
+        await api('GET', `/api/session/${sessionId}`);
+        return sessionId;
+      } catch (e) {
+        sessionCache.delete(tenantId);
+        sessionId = null;
+      }
+    }
+    // Busca sessão ativa do backend
+    try {
+      const data = await api('GET', '/api/session');
+      if (data.sessions && data.sessions.length > 0) {
+        sessionId = data.sessions[0].sessionId;
+        sessionCache.set(tenantId, sessionId);
+        return sessionId;
+      }
+    } catch (e) {
+      // ignora erro
+    }
+    throw new Error('No active session for this tenant. Use session_start first.');
   }
 
   const server = new McpServer({
@@ -178,13 +199,22 @@ function createServer() {
     }),
   }, async ({ resolution, startUrl }) => {
     const tenantId = getCurrentTenantId();
-    if (tenantSessions.has(tenantId)) {
-      const existingId = tenantSessions.get(tenantId);
-      const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${existingId}`;
-      return ok(JSON.stringify({ sessionId: existingId, status: 'already_active', viewerUrl, message: 'Session already active. Stop it first or use this one.' }, null, 2));
+    const cachedId = sessionCache.get(tenantId);
+    // Verifica se a sessão ainda existe no backend
+    if (cachedId) {
+      try {
+        await api('GET', `/api/session/${cachedId}`);
+        // Sessão existe, retorna info
+        const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${cachedId}`;
+        return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', viewerUrl, message: 'Session already active. Stop it first or use this one.' }, null, 2));
+      } catch (e) {
+        // Sessão não existe mais, limpa cache
+        sessionCache.delete(tenantId);
+      }
     }
+    // Cria nova sessão
     const data = await api('POST', '/api/session', { resolution, startUrl });
-    tenantSessions.set(tenantId, data.sessionId);
+    sessionCache.set(tenantId, data.sessionId);
     const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${data.sessionId}`;
     return ok(JSON.stringify({ sessionId: data.sessionId, status: data.status, resolution: data.resolution, viewerUrl }, null, 2));
   });
@@ -194,9 +224,9 @@ function createServer() {
     inputSchema: z.object({}),
   }, async () => {
     const tenantId = getCurrentTenantId();
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('DELETE', `/api/session/${sid}`);
-    tenantSessions.delete(tenantId);
+    sessionCache.delete(tenantId);
     return ok(data.message || 'Session stopped');
   });
 
@@ -204,7 +234,7 @@ function createServer() {
     description: 'Get status of current session (resolution, uptime, display).',
     inputSchema: z.object({}),
   }, async () => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('GET', `/api/session/${sid}`);
     return ok(JSON.stringify(data, null, 2));
   });
@@ -226,7 +256,7 @@ function createServer() {
       waitForLoad: z.boolean().default(true).describe('Wait for page load (default true)'),
     }),
   }, async ({ url, waitForLoad }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/navigate/${sid}`, { url });
     if (waitForLoad) {
       // Smart wait: check document.readyState and network
@@ -247,7 +277,7 @@ function createServer() {
     description: 'Get the current page URL.',
     inputSchema: z.object({}),
   }, async () => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('GET', `/api/url/${sid}`);
     return ok(data.url || 'unknown');
   });
@@ -255,18 +285,23 @@ function createServer() {
   // ========== SCREENSHOT ==========
 
   server.registerTool('screenshot', {
-    description: 'Take a screenshot of the current browser screen. Returns JPEG image. Use this to see what is on screen before interacting.',
+    description: 'Take a screenshot of the current browser screen. Returns JPEG image with URL and title info overlay. Use this to see what is on screen before interacting.',
     inputSchema: z.object({}),
   }, async () => {
-    const sid = requireSession();
-    const data = await api('GET', `/api/screenshot/${sid}`);
-    if (data._image) {
+    const sid = await requireSession();
+    const data = await api('GET', `/api/screenshotWithInfo/${sid}`);
+    if (data.screenshot) {
+      const info = data.info || {};
+      const overlay = `[${info.title || 'Page'}] ${info.url || ''}`;
       return {
-        content: [{
-          type: 'image',
-          data: data._image,
-          mimeType: data._mime || 'image/jpeg',
-        }],
+        content: [
+          { type: 'text', text: `URL: ${info.url || 'unknown'}\nTitle: ${info.title || 'Unknown'}` },
+          {
+            type: 'image',
+            data: data.screenshot,
+            mimeType: 'image/jpeg',
+          },
+        ],
       };
     }
     return ok(JSON.stringify(data));
@@ -281,7 +316,7 @@ function createServer() {
       y: z.number().describe('Y coordinate'),
     }),
   }, async ({ x, y }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'mousemove', x, y });
     return ok(`Moved to (${x}, ${y})`);
   });
@@ -294,7 +329,7 @@ function createServer() {
       button: z.number().default(0).describe('0=left, 1=middle, 2=right'),
     }),
   }, async ({ x, y, button }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'click', x, y, button });
     return ok(`Clicked (${x}, ${y}) button=${button}`);
   });
@@ -306,7 +341,7 @@ function createServer() {
       y: z.number().describe('Y coordinate'),
     }),
   }, async ({ x, y }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input/batch', {
       sessionId: sid,
       actions: [
@@ -324,7 +359,7 @@ function createServer() {
       y: z.number().describe('Y coordinate'),
     }),
   }, async ({ x, y }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'click', x, y, button: 2 });
     return ok(`Right-clicked (${x}, ${y})`);
   });
@@ -337,7 +372,7 @@ function createServer() {
       button: z.number().default(0).describe('0=left, 1=middle, 2=right'),
     }),
   }, async ({ x, y, button }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'mousedown', x, y, button });
     return ok(`Mouse down (${x}, ${y}) button=${button}`);
   });
@@ -350,7 +385,7 @@ function createServer() {
       button: z.number().default(0).describe('0=left, 1=middle, 2=right'),
     }),
   }, async ({ x, y, button }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'mouseup', x, y, button });
     return ok(`Mouse up (${x}, ${y}) button=${button}`);
   });
@@ -363,7 +398,7 @@ function createServer() {
       deltaY: z.number().describe('Scroll amount. 120=one notch down, -120=one notch up'),
     }),
   }, async ({ x, y, deltaY }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'scroll', x, y, deltaY });
     return ok(`Scrolled at (${x}, ${y}) deltaY=${deltaY}`);
   });
@@ -378,7 +413,7 @@ function createServer() {
       steps: z.number().default(0).describe('Number of intermediate points (0 = auto-calculate based on distance, ~1 point per 15px)'),
     }),
   }, async ({ fromX, fromY, toX, toY, steps }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const dx = toX - fromX;
     const dy = toY - fromY;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -407,7 +442,7 @@ function createServer() {
       key: z.string().describe('Key name'),
     }),
   }, async ({ key }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input/batch', {
       sessionId: sid,
       actions: [
@@ -424,7 +459,7 @@ function createServer() {
       key: z.string().describe('Key name'),
     }),
   }, async ({ key }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'keydown', key });
     return ok(`Key down: ${key}`);
   });
@@ -435,7 +470,7 @@ function createServer() {
       key: z.string().describe('Key name'),
     }),
   }, async ({ key }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'keyup', key });
     return ok(`Key up: ${key}`);
   });
@@ -448,7 +483,7 @@ function createServer() {
       delayMs: z.number().default(80).describe('Delay between chars in humanized mode (ms)'),
     }),
   }, async ({ text, humanized, delayMs }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
 
     if (!humanized && text.length > 3) {
       const result = await api('POST', `/api/evaluate/${sid}`, {
@@ -488,7 +523,7 @@ function createServer() {
       keys: z.array(z.string()).describe('Array of key names, e.g. ["Control", "c"]'),
     }),
   }, async ({ keys }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const actions = [];
     for (const k of keys) actions.push({ type: 'keydown', key: k });
     for (const k of [...keys].reverse()) actions.push({ type: 'keyup', key: k });
@@ -504,7 +539,7 @@ function createServer() {
       script: z.string().describe('JavaScript to execute in browser context'),
     }),
   }, async ({ script }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, { script });
     return ok(JSON.stringify(data.result ?? data, null, 2));
   });
@@ -515,7 +550,7 @@ function createServer() {
     description: 'Get the current page title.',
     inputSchema: z.object({}),
   }, async () => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, { script: 'document.title' });
     return ok(data.result ?? 'untitled');
   });
@@ -526,7 +561,7 @@ function createServer() {
       maxLength: z.number().default(5000).describe('Max chars to return (default 5000)'),
     }),
   }, async ({ maxLength }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `document.body.innerText.substring(0, ${maxLength})`,
     });
@@ -540,7 +575,7 @@ function createServer() {
       outer: z.boolean().default(false).describe('Return outerHTML (true) or innerHTML (false)'),
     }),
   }, async ({ selector, outer }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const prop = outer ? 'outerHTML' : 'innerHTML';
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el ? el.${prop}.substring(0, 10000) : null; })()`,
@@ -556,7 +591,7 @@ function createServer() {
       scrollToView: z.boolean().default(true).describe('Scroll element into view if off-screen (default true)'),
     }),
   }, async ({ selector, scrollToView }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
@@ -595,7 +630,7 @@ function createServer() {
       maxResults: z.number().default(20).describe('Max results (default 20)'),
     }),
   }, async ({ selector, maxResults }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
         const els = document.querySelectorAll(${JSON.stringify(selector)});
@@ -627,7 +662,7 @@ function createServer() {
       tag: z.string().default('*').describe('Optional tag filter: button, a, input, * for any'),
     }),
   }, async ({ text, tag }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
         const searchText = ${JSON.stringify(text)}.toLowerCase();
@@ -664,7 +699,7 @@ function createServer() {
       timeoutMs: z.number().default(10000).describe('Max wait time in ms (default 10000)'),
     }),
   }, async ({ selector, timeoutMs }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const maxAttempts = Math.ceil(timeoutMs / 500);
     for (let i = 0; i < maxAttempts; i++) {
       const data = await api('POST', `/api/evaluate/${sid}`, {
@@ -699,7 +734,7 @@ function createServer() {
       stabilityMs: z.number().default(500).describe('DOM stability duration (ms)'),
     }),
   }, async ({ timeoutMs, checkNetwork, stabilityMs }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const start = Date.now();
     let lastDomState = '';
     let stableSince = null;
@@ -748,7 +783,7 @@ function createServer() {
       button: z.number().default(0).describe('0=left, 1=middle, 2=right'),
     }),
   }, async ({ selector, button }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
@@ -791,7 +826,7 @@ function createServer() {
       block: z.string().default('center').describe('vertical align: start, center, end, nearest'),
     }),
   }, async ({ selector, block }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
@@ -815,7 +850,7 @@ function createServer() {
       text: z.string().describe('Text to copy to clipboard'),
     }),
   }, async ({ text }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -839,7 +874,7 @@ function createServer() {
     description: 'Read text from clipboard via JavaScript.',
     inputSchema: z.object({}),
   }, async () => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
         if (navigator.clipboard && navigator.clipboard.readText) {
@@ -862,7 +897,7 @@ function createServer() {
       })).describe('Array of fields to fill'),
     }),
   }, async ({ fields }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const results = [];
 
     for (const field of fields) {
@@ -962,7 +997,7 @@ function createServer() {
       focusDelayMs: z.number().default(200).describe('Wait after click before typing (ms)'),
     }),
   }, async ({ x, y, text, clearFirst, focusDelayMs }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'click', x, y, button: 0 });
     await new Promise(r => setTimeout(r, focusDelayMs));
 
@@ -1023,7 +1058,7 @@ function createServer() {
       index: z.number().default(0).describe('Which match to click if multiple found (0-based)'),
     }),
   }, async ({ text, tag, exact, index }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     // Find + scroll + click all in one JS evaluation for reliability
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
@@ -1076,7 +1111,7 @@ function createServer() {
       timeoutMs: z.number().default(10000).describe('Max wait time (ms)'),
     }),
   }, async ({ url, timeoutMs }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     // Get current URL first
     const initial = await api('POST', `/api/evaluate/${sid}`, { script: 'location.href' });
     const initialUrl = initial.result || '';
@@ -1106,7 +1141,7 @@ function createServer() {
       selector: z.string().default('body').describe('Scope search to this CSS selector (default: body)'),
     }),
   }, async ({ text, timeoutMs, selector }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const data = await api('POST', `/api/evaluate/${sid}`, {
@@ -1132,7 +1167,7 @@ function createServer() {
       timeoutMs: z.number().default(10000).describe('Max wait time (ms)'),
     }),
   }, async ({ selector, timeoutMs }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const data = await api('POST', `/api/evaluate/${sid}`, {
@@ -1153,7 +1188,7 @@ function createServer() {
       maxMessages: z.number().default(50).describe('Max messages to return'),
     }),
   }, async ({ action, maxMessages }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     if (action === 'start') {
       await api('POST', `/api/evaluate/${sid}`, {
         script: `(() => {
@@ -1204,7 +1239,7 @@ function createServer() {
       name: z.string().default('').describe('Filter by cookie name (empty = all)'),
     }),
   }, async ({ name }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     // Use CDP-based endpoint for proper cookie retrieval
     const data = await api('GET', `/api/cookies/${sid}`);
     let cookies = data.cookies || [];
@@ -1226,7 +1261,7 @@ function createServer() {
       path: z.string().default('/').describe('Cookie path'),
     }),
   }, async ({ name, value, maxAge, path }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     // Calculate expires from maxAge
     const expires = maxAge ? Math.floor(Date.now() / 1000) + maxAge : undefined;
 
@@ -1250,7 +1285,7 @@ function createServer() {
       name: z.string().describe('Cookie name to delete'),
     }),
   }, async ({ name }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     // Use CDP-based endpoint
     const data = await api('DELETE', `/api/cookies/${sid}?name=${encodeURIComponent(name)}`);
     return ok(`Cookie deleted: ${name}`);
@@ -1266,7 +1301,7 @@ function createServer() {
       includeAttributes: z.boolean().default(true).describe('Include all HTML attributes'),
     }),
   }, async ({ selector, maxResults, includeAttributes }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
         const els = document.querySelectorAll(${JSON.stringify(selector)});
@@ -1324,7 +1359,7 @@ function createServer() {
       clearFirst: z.boolean().default(true).describe('Clear existing value first'),
     }),
   }, async ({ selector, value, clearFirst }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     // Find and click
     const findResult = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
@@ -1371,7 +1406,7 @@ function createServer() {
       buttonSelector: z.string().default('').describe('CSS selector of submit button (empty = auto-find)'),
     }),
   }, async ({ formSelector, buttonSelector }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     const data = await api('POST', `/api/evaluate/${sid}`, {
       script: `(() => {
         const form = document.querySelector(${JSON.stringify(formSelector)});
@@ -1405,7 +1440,7 @@ function createServer() {
       maxEntries: z.number().default(30).describe('Max entries to return'),
     }),
   }, async ({ action, filterUrl, maxEntries }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
 
     // Use backend endpoints for network tracking (CDP-based)
     if (action === 'start') {
@@ -1456,21 +1491,25 @@ function createServer() {
   // ========== NEW: SCREENSHOT WITH DELAY ==========
 
   server.registerTool('screenshot_after', {
-    description: 'Take a screenshot after waiting a specified delay. Useful for capturing after animations, transitions, or async renders.',
+    description: 'Take a screenshot after waiting a specified delay. Useful for capturing after animations, transitions, or async renders. Returns image with URL and title info.',
     inputSchema: z.object({
       delayMs: z.number().default(1000).describe('Delay before screenshot (ms)'),
     }),
   }, async ({ delayMs }) => {
-    const sid = requireSession();
+    const sid = await requireSession();
     await new Promise(r => setTimeout(r, delayMs));
-    const data = await api('GET', `/api/screenshot/${sid}`);
-    if (data._image) {
+    const data = await api('GET', `/api/screenshotWithInfo/${sid}`);
+    if (data.screenshot) {
+      const info = data.info || {};
       return {
-        content: [{
-          type: 'image',
-          data: data._image,
-          mimeType: data._mime || 'image/jpeg',
-        }],
+        content: [
+          { type: 'text', text: `URL: ${info.url || 'unknown'}\nTitle: ${info.title || 'Unknown'}` },
+          {
+            type: 'image',
+            data: data.screenshot,
+            mimeType: 'image/jpeg',
+          },
+        ],
       };
     }
     return ok(JSON.stringify(data));
@@ -1499,8 +1538,8 @@ function createServer() {
         backend: healthData,
         auth: authStatus,
         tenantId,
-        currentSession: tenantSessions.get(tenantId) || 'none',
-        activeTenants: tenantSessions.size,
+        currentSession: sessionCache.get(tenantId) || 'none',
+        activeTenants: sessionCache.size,
         apiUrl: SERENDE_API,
       }, null, 2));
     } catch (e) {
