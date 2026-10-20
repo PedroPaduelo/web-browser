@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
-import { authFetch } from '../lib/auth-client'
+import { authFetch, apiAuthFetch } from '../lib/auth-client'
+import { describeError } from '../lib/api-client'
 import { useAuth } from '../components/AuthProvider'
 
 export type SessionStatus = 'idle' | 'creating' | 'active' | 'destroying' | 'error'
@@ -82,10 +83,16 @@ export function useSession() {
     setError(null)
 
     try {
-      const res = await authFetch('/api/session', {
+      // `apiAuthFetch` repete com backoff quando o backend está reiniciando
+      // (o watchdog o derruba e o levanta em ~1-8s) e distingue "backend fora"
+      // de "erro real do servidor" — o 500 vazio do proxy do Vite.
+      const res = await apiAuthFetch('/api/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options || {}),
+        onRetry: (attempt, _err, waitMs) => {
+          setError(`Servidor de sessões indisponível. Tentando reconectar (tentativa ${attempt} em ${Math.round(waitMs / 1000)}s)...`)
+        },
       })
 
       if (res.status === 401) {
@@ -107,7 +114,6 @@ export function useSession() {
         setStatus('error')
         return null
       }
-
       const data = await res.json()
       setSessionInfo({
         sessionId: data.sessionId,
@@ -118,12 +124,9 @@ export function useSession() {
       setStatus('active')
       return data
     } catch (err: any) {
-      const msg = err.message || ''
-      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-        setError('Servidor offline. Tente novamente.')
-      } else {
-        setError(msg || 'Erro de rede')
-      }
+      // BackendUnavailableError => o servidor não está servindo (503 real,
+      // timeout, ou proxy sem backend). ApiError => erro real da aplicação.
+      setError(describeError(err))
       setStatus('error')
       return null
     }

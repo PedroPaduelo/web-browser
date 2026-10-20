@@ -96,19 +96,50 @@ app.use((req, res, next) => {
   const fs = require('fs');
   try {
     // Matar qualquer Xvfb nos displays 100-199 (range do sistema)
-    execSync('pkill -f "Xvfb :[1-9][0-9][0-9]" 2>/dev/null || true', { stdio: 'ignore' });
+    execSync('pkill -f "Xvfb :[1-9][0-9][0-9]" 2>/dev/null || true', // eslint-disable-line no-useless-escape
+      { stdio: 'ignore' });
+    // ffmpeg x11grab órfão de um backend que morreu: segura o socket X do
+    // display e faria a próxima sessão capturar lixo. O wrapper anti-órfão
+    // cobre a morte normal do pai; isto cobre o backend morto por SIGKILL.
+    // O padrão usa [x]11grab para NÃO casar com a própria linha de comando
+    // do pkill (senão o pkill mata o próprio shell).
+    execSync('pkill -f "[x]11grab" 2>/dev/null || true', { stdio: 'ignore' });
+    execSync('pkill -f "[s]erende-ffmpeg" 2>/dev/null || true', { stdio: 'ignore' });
     // Limpar lock files e sockets
     for (let d = 100; d <= 199; d++) {
       try { if (fs.existsSync(`/tmp/.X${d}-lock`)) fs.unlinkSync(`/tmp/.X${d}-lock`); } catch {}
       try { if (fs.existsSync(`/tmp/.X11-unix/X${d}`)) fs.unlinkSync(`/tmp/.X11-unix/X${d}`); } catch {}
     }
-    console.log('[Startup] Cleaned up orphaned Xvfb processes and lock files');
+    console.log('[Startup] Cleaned up orphaned Xvfb/ffmpeg processes and lock files');
   } catch (e) {
     console.warn('[Startup] Cleanup failed (non-fatal):', e.message);
   }
 })();
 
 const sessionResources = new Map();
+
+// Queda do produtor de vídeo (ffmpeg): troca para o CDP screencast SEM
+// derrubar a sessão — vídeo degrada de 30fps para ~0.3-20fps, mas continua.
+sessionManager.onCaptureDied((sessionId, reason) => {
+  const resources = sessionResources.get(sessionId);
+  if (!resources) return;
+  if (resources.captureMode !== 'ffmpeg') return; // já está no fallback
+  resources.captureMode = 'cdp';
+  try { resources.streamManager.stopCapture(); } catch {}
+  try { resources.streamManager.mode = 'cdp'; } catch {}
+  try {
+    if (!resources.screencast) {
+      resources.screencast = new CDPScreencast(sessionManager.getSession(sessionId)?.cdpPort, {
+        quality: 60, maxWidth: 1280, everyNthFrame: 1, sessionId,
+      });
+    }
+    resources.screencast.start((frame) => resources.streamManager.pushFrame(frame));
+  } catch (e) {
+    console.error(`[API] Fallback CDP screencast falhou para ${sessionId}:`, e.message);
+    return;
+  }
+  console.warn(`[API] Session ${sessionId}: ffmpeg caiu (${reason}) — usando CDP screencast`);
+});
 
 sessionManager.onSessionDied((sessionId) => {
   const resources = sessionResources.get(sessionId);
@@ -201,12 +232,22 @@ app.delete('/api/profile', authMiddleware, async (req, res) => {
 
 app.get('/api/health', (req, res) => {
   const memUsage = process.memoryUsage();
+  // Sessões com processo morto entram em recuperação assíncrona (sem bloquear o health).
+  let deadCount = 0;
+  try {
+    const dead = sessionManager.getDeadSessions ? sessionManager.getDeadSessions() : [];
+    deadCount = dead.length;
+    if (deadCount && sessionManager.sweepDeadSessions) {
+      sessionManager.sweepDeadSessions().catch((e) => console.warn('[Health] sweep falhou:', e.message));
+    }
+  } catch {}
   res.json({
     status: 'ok',
     uptime: Math.floor(process.uptime()),
     sessions: {
       active: sessionManager.getSessionCount(),
       max: parseInt(process.env.MAX_SESSIONS) || 10,
+      dead: deadCount,
     },
     memory: {
       rss: Math.round(memUsage.rss / 1024 / 1024),
@@ -233,17 +274,55 @@ app.post('/api/session', authMiddleware, async (req, res) => {
     sessionManager.startTimeoutTracker(sessionId);
 
     const raw = sessionManager.getSessionRaw(sessionId);
+    if (!raw) {
+      const vanished = new Error('Sessão sumiu logo após o start (limpeza concorrente?)');
+      vanished.stage = 'resources';
+      vanished.code = 'session_vanished';
+      vanished.status = 500;
+      throw vanished;
+    }
 
-    // CDP Screencast — Chrome envia frames JPEG direto via CDP (sem ffmpeg)
-    const streamMgr = new StreamManager();
-    streamMgr.mode = 'cdp';
+    // Se ligar stream/input falhar, a sessão (Xvfb+Chrome) NÃO pode vazar: para tudo.
+    try {
+      // --- Produtor de VÍDEO ---
+      // Primário: ffmpeg x11grab (30fps). Fallback: CDP screencast (~0.3-20fps,
+      // só emite frame quando a página repinta).
+      const streamMgr = new StreamManager();
+      const screencast = new CDPScreencast(raw.cdpPort, {
+        quality: 60,
+        maxWidth: 1280,
+        everyNthFrame: 1,
+        sessionId,
+      });
 
-    const screencast = new CDPScreencast(raw.cdpPort);
-    screencast.start((frame) => streamMgr.pushFrame(frame));
+      let captureMode = 'cdp';
+      if (raw.capture && raw.capture.stdout) {
+        try {
+          raw.capture.stdout.resume();
+          streamMgr.startCapture(raw.capture.stdout);
+          captureMode = 'ffmpeg';
+          console.log(`[API] Session ${sessionId}: video via ffmpeg x11grab`);
+        } catch (e) {
+          console.error(`[API] Session ${sessionId}: ffmpeg startCapture falhou, usando CDP:`, e.message);
+        }
+      }
+      if (captureMode === 'cdp') {
+        streamMgr.mode = 'cdp';
+        screencast.start((frame) => streamMgr.pushFrame(frame));
+        console.log(`[API] Session ${sessionId}: video via CDP screencast (fallback)`);
+      }
 
-    const inputHdl = createInputHandler(raw.displayNum);
+      const inputHdl = createInputHandler(raw.displayNum);
 
-    sessionResources.set(sessionId, { streamManager: streamMgr, screencast, inputHandler: inputHdl });
+      sessionResources.set(sessionId, { streamManager: streamMgr, screencast, inputHandler: inputHdl, captureMode });
+    } catch (setupErr) {
+      try { await sessionManager.stopSession(sessionId, 'resource_setup_failed'); } catch {}
+      const wrapped = new Error(`Falha ao ligar stream/input da sessão: ${setupErr.message}`);
+      wrapped.stage = 'resources';
+      wrapped.code = 'resource_setup_failed';
+      wrapped.status = 502;
+      throw wrapped;
+    }
 
     res.status(201).json({
       sessionId,
@@ -251,9 +330,15 @@ app.post('/api/session', authMiddleware, async (req, res) => {
       resolution: result.resolution,
     });
   } catch (err) {
-    console.error('[API] Start session error:', err.message);
-    const status = err.message.includes('limit') ? 429 : 500;
-    res.status(status).json({ error: err.message });
+    console.error('[API] Start session error:', `stage=${err.stage || 'unknown'}`, `code=${err.code || 'start_failed'}`, err.message);
+    const msg = String(err.message || '');
+    const status = err.status
+      || (err.code === 'limit_reached' || err.code === 'no_display' || msg.includes('limit') ? 429
+      : err.code === 'bad_resolution' ? 400
+      : err.code === 'missing_binary' ? 503
+      : err.stage === 'cdp' || err.stage === 'chrome' || err.stage === 'xvfb' || err.stage === 'resources' ? 502
+      : 500);
+    res.status(status).json({ error: err.message, stage: err.stage || 'unknown', code: err.code || 'start_failed', requestId: req.requestId });
   }
 });
 
@@ -294,6 +379,20 @@ app.get('/api/session/:sessionId', authMiddleware, trackActivity, (req, res) => 
   if (session.tenantId !== req.tenant.tenantId) {
     return res.status(403).json({ error: 'Not your session' });
   }
+
+  // Sessão registrada mas com processo morto → 410 + recuperação, em vez de "running" fantasma.
+  try {
+    const health = sessionManager.getSessionHealth ? sessionManager.getSessionHealth(req.params.sessionId) : { alive: true };
+    if (health && !health.alive) {
+      if (sessionManager.sweepDeadSessions) sessionManager.sweepDeadSessions().catch(() => {});
+      return res.status(410).json({
+        error: `Session dead (${health.reason}). Crie uma nova sessão.`,
+        stage: 'health',
+        code: health.reason || 'dead',
+        requestId: req.requestId,
+      });
+    }
+  } catch {}
 
   const resources = sessionResources.get(req.params.sessionId);
   if (resources) {
@@ -1106,6 +1205,23 @@ function cleanup() {
 
 process.on('SIGINT', cleanup);
 process.on('SIGTERM', cleanup);
+
+// --- Blindagem contra o guardião de memória do sandbox ---
+//
+// O guardião de memória (memguard) do sandbox mata o process group com maior
+// RSS via `process.kill(-pgid, 'SIGTERM')` seguido de SIGKILL 2s depois.
+// ANTES da correção, o Chrome herdava o PGID do backend: uma sessão de
+// browser (2709MB medidos) ultrapassava o limite de 2048MB e o guardião
+// derrubava o backend INTEIRO -> o proxy do Vite devolvia HTTP 500 e o
+// frontend mostrava "Erro do servidor (HTTP 500)".
+//
+// CORREÇÃO: o Chrome nasce com `detached: true` (session-manager.js) => PGID
+// novo, o guardião não alcança o backend.
+//
+// A segunda camada é o watchdog (scripts/watchdog.js): reexecuta o backend
+// se ele morrer por QUALQUER motivo (SIGTERM, SIGKILL, OOM, crash).
+// SIGKILL não é capturável por handler — só um supervisor externo resolve.
+console.error('[Serende] Boot: camada 1 = Chrome detached (protege o PGID), camada 2 = watchdog externo');
 
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] uncaughtException — NÃO reiniciando:', err.message, err.stack);

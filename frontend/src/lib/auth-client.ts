@@ -1,3 +1,5 @@
+import { apiFetch, type ApiRequestOptions } from './api-client'
+
 const API_URL = import.meta.env.VITE_API_URL || ''
 const WS_URL = import.meta.env.VITE_WS_URL || ''
 
@@ -6,7 +8,11 @@ const TENANT_KEY = 'serende_tenantId'
 const API_KEY_KEY = 'serende_apikey'
 
 export async function login(apiKey: string): Promise<{ token: string; tenantId: string }> {
-  const res = await fetch(`${API_URL}/api/auth/login`, {
+  // `apiFetch` repete com backoff quando o backend está reiniciando e
+  // distingue "backend fora" (500 vazio do proxy) de "erro real" (JSON).
+  // Sem isso, o login quebrava com "Login failed (HTTP 500)" sempre que o
+  // backend estava fora.
+  const res = await apiFetch(`${API_URL}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ apiKey }),
@@ -68,6 +74,29 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
   }
   const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`
   return fetch(fullUrl, { ...options, headers })
+}
+
+/**
+ * Fetch autenticado com retry e detecção de backend indisponível.
+ *
+ * Use ESTE no lugar de `authFetch` nas telas. `authFetch` continua existindo
+ * para quem precisa do Response cru (o `apiFetch` consome o corpo no erro,
+ * então quem precisa reler o corpo deve usar o wrapper e tratar o payload).
+ */
+export async function apiAuthFetch(
+  url: string,
+  options: ApiRequestOptions = {}
+): Promise<Response> {
+  const token = getToken()
+  const headers = new Headers(options.headers || {})
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
+    headers.set('Content-Type', 'application/json')
+  }
+  const fullUrl = url.startsWith('http') ? url : `${API_URL}${url}`
+  return apiFetch(fullUrl, { ...options, headers })
 }
 
 export function getAuthWsUrl(path: string, sessionId: string): string {
