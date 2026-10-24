@@ -2,6 +2,10 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createWsClient } from '../lib/ws-client'
 
 const SAMPLE_RATE = 24000
+// Backlog máximo antes de descartar áudio obsoleto (evita latência crescente)
+const MAX_BACKLOG_SEC = 0.5
+// Chunk absurdo (>5s) é descartado para evitar OOM no AudioBuffer
+const MAX_CHUNK_SAMPLES = SAMPLE_RATE * 5
 
 interface AudioState {
   isConnected: boolean
@@ -24,12 +28,14 @@ export function useAudio(active: boolean) {
     if (!ctx || ctx.state === 'closed') return
 
     if (ctx.state === 'suspended') {
-      ctx.resume()
+      void ctx.resume()
     }
 
+    // View zero-copy sobre o ArrayBuffer (binaryType='arraybuffer', sem cópias)
+    if (data.byteLength === 0 || data.byteLength % 2 !== 0) return
     const int16 = new Int16Array(data)
     const numSamples = int16.length
-    if (numSamples === 0) return
+    if (numSamples === 0 || numSamples > MAX_CHUNK_SAMPLES) return
 
     const audioBuffer = ctx.createBuffer(1, numSamples, SAMPLE_RATE)
     const channelData = audioBuffer.getChannelData(0)
@@ -46,8 +52,9 @@ export function useAudio(active: boolean) {
       source.connect(ctx.destination)
     }
 
+    // Descarta backlog obsoleto: se atrasou ou acumulou demais, reancora no agora
     const now = ctx.currentTime
-    if (nextPlayTimeRef.current < now) {
+    if (nextPlayTimeRef.current < now || nextPlayTimeRef.current - now > MAX_BACKLOG_SEC) {
       nextPlayTimeRef.current = now + 0.02
     }
     source.start(nextPlayTimeRef.current)
@@ -57,6 +64,7 @@ export function useAudio(active: boolean) {
   useEffect(() => {
     if (!active) return
 
+    let cancelled = false
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/ws/audio`
 
@@ -72,20 +80,23 @@ export function useAudio(active: boolean) {
     wsRef.current = ws
 
     ws.onStateChange((s) => {
+      if (cancelled) return
       setState(prev => ({ ...prev, isConnected: s === 'connected' }))
     })
 
     ws.onBinary((data) => {
+      if (cancelled) return
       playPcmChunk(data)
     })
 
     ws.connect(wsUrl)
 
     return () => {
+      cancelled = true
       ws.disconnect()
       wsRef.current = null
       nextPlayTimeRef.current = 0
-      try { ctx.close() } catch {}
+      try { void ctx.close() } catch {}
       audioCtxRef.current = null
       gainRef.current = null
     }
@@ -94,7 +105,11 @@ export function useAudio(active: boolean) {
   const toggleMute = useCallback(() => {
     setState(prev => {
       const newMuted = !prev.isMuted
-      if (gainRef.current) {
+      const ctx = audioCtxRef.current
+      if (gainRef.current && ctx) {
+        // Transição suave evita cliques no áudio
+        gainRef.current.gain.setTargetAtTime(newMuted ? 0 : 1, ctx.currentTime, 0.02)
+      } else if (gainRef.current) {
         gainRef.current.gain.value = newMuted ? 0 : 1
       }
       return { ...prev, isMuted: newMuted }
@@ -104,7 +119,7 @@ export function useAudio(active: boolean) {
   const resumeAudio = useCallback(() => {
     const ctx = audioCtxRef.current
     if (ctx && ctx.state === 'suspended') {
-      ctx.resume()
+      void ctx.resume()
     }
   }, [])
 

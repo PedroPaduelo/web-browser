@@ -13,3 +13,10 @@ turn/
 .DS_Store
 server/data/
 data/
+.mcp.json
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Chrome instalado (binarios, ~200MB): scripts/install-chrome-sandbox.sh reinstala
+chrome-install/

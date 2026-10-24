@@ -1,5 +1,84 @@
 const API_URL = import.meta.env.VITE_API_URL || ''
 const ADMIN_SECRET_KEY = 'serende_admin_secret'
+const ADMIN_TOKEN_KEY = 'serende_admin_jwt'
+
+// --- Login por email + senha (JWT) ----------------------------------------
+
+export interface AdminIdentity {
+  id: number
+  email: string
+  name: string | null
+}
+
+export async function adminLogin(email: string, password: string): Promise<AdminIdentity> {
+  const res = await fetch(`${API_URL}/api/admin/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || 'Falha no login')
+  }
+  const data = await res.json()
+  setAdminToken(data.token)
+  return data.admin
+}
+
+export function setAdminToken(token: string) {
+  sessionStorage.setItem(ADMIN_TOKEN_KEY, token)
+}
+
+export function getAdminToken(): string | null {
+  return sessionStorage.getItem(ADMIN_TOKEN_KEY)
+}
+
+export function clearAdminToken() {
+  sessionStorage.removeItem(ADMIN_TOKEN_KEY)
+}
+
+/** Confirma se o token guardado ainda vale e devolve o dono. */
+export async function loadAdminIdentity(): Promise<AdminIdentity | null> {
+  const token = getAdminToken()
+  if (!token) return null
+  try {
+    const res = await adminFetch('/api/admin/auth/me')
+    if (!res.ok) {
+      clearAdminToken()
+      return null
+    }
+    const data = await res.json()
+    return data.admin ?? null
+  } catch {
+    // Rede oscilando não deve derrubar a sessão: devolve identidade mínima.
+    return { id: 0, email: '', name: null }
+  }
+}
+
+export async function changeAdminPassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  const res = await adminFetch('/api/admin/auth/password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || 'Falha ao trocar a senha')
+  }
+}
+
+export async function adminLogout(): Promise<void> {
+  try {
+    await adminFetch('/api/admin/auth/logout', { method: 'POST' })
+  } catch {
+    // Stateless: o descarte local é o que importa.
+  }
+  clearAdminToken()
+}
+
+// --- Admin secret legado (mantido enquanto a migração não é total) --------
 
 export function setAdminSecret(secret: string) {
   sessionStorage.setItem(ADMIN_SECRET_KEY, secret)
@@ -14,12 +93,14 @@ export function clearAdminSecret() {
 }
 
 export function isAdminAuthenticated(): boolean {
-  return !!getAdminSecret()
+  return !!getAdminToken() || !!getAdminSecret()
 }
 
 export async function adminFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const secret = getAdminSecret()
   const headers = new Headers(options.headers || {})
+  const token = getAdminToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const secret = getAdminSecret()
   if (secret) headers.set('X-Admin-Secret', secret)
   if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
     headers.set('Content-Type', 'application/json')

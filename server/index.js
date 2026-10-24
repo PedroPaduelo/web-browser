@@ -17,6 +17,8 @@ const StreamManager = require('./stream-manager');
 const CDPScreencast = require('./cdp-screencast');
 const { createInputHandler } = require('./cdp-input-handler');
 const { generateToken, verifyToken, deriveTenantId, authMiddleware } = require('./auth');
+const { login: adminJwtLogin, adminJwtAuth, adminAnyAuth } = require('./admin-auth');
+const adminUsers = require('./admin-users');
 const profileManager = require('./profile-manager');
 const tenantManager = require('./tenant-manager');
 
@@ -184,6 +186,36 @@ setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of loginAttempts) {
     if (now >= entry.resetAt) loginAttempts.delete(ip);
+  }
+}, 300_000);
+
+// Limiter do login do ADMIN: mais restritivo que o de usuário (10/min) porque
+// o alvo aqui é brute force de senha — e cada tentativa custa um scrypt.
+const adminLoginAttempts = new Map();
+const ADMIN_LOGIN_MAX = 5;
+const ADMIN_LOGIN_WINDOW_MS = 5 * 60_000;
+
+function adminLoginLimiter(req, res, next) {
+  const ip = req.ip || req.socket.remoteAddress;
+  const now = Date.now();
+  const entry = adminLoginAttempts.get(ip);
+
+  if (entry && now < entry.resetAt) {
+    if (entry.count >= ADMIN_LOGIN_MAX) {
+      const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+      return res.status(429).json({ error: `Muitas tentativas. Tente em ${retryAfter}s` });
+    }
+    entry.count++;
+  } else {
+    adminLoginAttempts.set(ip, { count: 1, resetAt: now + ADMIN_LOGIN_WINDOW_MS });
+  }
+  next();
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of adminLoginAttempts) {
+    if (now >= entry.resetAt) adminLoginAttempts.delete(ip);
   }
 }, 300_000);
 
@@ -632,14 +664,15 @@ app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, asy
       client.on('message', (data) => {
         const msg = JSON.parse(data);
 
-        // First: get page info and scroll to top
+        // First: get page info (url, title, scrollHeight)
+        // Os ids são atribuídos uma única vez por etapa — incrementar dentro do
+        // send E na condição seguinte desalinhava a máquina de estados e a
+        // etapa de captura nunca disparava (timeout de 15s → 500).
         if (msg.id === 1 && msg.result) {
-          id++;
-          // Get URL and title
           client.send(JSON.stringify({
-            id: id++,
+            id: 2,
             method: 'Runtime.evaluate',
-            params: { expression: '({ url: location.href, title: document.title, scrollHeight: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight), width: window.innerWidth, height: window.innerHeight })', returnByValue: true }
+            params: { expression: '({ url: location.href, title: document.title, scrollHeight: Math.max(document.body && document.body.scrollHeight || 0, document.documentElement.scrollHeight), width: window.innerWidth, height: window.innerHeight })', returnByValue: true }
           }));
         }
 
@@ -648,13 +681,11 @@ app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, asy
           infoData = msg.result.value;
         }
 
-        // Second: take full page screenshot
+        // Second (id 2 respondeu): resize para a página inteira
         if (msg.id === 2 && msg.result && !screenshotTaken) {
-          id++;
           screenshotTaken = true;
-          // Full page screenshot - scroll to top first, then capture
           client.send(JSON.stringify({
-            id: id++,
+            id: 3,
             method: 'Emulation.setDeviceMetricsOverride',
             params: {
               width: 1920,
@@ -667,7 +698,7 @@ app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, asy
 
         // Third: capture after resize
         if (msg.id === 3 && msg.result) {
-          client.send(JSON.stringify({ id: id++, method: 'Page.captureScreenshot', params: { format: 'jpeg', quality: 80 } }));
+          client.send(JSON.stringify({ id: 4, method: 'Page.captureScreenshot', params: { format: 'jpeg', quality: 80 } }));
         }
 
         // Finally: return result
@@ -907,18 +938,97 @@ app.delete('/api/cookies/:sessionId', authMiddleware, trackActivity, async (req,
 
 // --- Admin Middleware ---
 
-function adminAuth(req, res, next) {
-  if (!ADMIN_SECRET) {
-    return res.status(403).json({ error: 'Admin not configured' });
-  }
-  const secret = req.headers['x-admin-secret'] || '';
-  const a = Buffer.from(secret);
+// Aceita JWT de login (novo) OU X-Admin-Secret (legado). O JWT é o caminho
+// que a tela nova usa; o secret fica para scripts e para o painel antigo
+// durante a transição. Sem ADMIN_SECRET no ambiente, só o JWT autentica.
+function verifyLegacyAdminSecret(candidate) {
+  if (!ADMIN_SECRET) return false;
+  const a = Buffer.from(String(candidate || ''));
   const b = Buffer.from(ADMIN_SECRET);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    return res.status(401).json({ error: 'Invalid admin secret' });
-  }
-  next();
+  if (a.length !== b.length) return false;
+  try { return crypto.timingSafeEqual(a, b); } catch { return false; }
 }
+
+const adminAuth = adminAnyAuth(verifyLegacyAdminSecret);
+
+// --- Admin Auth (email + senha → JWT) ---
+
+app.post('/api/admin/auth/login', adminLoginLimiter, (req, res) => {
+  const { email, password } = req.body || {};
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Email and password must be strings' });
+  }
+  if (password.length > 512) {
+    return res.status(400).json({ error: 'Password too long' });
+  }
+
+  let result;
+  try {
+    result = adminJwtLogin(email, password);
+  } catch (err) {
+    // Sem JWT_SECRET o login não pode funcionar — 503, não 401 (o usuário
+    // erraria a senha para sempre sem consertar nada).
+    console.error('[AdminAuth] login falhou:', err.message);
+    return res.status(503).json({ error: 'Admin auth not configured' });
+  }
+
+  if (!result.ok) {
+    return res.status(401).json({ error: 'Credenciais inválidas' });
+  }
+
+  res.json({
+    token: result.token,
+    admin: result.user,
+    expiresIn: process.env.ADMIN_JWT_EXPIRY || process.env.JWT_EXPIRY || '24h',
+  });
+});
+
+// Confirma o token e devolve o dono. Usado pelo painel ao recarregar a página
+// para decidir entre a tela de login e o dashboard.
+app.get('/api/admin/auth/me', adminJwtAuth, (req, res) => {
+  res.json({ admin: req.admin });
+});
+
+app.post('/api/admin/auth/logout', adminJwtAuth, (req, res) => {
+  // JWT é stateless: não há sessão no servidor para invalidar. O "logout" é o
+  // frontend descartar o token; esta rota existe para o cliente ter um alvo
+  // simétrico e para sabermos que o token ainda era válido.
+  res.json({ ok: true });
+});
+
+// Troca a própria senha (o painel usa para forçar a troca no primeiro acesso).
+app.post('/api/admin/auth/password', adminJwtAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+  }
+  if (typeof newPassword !== 'string' || newPassword.length < 8) {
+    return res.status(400).json({ error: 'A nova senha precisa de pelo menos 8 caracteres' });
+  }
+  if (newPassword.length > 512) {
+    return res.status(400).json({ error: 'Nova senha muito longa' });
+  }
+
+  // getCredentialsById (não getUserById): só este caminho precisa do hash.
+  const creds = adminUsers.getCredentialsById(req.admin.id);
+  if (!creds || !adminUsers.verifyPassword(currentPassword, creds.password_hash)) {
+    return res.status(401).json({ error: 'Senha atual incorreta' });
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ error: 'A nova senha deve ser diferente da atual' });
+  }
+
+  try {
+    adminUsers.updatePassword(req.admin.id, newPassword);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  res.json({ ok: true });
+});
 
 // --- Admin Routes ---
 

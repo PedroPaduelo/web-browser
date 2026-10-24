@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  setAdminSecret, getAdminSecret, clearAdminSecret, isAdminAuthenticated,
+  adminLogin, adminLogout, loadAdminIdentity, changeAdminPassword, clearAdminToken,
   getAdminStats, getAdminKeys, createAdminKey, updateAdminKey, revokeAdminKey, regenerateAdminKey,
   getAdminSessions, deleteAdminSession, getAdminSessionToken,
-  type AdminStats, type AdminKey, type AdminSession, type CreateKeyResponse,
+  type AdminStats, type AdminKey, type AdminSession, type CreateKeyResponse, type AdminIdentity,
 } from '../lib/admin-client'
 
 const colors = {
@@ -25,8 +25,15 @@ function formatDuration(seconds: number) {
 }
 
 export default function AdminPanel() {
-  const [authed, setAuthed] = useState(isAdminAuthenticated())
-  const [secretInput, setSecretInput] = useState('')
+  // `authed` só vira true depois que o token guardado é confirmado no
+  // servidor (loadAdminIdentity). Começar em true mostraria o dashboard com
+  // dados vazios antes do 401 chegar.
+  const [authed, setAuthed] = useState(false)
+  const [booting, setBooting] = useState(true)
+  const [identity, setIdentity] = useState<AdminIdentity | null>(null)
+
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
 
@@ -43,6 +50,11 @@ export default function AdminPanel() {
 
   const [editKey, setEditKey] = useState<AdminKey | null>(null)
   const [expandedTenant, setExpandedTenant] = useState<string | null>(null)
+
+  const [showPassword, setShowPassword] = useState(false)
+  const [pwdForm, setPwdForm] = useState({ current: '', next: '', confirm: '' })
+  const [pwdError, setPwdError] = useState('')
+  const [pwdOk, setPwdOk] = useState('')
 
   const [createForm, setCreateForm] = useState({ name: '', maxSessions: 100, maxSessionDuration: 3600, maxIdleTimeout: 300 })
   const [editForm, setEditForm] = useState({ name: '', maxSessions: 100, maxSessionDuration: 3600, maxIdleTimeout: 300 })
@@ -71,27 +83,45 @@ export default function AdminPanel() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const who = await loadAdminIdentity()
+      if (cancelled) return
+      if (who) {
+        setIdentity(who)
+        setAuthed(true)
+      }
+      setBooting(false)
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
     if (authed) loadData()
   }, [authed, loadData])
 
-  const handleLogin = async () => {
+  const handleLogin = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    if (!email.trim() || !password) return
     setLoginLoading(true)
     setLoginError('')
-    setAdminSecret(secretInput)
     try {
-      await getAdminStats()
+      const who = await adminLogin(email.trim(), password)
+      setIdentity(who)
+      setPassword('')
       setAuthed(true)
-    } catch {
-      clearAdminSecret()
-      setLoginError('Secret invalido')
+    } catch (err: any) {
+      setLoginError(err?.message || 'Falha no login')
     } finally {
       setLoginLoading(false)
     }
   }
 
-  const handleLogout = () => {
-    clearAdminSecret()
+  const handleLogout = async () => {
+    await adminLogout()
+    clearAdminToken()
     setAuthed(false)
+    setIdentity(null)
     setStats(null)
     setKeys([])
     setSessions([])
@@ -166,6 +196,34 @@ export default function AdminPanel() {
     }
   }
 
+  const handleChangePassword = async () => {
+    setPwdError('')
+    setPwdOk('')
+    if (!pwdForm.current || !pwdForm.next) {
+      setPwdError('Preencha a senha atual e a nova')
+      return
+    }
+    if (pwdForm.next.length < 8) {
+      setPwdError('A nova senha precisa de pelo menos 8 caracteres')
+      return
+    }
+    if (pwdForm.next !== pwdForm.confirm) {
+      setPwdError('As senhas não coincidem')
+      return
+    }
+    setActionLoading(true)
+    try {
+      await changeAdminPassword(pwdForm.current, pwdForm.next)
+      setPwdOk('Senha alterada com sucesso')
+      setPwdForm({ current: '', next: '', confirm: '' })
+      setShowPassword(false)
+    } catch (err: any) {
+      setPwdError(err?.message || 'Falha ao trocar a senha')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const handleCloseSession = async (sessionId: string) => {
     if (!confirm('Fechar esta sessão? O usuário será desconectado.')) return
     setActionLoading(true)
@@ -191,28 +249,52 @@ export default function AdminPanel() {
 
   // --- LOGIN ---
   if (!authed) {
+    if (booting) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100vh', background: colors.bg, color: colors.textMuted, fontSize: 14 }}>
+          Carregando...
+        </div>
+      )
+    }
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100vh', background: colors.bg }}>
-        <div style={{ background: colors.bgCard, padding: 32, borderRadius: 12, border: `1px solid ${colors.border}`, width: 360 }}>
+        <form onSubmit={handleLogin} style={{ background: colors.bgCard, padding: 32, borderRadius: 12, border: `1px solid ${colors.border}`, width: 360 }}>
           <h1 style={{ color: colors.text, fontSize: 20, marginBottom: 8, fontWeight: 600 }}>Serende Admin</h1>
-          <p style={{ color: colors.textMuted, fontSize: 13, marginBottom: 20 }}>Insira o Admin Secret para acessar</p>
+          <p style={{ color: colors.textMuted, fontSize: 13, marginBottom: 20 }}>Entre com seu email e senha</p>
+
+          <label style={{ display: 'block', fontSize: 12, color: colors.textMuted, marginBottom: 4 }}>Email</label>
+          <input
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="admin@serende.local"
+            autoFocus
+            disabled={loginLoading}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.bgInput, color: colors.text, fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }}
+          />
+
+          <label style={{ display: 'block', fontSize: 12, color: colors.textMuted, marginBottom: 4 }}>Senha</label>
           <input
             type="password"
-            value={secretInput}
-            onChange={e => setSecretInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleLogin()}
-            placeholder="Admin Secret"
+            autoComplete="current-password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="••••••••"
+            disabled={loginLoading}
             style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.bgInput, color: colors.text, fontSize: 14, marginBottom: 12, boxSizing: 'border-box' }}
           />
+
           {loginError && <p style={{ color: colors.danger, fontSize: 13, marginBottom: 8 }}>{loginError}</p>}
+
           <button
-            onClick={handleLogin}
-            disabled={loginLoading || !secretInput}
+            type="submit"
+            disabled={loginLoading || !email.trim() || !password}
             style={{ width: '100%', padding: '10px 0', borderRadius: 8, border: 'none', background: colors.accent, color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer', opacity: loginLoading ? 0.6 : 1 }}
           >
-            {loginLoading ? 'Verificando...' : 'Entrar'}
+            {loginLoading ? 'Entrando...' : 'Entrar'}
           </button>
-        </div>
+        </form>
       </div>
     )
   }
@@ -244,8 +326,14 @@ export default function AdminPanel() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 600 }}>Serende Admin</h1>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 600 }}>Serende Admin</h1>
+            {identity?.email && (
+              <p style={{ fontSize: 12, color: colors.textDim, marginTop: 2 }}>{identity.email}</p>
+            )}
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setShowPassword(true)} style={btnStyle(colors.bgCard, colors.border)}>Trocar senha</button>
             <button onClick={loadData} disabled={loading} style={btnStyle(colors.bgCard, colors.border)}>
               {loading ? '...' : '↻ Atualizar'}
             </button>
@@ -410,6 +498,38 @@ export default function AdminPanel() {
               </button>
             </div>
             <p style={{ fontSize: 12, color: colors.textDim }}>Nome: {createdKey.name} | ID: {createdKey.id}</p>
+          </Modal>
+        )}
+
+        {/* Password Modal */}
+        {showPassword && (
+          <Modal title="Trocar senha" onClose={() => { setShowPassword(false); setPwdError('') }}>
+            <FormField
+              label="Senha atual"
+              type="password"
+              value={pwdForm.current}
+              onChange={v => setPwdForm(f => ({ ...f, current: v }))}
+            />
+            <FormField
+              label="Nova senha"
+              type="password"
+              value={pwdForm.next}
+              onChange={v => setPwdForm(f => ({ ...f, next: v }))}
+            />
+            <FormField
+              label="Confirmar nova senha"
+              type="password"
+              value={pwdForm.confirm}
+              onChange={v => setPwdForm(f => ({ ...f, confirm: v }))}
+            />
+            {pwdError && <p style={{ color: colors.danger, fontSize: 13, marginBottom: 8 }}>{pwdError}</p>}
+            <button
+              onClick={handleChangePassword}
+              disabled={actionLoading || !pwdForm.current || !pwdForm.next}
+              style={{ ...btnStyle(colors.accent, colors.accent), color: '#fff', width: '100%', marginTop: 8, fontWeight: 500 }}
+            >
+              {actionLoading ? 'Salvando...' : 'Salvar'}
+            </button>
           </Modal>
         )}
 

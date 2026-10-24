@@ -10,10 +10,24 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 4204,
     allowedHosts: true,
+    proxy: {
+      '/api': 'http://localhost:4201',
+      '/ws': {
+        target: 'ws://localhost:4201',
+        ws: true,
+      },
+    },
   },
   preview: {
     host: '0.0.0.0',
     port: 4204,
     allowedHosts: true,
+    proxy: {
+      '/api': 'http://localhost:4201',
+      '/ws': {
+        target: 'ws://localhost:4201',
+        ws: true,
+      },
+    },
   },
 })

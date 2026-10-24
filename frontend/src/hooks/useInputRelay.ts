@@ -1,50 +1,18 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { createWsClient } from '../lib/ws-client'
-import { mapScroll, mapKeyDown, mapKeyUp, Resolution } from '../lib/input-mapper'
+import {
+  mapClientToRemote,
+  mapKeyDown,
+  mapKeyUp,
+  mapWheel,
+  mouseModifiers,
+  shouldPreventDefaultKey,
+  toRemoteInt,
+  Resolution,
+} from '../lib/input-mapper'
 import { getAuthWsUrl } from '../lib/auth-client'
 
-const THROTTLE_MS = 0
-
-let cachedCanvasRect: { x: number; y: number; w: number; h: number; ts: number } | null = null
-
-function getCanvasRect(canvas: HTMLCanvasElement): { x: number; y: number; w: number; h: number } | null {
-  const now = performance.now()
-  if (cachedCanvasRect && now - cachedCanvasRect.ts < 500) {
-    return cachedCanvasRect
-  }
-
-  const rect = canvas.getBoundingClientRect()
-  const cw = canvas.width
-  const ch = canvas.height
-  if (!cw || !ch) return null
-
-  const containerAspect = rect.width / rect.height
-  const canvasAspect = cw / ch
-
-  let renderW: number, renderH: number, offsetX: number, offsetY: number
-
-  if (canvasAspect > containerAspect) {
-    renderW = rect.width
-    renderH = rect.width / canvasAspect
-    offsetX = 0
-    offsetY = (rect.height - renderH) / 2
-  } else {
-    renderH = rect.height
-    renderW = rect.height * canvasAspect
-    offsetX = (rect.width - renderW) / 2
-    offsetY = 0
-  }
-
-  cachedCanvasRect = {
-    x: rect.left + offsetX,
-    y: rect.top + offsetY,
-    w: renderW,
-    h: renderH,
-    ts: now,
-  }
-
-  return cachedCanvasRect
-}
+type CoalescedSource = { getCoalescedEvents?: () => Array<{ clientX: number; clientY: number }> }
 
 export function useInputRelay(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
@@ -53,7 +21,8 @@ export function useInputRelay(
   resolution: Resolution = { width: 1280, height: 720 },
   sessionId: string | null = null
 ) {
-  const lastMoveRef = useRef(0)
+  const pendingMovesRef = useRef<Array<{ x: number; y: number }>>([])
+  const rafRef = useRef(0)
   const wsRef = useRef<ReturnType<typeof createWsClient> | null>(null)
 
   useEffect(() => {
@@ -79,44 +48,112 @@ export function useInputRelay(
     const canvas = canvasRef.current
     if (!el || !canvas || !active) return
 
-    cachedCanvasRect = null
-
     const rw = resolution.width
     const rh = resolution.height
 
-    function scaleCoords(e: MouseEvent): { x: number; y: number } | null {
-      const cr = getCanvasRect(canvas!)
-      if (!cr) return null
+    // Tamanho REAL do frame pintado (canvas.width/height). É a base da
+    // escala: o servidor converte fw/fh -> viewport do Chrome (B1).
+    const frameSize = () => {
+      const c = canvasRef.current
+      const fw = c && c.width > 0 ? c.width : rw
+      const fh = c && c.height > 0 ? c.height : rh
+      return { fw, fh }
+    }
 
-      const relX = e.clientX - cr.x
-      const relY = e.clientY - cr.y
+    const flushMoves = () => {
+      rafRef.current = 0
+      const batch = pendingMovesRef.current
+      pendingMovesRef.current = []
+      if (batch.length === 0) return
+      // Só o ÚLTIMO ponto: o coalesce de verdade acontece no servidor
+      // (setImmediate, ~2µs). Aqui mandar N mensagens enchia a fila do CDP
+      // e atrasava a tecla seguinte em 252ms (medido com 300 mousemove).
+      const last = batch[batch.length - 1]
+      const { fw, fh } = frameSize()
+      send({ type: 'mousemove', x: last.x, y: last.y, fw, fh })
+    }
 
-      if (relX < 0 || relY < 0 || relX > cr.w || relY > cr.h) return null
+    const scheduleFlush = () => {
+      if (!rafRef.current) rafRef.current = requestAnimationFrame(flushMoves)
+    }
 
-      return {
-        x: (relX / cr.w * rw + 0.5) | 0,
-        y: (relY / cr.h * rh + 0.5) | 0,
+    const pushMove = (clientX: number, clientY: number) => {
+      const target = canvasRef.current
+      if (!target) return
+      // Mapeamento preciso: rect fresco + escala real, float até o envio.
+      const p = mapClientToRemote(clientX, clientY, target, { width: rw, height: rh })
+      if (!p) return
+      pendingMovesRef.current.push({
+        x: toRemoteInt(p.x, target.width),
+        y: toRemoteInt(p.y, target.height),
+      })
+      if (pendingMovesRef.current.length > 32) {
+        pendingMovesRef.current.splice(0, pendingMovesRef.current.length - 32)
       }
+      scheduleFlush()
+    }
+
+    function coordsOf(e: MouseEvent, clampOutside = false): { x: number; y: number } | null {
+      const target = canvasRef.current
+      if (!target) return null
+      const p = mapClientToRemote(e.clientX, e.clientY, target, { width: rw, height: rh }, clampOutside)
+      if (!p) return null
+      return { x: toRemoteInt(p.x, target.width), y: toRemoteInt(p.y, target.height) }
     }
 
     const handleMouseMove = (e: MouseEvent) => {
-      const now = performance.now()
-      if (now - lastMoveRef.current < THROTTLE_MS) return
-      lastMoveRef.current = now
-      const coords = scaleCoords(e)
-      if (coords) send({ type: 'mousemove', ...coords })
+      // Eventos coalescidos preservam o trajeto em 120Hz+ sem inundar o WS;
+      // o rAF limita o envio a 1 lote por frame.
+      const src = e as MouseEvent & CoalescedSource
+      const list = typeof src.getCoalescedEvents === 'function' ? src.getCoalescedEvents() : [e]
+      const events = list.length > 0 ? list : [e]
+      for (const ev of events) pushMove(ev.clientX, ev.clientY)
     }
 
     const handleMouseDown = (e: MouseEvent) => {
       e.preventDefault()
-      el.focus()
-      const coords = scaleCoords(e)
-      if (coords) send({ type: 'mousedown', ...coords, button: e.button })
+      // Evita perda de foco: o canvas precisa segurar o foco p/ o teclado.
+      el.focus({ preventScroll: true })
+      const coords = coordsOf(e)
+      if (!coords) return
+      const { fw, fh } = frameSize()
+      const modifiers = mouseModifiers(e)
+      // ORDEM: mousemove ANTES do mousedown. O move atrasado para o próximo
+      // rAF chegava DEPOIS do press/release (medido: press -> release -> move),
+      // então o :hover não era aplicado no momento do clique.
+      send({ type: 'mousemove', x: coords.x, y: coords.y, fw, fh, modifiers })
+      send({
+        type: 'mousedown',
+        ...coords,
+        button: e.button,
+        modifiers,
+        clickCount: e.detail >= 2 ? 2 : 1,
+        fw,
+        fh,
+      })
     }
 
     const handleMouseUp = (e: MouseEvent) => {
-      const coords = scaleCoords(e)
-      if (coords) send({ type: 'mouseup', ...coords, button: e.button })
+      // Clamp: soltar fora do canvas ainda libera o botão (evita drag preso).
+      const coords = coordsOf(e, true)
+      if (!coords) return
+      const { fw, fh } = frameSize()
+      const modifiers = mouseModifiers(e)
+      const clickCount = e.detail >= 2 ? 2 : 1
+      send({
+        type: 'mouseup',
+        ...coords,
+        button: e.button,
+        modifiers,
+        clickCount,
+        fw,
+        fh,
+      })
+      // dblclick: o Chrome só monta detail=2 quando recebe o par com
+      // clickCount 2 — e o frontend não mandava 'dblclick' nenhum.
+      if (e.detail === 2) {
+        send({ type: 'dblclick', ...coords, button: e.button, modifiers, fw, fh })
+      }
     }
 
     const handleContextMenu = (e: MouseEvent) => {
@@ -125,12 +162,17 @@ export function useInputRelay(
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault()
-      const coords = scaleCoords(e)
-      if (coords) send({ type: 'scroll', ...coords, deltaY: e.deltaY })
+      const target = canvasRef.current
+      if (!target) return
+      // DeltaMode normalizado (linha/página -> px) + deltaX junto.
+      const mapped = mapWheel(e, target, { width: rw, height: rh })
+      if (mapped) send(mapped)
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      e.preventDefault()
+      // Tab/Enter/Escape/modificadores: não deixa o foco escapar nem o
+      // navegador sequestrar o atalho; repeat viaja junto (key repeat).
+      if (shouldPreventDefaultKey(e)) e.preventDefault()
       send(mapKeyDown(e))
     }
 
@@ -138,8 +180,20 @@ export function useInputRelay(
       send(mapKeyUp(e))
     }
 
-    const onResize = () => { cachedCanvasRect = null }
-    window.addEventListener('resize', onResize)
+    const handleBlur = () => {
+      // Recupera o foco quando ele cai no vazio (body); respeita quando o
+      // usuário foi para um campo de verdade (toolbar input, select...).
+      requestAnimationFrame(() => {
+        const ae = document.activeElement
+        if (ae === document.body || ae === null) el.focus({ preventScroll: true })
+      })
+    }
+
+    const refocusViewer = () => el.focus({ preventScroll: true })
+    window.addEventListener('serende:refocus-viewer', refocusViewer)
+
+    // Garante foco ao ativar (teclado funciona sem o primeiro clique).
+    el.focus({ preventScroll: true })
 
     el.addEventListener('mousemove', handleMouseMove)
     el.addEventListener('mousedown', handleMouseDown)
@@ -148,9 +202,13 @@ export function useInputRelay(
     el.addEventListener('wheel', handleWheel, { passive: false })
     el.addEventListener('keydown', handleKeyDown)
     el.addEventListener('keyup', handleKeyUp)
+    el.addEventListener('blur', handleBlur)
 
     return () => {
-      window.removeEventListener('resize', onResize)
+      window.removeEventListener('serende:refocus-viewer', refocusViewer)
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      rafRef.current = 0
+      pendingMovesRef.current = []
       el.removeEventListener('mousemove', handleMouseMove)
       el.removeEventListener('mousedown', handleMouseDown)
       el.removeEventListener('mouseup', handleMouseUp)
@@ -158,6 +216,7 @@ export function useInputRelay(
       el.removeEventListener('wheel', handleWheel)
       el.removeEventListener('keydown', handleKeyDown)
       el.removeEventListener('keyup', handleKeyUp)
+      el.removeEventListener('blur', handleBlur)
     }
   }, [containerRef, canvasRef, active, resolution, send])
 }

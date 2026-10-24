@@ -103,7 +103,13 @@ function updateKey(id, fields) {
   for (const [jsKey, dbCol] of Object.entries(mapping)) {
     if (fields[jsKey] !== undefined) {
       sets.push(`${dbCol} = ?`);
-      const val = jsKey === 'features' ? JSON.stringify(fields[jsKey]) : fields[jsKey];
+      // SQLite (better-sqlite3) rejeita booleano JS: `enabled` precisa virar 0/1.
+      // Sem esta conversão, um PATCH painel→{enabled:true} estoura TypeError.
+      const val = jsKey === 'features'
+        ? JSON.stringify(fields[jsKey])
+        : jsKey === 'enabled'
+          ? (fields[jsKey] ? 1 : 0)
+          : fields[jsKey];
       values.push(val);
     }
   }

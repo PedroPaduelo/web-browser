@@ -11,6 +11,30 @@ interface UseWebRTCResult {
   disconnect: () => void
 }
 
+// Reconexão com backoff exponencial + jitter e limite de tentativas
+const MAX_RETRIES = 5
+const BASE_DELAY_MS = 1000
+const MAX_DELAY_MS = 15000
+const FETCH_TIMEOUT_MS = 8000
+const CONNECT_TIMEOUT_MS = 5000
+const ICE_GATHER_TIMEOUT_MS = 2000
+
+// fetch de sinalização com timeout (evita hang eterno sem resposta)
+async function fetchWithTimeout(url: string, options: RequestInit, ms: number): Promise<Response> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  try {
+    return await authFetch(url, { ...options, signal: ctrl.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function backoffDelay(attempt: number): number {
+  const exp = Math.min(BASE_DELAY_MS * 2 ** attempt, MAX_DELAY_MS)
+  return exp + Math.floor(Math.random() * 500) // jitter anti-thundering-herd
+}
+
 export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCResult {
   const [state, setState] = useState<RTCState>('idle')
   const [fps, setFps] = useState(0)
@@ -18,26 +42,37 @@ export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCR
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const peerIdRef = useRef<string | null>(null)
   const fpsCountRef = useRef(0)
+  const fpsSmoothRef = useRef(0)
   const fpsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortRef = useRef(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const attemptRef = useRef(0)
 
-  const disconnect = useCallback(() => {
-    abortRef.current = true
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    if (fpsTimerRef.current) clearInterval(fpsTimerRef.current)
+  const clearTimers = useCallback(() => {
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null }
+    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null }
+  }, [])
 
-    if (peerIdRef.current && sessionId) {
-      authFetch(`/api/webrtc/${sessionId}/peer/${peerIdRef.current}`, {
-        method: 'DELETE',
-      }).catch(() => {})
-      peerIdRef.current = null
+  const cleanupPeer = useCallback(async () => {
+    if (fpsTimerRef.current) { clearInterval(fpsTimerRef.current); fpsTimerRef.current = null }
+    const peerId = peerIdRef.current
+    peerIdRef.current = null
+    if (peerId && sessionId) {
+      // fire-and-forget com timeout para não travar o disconnect
+      fetchWithTimeout(`/api/webrtc/${sessionId}/peer/${peerId}`, { method: 'DELETE' }, 5000).catch(() => {})
     }
-
     if (pcRef.current) {
       try { pcRef.current.close() } catch {}
       pcRef.current = null
     }
+  }, [sessionId])
+
+  const disconnect = useCallback(() => {
+    abortRef.current = true
+    attemptRef.current = 0
+    clearTimers()
+    void cleanupPeer()
 
     if (videoRef.current) {
       videoRef.current.srcObject = null
@@ -45,34 +80,48 @@ export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCR
 
     setState('closed')
     setFps(0)
-  }, [sessionId])
+    fpsSmoothRef.current = 0
+  }, [clearTimers, cleanupPeer])
 
   const connect = useCallback(async () => {
     if (!sessionId || !active) return
+    if (pcRef.current) return // já há tentativa/conexão em voo
     abortRef.current = false
+    if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null }
+    const attempt = attemptRef.current
     setState('connecting')
 
-    // Timeout de 5s: se WebRTC não conectar, marca como failed para usar MJPEG fallback
+    const scheduleRetry = () => {
+      if (abortRef.current) return
+      if (attemptRef.current >= MAX_RETRIES) {
+        setState('failed')
+        return
+      }
+      attemptRef.current += 1
+      const delay = backoffDelay(attemptRef.current)
+      console.warn(`[WebRTC] retry ${attemptRef.current}/${MAX_RETRIES} in ${delay}ms`)
+      retryTimerRef.current = setTimeout(() => {
+        pcRef.current = null
+        void connectRef.current()
+      }, delay)
+    }
+
+    // Timeout de conexão: sem ICE connected/completed, falha p/ MJPEG fallback + retry
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => {
       if (abortRef.current) return
       if (!pcRef.current) return
       const s = pcRef.current.iceConnectionState
       if (s !== 'connected' && s !== 'completed') {
-        console.warn('[WebRTC] Connection timeout after 5s, falling back to MJPEG')
-        setState('failed')
-        try { pcRef.current.close() } catch {}
-        pcRef.current = null
-        if (peerIdRef.current && sessionId) {
-          authFetch(`/api/webrtc/${sessionId}/peer/${peerIdRef.current}`, { method: 'DELETE' }).catch(() => {})
-          peerIdRef.current = null
-        }
+        console.warn('[WebRTC] Connection timeout, falling back to MJPEG')
+        void cleanupPeer()
+        scheduleRetry()
       }
-    }, 5000)
+    }, CONNECT_TIMEOUT_MS)
 
     try {
-      // 1. pedir offer ao servidor
-      const offerRes = await authFetch(`/api/webrtc/${sessionId}/offer`, { method: 'POST' })
+      // 1. pedir offer ao servidor (com timeout)
+      const offerRes = await fetchWithTimeout(`/api/webrtc/${sessionId}/offer`, { method: 'POST' }, FETCH_TIMEOUT_MS)
       if (!offerRes.ok) throw new Error(`Offer failed: ${offerRes.status}`)
       const { peerId, sdp, type, candidates } = await offerRes.json()
 
@@ -110,9 +159,9 @@ export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCR
             let lastTs = 0
             const countFrame = (ts: number) => {
               if (ts !== lastTs) { fpsCountRef.current++; lastTs = ts }
-              if (pcRef.current) (video as any).requestVideoFrameCallback(countFrame)
+              if (pcRef.current && !abortRef.current) (video as unknown as { requestVideoFrameCallback: (cb: (ts: number) => void) => void }).requestVideoFrameCallback(countFrame)
             }
-            ;(video as any).requestVideoFrameCallback(countFrame)
+            ;(video as unknown as { requestVideoFrameCallback: (cb: (ts: number) => void) => void }).requestVideoFrameCallback(countFrame)
           }
         }
       }
@@ -121,53 +170,87 @@ export function useWebRTC(active: boolean, sessionId: string | null): UseWebRTCR
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
 
-      // aguardar ICE gathering
+      // aguardar ICE gathering (com timeout e limpeza do listener)
       await new Promise<void>((resolve) => {
         if (pc.iceGatheringState === 'complete') { resolve(); return }
         const check = () => {
           if (pc.iceGatheringState === 'complete') { pc.removeEventListener('icegatheringstatechange', check); resolve() }
         }
         pc.addEventListener('icegatheringstatechange', check)
-        setTimeout(resolve, 2000) // timeout 2s
+        setTimeout(() => { pc.removeEventListener('icegatheringstatechange', check); resolve() }, ICE_GATHER_TIMEOUT_MS)
       })
 
       if (abortRef.current) { if (timeoutRef.current) clearTimeout(timeoutRef.current); try { pc.close() } catch {}; return }
 
-      // 7. enviar answer ao servidor
-      const answerRes = await authFetch(`/api/webrtc/${sessionId}/answer`, {
+      // 7. enviar answer ao servidor (com timeout)
+      const answerRes = await fetchWithTimeout(`/api/webrtc/${sessionId}/answer`, {
         method: 'POST',
         body: JSON.stringify({ peerId, sdp: pc.localDescription!.sdp }),
-      })
+      }, FETCH_TIMEOUT_MS)
       if (!answerRes.ok) throw new Error(`Answer failed: ${answerRes.status}`)
 
-      // FPS counter
+      // FPS: média móvel (EMA α=0.3) sobre frames/seg
+      if (fpsTimerRef.current) clearInterval(fpsTimerRef.current)
       fpsTimerRef.current = setInterval(() => {
-        setFps(fpsCountRef.current)
+        const inst = fpsCountRef.current
         fpsCountRef.current = 0
+        const prev = fpsSmoothRef.current
+        const next = prev === 0 ? inst : Math.round(prev * 0.7 + inst * 0.3)
+        fpsSmoothRef.current = next
+        setFps((cur) => cur !== next ? next : cur)
       }, 1000)
 
-      // Ao conectar com sucesso, limpar o timeout
+      // Sucesso/fracasso via estado ICE
       pc.oniceconnectionstatechange = () => {
         const s = pc.iceConnectionState
         if (s === 'connected' || s === 'completed') {
           if (timeoutRef.current) clearTimeout(timeoutRef.current)
+          attemptRef.current = 0 // reseta backoff após sucesso
           setState('connected')
         } else if (s === 'failed' || s === 'closed' || s === 'disconnected') {
-          setState('failed')
+          if (!abortRef.current) {
+            void cleanupPeer()
+            scheduleRetry()
+          }
         }
       }
 
     } catch (err) {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-      console.warn('[WebRTC] connect failed:', err)
-      if (!abortRef.current) setState('failed')
+      if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.warn(`[WebRTC] signaling timeout (attempt ${attempt + 1})`)
+      } else {
+        console.warn('[WebRTC] connect failed:', err)
+      }
+      if (!abortRef.current) {
+        await cleanupPeer()
+        scheduleRetry()
+      }
     }
-  }, [active, sessionId])
+  }, [active, sessionId, cleanupPeer, clearTimers])
+
+  const connectRef = useRef(connect)
+  connectRef.current = connect
 
   useEffect(() => {
     if (!active || !sessionId) return
-    connect()
-    return () => disconnect()
+    attemptRef.current = 0
+    void connectRef.current()
+    return () => {
+      abortRef.current = true
+      clearTimers()
+      if (fpsTimerRef.current) { clearInterval(fpsTimerRef.current); fpsTimerRef.current = null }
+      const peerId = peerIdRef.current
+      peerIdRef.current = null
+      if (peerId && sessionId) {
+        fetchWithTimeout(`/api/webrtc/${sessionId}/peer/${peerId}`, { method: 'DELETE' }, 5000).catch(() => {})
+      }
+      if (pcRef.current) {
+        try { pcRef.current.close() } catch {}
+        pcRef.current = null
+      }
+      if (videoRef.current) videoRef.current.srcObject = null
+    }
   }, [active, sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return { state, videoRef, fps, connect, disconnect }

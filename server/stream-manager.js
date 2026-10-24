@@ -4,7 +4,7 @@ const EOI_0 = 0xFF;
 const EOI_1 = 0xD9;
 
 class StreamManager {
-  constructor() {
+  constructor(opts = {}) {
     this.clients = new Set();
     this.ffmpegStream = null;
     this.buf = Buffer.allocUnsafe(512 * 1024);
@@ -14,12 +14,19 @@ class StreamManager {
     this.fps = 0;
     this.lastFrame = null;
     this.mode = 'none'; // 'ffmpeg' | 'cdp'
+    // Teto de backpressure por cliente (default 1MB — 4MB enfileirava ~2s de
+    // vídeo e atrasava o stream; quem passa disso recebe o próximo lastFrame).
+    this.maxBuffered = Math.max(64 * 1024, +opts.maxBufferedBytes || 1024 * 1024);
+    this.dropped = 0;
+    this.sendErrors = 0;
   }
 
-  // Injetar frame diretamente (CDP screencast mode)
+  // Injetar frame diretamente (CDP screencast mode). Retorna nº de clientes
+  // que realmente receberam (0 = só guardado como lastFrame).
   pushFrame(frameBuffer) {
     this.lastFrame = frameBuffer;
-    this.broadcastFrame(frameBuffer);
+    if (this.clients.size === 0) return 0;
+    return this.broadcastFrame(frameBuffer);
   }
 
   addClient(ws) {
@@ -33,6 +40,7 @@ class StreamManager {
     }
 
     ws.on('close', () => this.clients.delete(ws));
+    ws.on('error', () => this.clients.delete(ws));
   }
 
   startCapture(ffmpegStdout) {
@@ -56,6 +64,19 @@ class StreamManager {
 
     ffmpegStdout.on('end', () => { this.ffmpegStream = null; });
     ffmpegStdout.on('error', () => {});
+  }
+
+  // Encerra a captura de vídeo: solta o stdout e limpa o buffer parcial.
+  // Sem limpar, um JPEG pela metade ficaria no buffer e o próximo produtor
+  // (fallback CDP) poderia emitir um frame corrompido.
+  stopCapture() {
+    if (this.ffmpegStream) {
+      try { this.ffmpegStream.removeAllListeners('data'); } catch {}
+      try { this.ffmpegStream.pause(); } catch {}
+    }
+    this.ffmpegStream = null;
+    this.bufLen = 0;
+    this.mode = 'none';
   }
 
   extractAndBroadcast() {
@@ -108,19 +129,27 @@ class StreamManager {
       this.lastFpsTime = now;
     }
 
+    let sent = 0;
     for (const ws of this.clients) {
       if (ws.readyState !== 1) continue;
-      // Skip se backpressure muito alto (>4MB = cliente muito lento)
-      if (ws.bufferedAmount > 4 * 1024 * 1024) continue;
+      // Descarte sob congestão: cliente com buffer cheio pula este frame e
+      // recebe o próximo lastFrame ao drenar — evita fila crescente e atraso.
+      if (typeof ws.bufferedAmount === 'number' && ws.bufferedAmount > this.maxBuffered) {
+        this.dropped++;
+        continue;
+      }
       try {
         ws.send(frame, { binary: true, fin: true, compress: false });
-      } catch {}
+        sent++;
+      } catch {
+        this.sendErrors++;
+      }
     }
+    return sent;
   }
 
   stop() {
-    this.ffmpegStream = null;
-    this.bufLen = 0;
+    this.stopCapture();
     this.lastFrame = null;
     for (const ws of this.clients) {
       try { ws.close(); } catch {}
@@ -129,11 +158,19 @@ class StreamManager {
   }
 
   getStats() {
+    let slowClients = 0;
+    for (const ws of this.clients) {
+      if (typeof ws.bufferedAmount === 'number' && ws.bufferedAmount > this.maxBuffered) slowClients++;
+    }
     return {
       clients: this.clients.size,
+      slowClients,
       fps: this.fps,
       capturing: this.mode !== 'none',
       mode: this.mode,
+      dropped: this.dropped,
+      sendErrors: this.sendErrors,
+      maxBufferedBytes: this.maxBuffered,
     };
   }
 }

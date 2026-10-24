@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useAuth } from './AuthProvider'
 
 interface Props {
@@ -7,15 +7,36 @@ interface Props {
   onNavigate: (url: string) => void
 }
 
+async function postKey(sessionId: string, token: string, body: Record<string, unknown>) {
+  await fetch(`/api/input/${sessionId}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+/** Par down+up: sem o keyup a tecla fica "presa" no remoto. */
+async function tapKey(sessionId: string, token: string, key: string, code: string, extra: Record<string, unknown> = {}) {
+  await postKey(sessionId, token, { type: 'keydown', key, code, ...extra })
+  await postKey(sessionId, token, { type: 'keyup', key, code, ...extra })
+}
+
 export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props) {
   const { token } = useAuth()
   const [url, setUrl] = useState('')
   const [navigating, setNavigating] = useState(false)
 
-  // Sync URL when page changes
-  useState(() => {
+  // Sync URL quando a página remota muda (efeito, não setState no render).
+  useEffect(() => {
     if (pageUrl) setUrl(pageUrl)
-  })
+  }, [pageUrl])
+
+  const refocusViewer = useCallback(() => {
+    // Devolve o foco ao viewer para o teclado voltar a funcionar de imediato.
+    const viewer = document.querySelector<HTMLElement>('[data-viewer-container="true"]')
+    if (viewer) viewer.focus({ preventScroll: true })
+    else window.dispatchEvent(new Event('serende:refocus-viewer'))
+  }, [])
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
@@ -28,20 +49,19 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
         finalUrl = 'https://' + finalUrl
       }
       onNavigate(finalUrl)
-      setTimeout(() => setUrl(finalUrl), 500)
+      setUrl(finalUrl)
+      // Solta o input para o viewer retomar o teclado.
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      refocusViewer()
     } finally {
       setNavigating(false)
     }
-  }, [url, sessionId, onNavigate])
+  }, [url, sessionId, onNavigate, refocusViewer])
 
   const handleBack = useCallback(async () => {
     if (!sessionId || !token) return
     try {
-      await fetch(`/api/input/${sessionId}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'keydown', key: 'Backspace' })
-      })
+      await tapKey(sessionId, token, 'Backspace', 'Backspace', { altKey: true })
     } catch (e) {
       console.error('Back failed:', e)
     }
@@ -50,11 +70,7 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
   const handleForward = useCallback(async () => {
     if (!sessionId || !token) return
     try {
-      await fetch(`/api/input/${sessionId}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'keydown', key: 'Forward' })
-      })
+      await tapKey(sessionId, token, 'Forward', 'BrowserForward')
     } catch (e) {
       console.error('Forward failed:', e)
     }
@@ -63,20 +79,19 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
   const handleRefresh = useCallback(async () => {
     if (!sessionId || !token) return
     try {
-      await fetch(`/api/input/${sessionId}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'keydown', key: 'F5' })
-      })
+      await tapKey(sessionId, token, 'F5', 'F5')
     } catch (e) {
       console.error('Refresh failed:', e)
     }
   }, [sessionId, token])
 
-  // Sync URL display
-  if (pageUrl && url !== pageUrl) {
-    setUrl(pageUrl)
-  }
+  const handleUrlKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Escape na barra: cancela a edição e devolve o foco ao viewer.
+    if (e.key === 'Escape') {
+      e.currentTarget.blur()
+      refocusViewer()
+    }
+  }, [refocusViewer])
 
   return (
     <div style={{
@@ -88,13 +103,13 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
       borderBottom: '1px solid #333',
     }}>
       {/* Navigation buttons */}
-      <button onClick={handleBack} disabled={!sessionId} title="Voltar" style={btnStyle}>
+      <button type="button" onClick={handleBack} disabled={!sessionId} title="Voltar" style={btnStyle}>
         ←
       </button>
-      <button onClick={handleForward} disabled={!sessionId} title="Avançar" style={btnStyle}>
+      <button type="button" onClick={handleForward} disabled={!sessionId} title="Avançar" style={btnStyle}>
         →
       </button>
-      <button onClick={handleRefresh} disabled={!sessionId} title="Atualizar" style={btnStyle}>
+      <button type="button" onClick={handleRefresh} disabled={!sessionId} title="Atualizar" style={btnStyle}>
         ↻
       </button>
 
@@ -104,6 +119,7 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
           type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={handleUrlKeyDown}
           placeholder={sessionId ? 'Digite uma URL...' : 'Inicie uma sessão primeiro'}
           disabled={!sessionId || navigating}
           style={{

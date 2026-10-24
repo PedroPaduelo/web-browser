@@ -13,7 +13,17 @@ const ESSENTIAL_FILES = [
   'Local State',
 ];
 
+// Trava tenantId/sessionId ao diretório do tenant (estabilidade: evita escape de path e
+// corrupção de profile por id malformado vindo da API).
+function assertSafeId(id, label = 'id') {
+  if (typeof id !== 'string' || !id || id.length > 200
+    || id.includes('/') || id.includes('\\') || id.includes('..') || id.includes('\0')) {
+    throw new Error(`${label} inválido (vazio, traversal ou longo demais)`);
+  }
+}
+
 function ensureTenantDir(tenantId) {
+  assertSafeId(tenantId, 'tenantId');
   const tenantDir = path.join(TENANTS_DIR, tenantId);
   fs.mkdirSync(path.join(tenantDir, 'profile-master', 'Default'), { recursive: true });
   fs.mkdirSync(path.join(tenantDir, 'sessions'), { recursive: true });
@@ -22,10 +32,13 @@ function ensureTenantDir(tenantId) {
 }
 
 function getProfileMasterDir(tenantId) {
+  assertSafeId(tenantId, 'tenantId');
   return path.join(TENANTS_DIR, tenantId, 'profile-master');
 }
 
 function getSessionProfileDir(tenantId, sessionId) {
+  assertSafeId(tenantId, 'tenantId');
+  assertSafeId(sessionId, 'sessionId');
   return path.join(TENANTS_DIR, tenantId, 'sessions', sessionId, 'profile');
 }
 
@@ -84,6 +97,8 @@ function mergeProfileFromSession(tenantId, sessionId) {
 }
 
 function cleanupSessionDir(tenantId, sessionId) {
+  assertSafeId(tenantId, 'tenantId');
+  assertSafeId(sessionId, 'sessionId');
   const sessionDir = path.join(TENANTS_DIR, tenantId, 'sessions', sessionId);
   try {
     if (fs.existsSync(sessionDir)) {
