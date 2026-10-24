@@ -165,10 +165,20 @@ shift
 PARENT_PID="$PPID"
 "$FFBIN" "$@" &
 FF_PID=$!
-cleanup() { kill -TERM "$FF_PID" 2>/dev/null || true; }
-trap cleanup TERM INT EXIT
+cleanup() {
+  kill -TERM "$FF_PID" 2>/dev/null || true
+  # O ffmpeg trata SIGTERM como shutdown gracioso e pode ficar preso na leitura
+  # do display X: por isso o cleanup escala para SIGKILL depois de 2s. Sem isso
+  # o produtor sobrevive à sessão encerrada segurando o socket X do display.
+  ( sleep 2; kill -KILL "$FF_PID" 2>/dev/null || true ) &
+}
+# No TERM/INT o shell precisa SAIR, não só rodar o cleanup: com o trap simples
+# o script continuava no loop, o ffmpeg só recebia o SIGTERM e ninguém
+# escalonava — o wrapper (e o ffmpeg) viviam depois da sessão encerrada.
+trap 'cleanup; exit 0' TERM INT
+trap cleanup EXIT
 exec 3<&0
-( cat <&3 > /dev/null; kill -TERM "$FF_PID" 2>/dev/null || true ) &
+( cat <&3 > /dev/null; cleanup ) &
 READER_PID=$!
 while kill -0 "$FF_PID" 2>/dev/null; do
   if [ "$PPID" != "$PARENT_PID" ]; then
@@ -771,12 +781,17 @@ function stopAllSessions() {
 
 function killProcess(proc) {
   if (!proc || proc.killed) return;
-  try {
-    proc.kill('SIGTERM');
-    setTimeout(() => {
-      try { if (!proc.killed) proc.kill('SIGKILL'); } catch {}
-    }, 2000);
-  } catch {}
+  // O escalonamento para SIGKILL precisa do PID, não de `proc.killed`:
+  // o Node marca `killed = true` assim que o sinal é ENTREGUE (não quando o
+  // processo morre), então `if (!proc.killed)` depois do SIGTERM nunca era
+  // verdadeiro — o SIGKILL ficava sendo código morto. Consequência real: um
+  // processo que ignora o SIGTERM (o wrapper do ffmpeg roda o cleanup mas não
+  // sai) sobrevivia para sempre segurando o display X.
+  const pid = proc.pid;
+  try { proc.kill('SIGTERM'); } catch {}
+  setTimeout(() => {
+    try { process.kill(pid, 'SIGKILL'); } catch {}
+  }, 2000);
 }
 
 // Mata o Chrome e TODO o seu process group.
@@ -796,8 +811,10 @@ function killChromeGroup(proc) {
     try { proc.kill('SIGTERM'); } catch {}
   }
   setTimeout(() => {
+    // Mesmo cuidado do killProcess: `proc.killed` já é true após o SIGTERM,
+    // então o fallback testá-lo tornava o SIGKILL inatingível. Usa o PID.
     try { process.kill(-pid, 'SIGKILL'); } catch {
-      try { if (proc && !proc.killed) proc.kill('SIGKILL'); } catch {}
+      try { process.kill(pid, 'SIGKILL'); } catch {}
     }
   }, 2000);
 }
