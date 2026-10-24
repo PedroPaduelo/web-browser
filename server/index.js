@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const { URL } = require('url');
 const { v4: uuidv4 } = require('uuid');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const db = require('./db');
 const keyStore = require('./key-store');
 const sessionManager = require('./session-manager');
@@ -74,10 +74,41 @@ app.use(cors({
 // --- Body Parser com limite ---
 app.use(express.json({ limit: '1mb' }));
 
-// --- Rate Limiting Global ---
+// --- Rate Limiting Global (tenant-aware) ---
+// Chavear por IP não funciona neste deploy: o MCP é um proxy local
+// (SERENDE_API=http://localhost:4201), então TODO o tráfego vindo do MCP
+// chega como 127.0.0.1 — todos os tenants disputavam UM único balde e um
+// tenant só estourava o limite dos outros (virava 429 em cascata).
+// A chave passa a ser a IDENTIDADE do tenant: o tenantId do JWT (verificado
+// localmente, sem esperar o authMiddleware que roda depois do limiter) ou o
+// hash da x-api-key. Tráfego sem identidade continua no balde por IP.
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000;
+const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100;
+const RATE_LIMIT_MAX_REQUESTS_TENANT = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS_TENANT) || 600;
+
+function tenantKeyFromRequest(req) {
+  // Memoizado por request: keyGenerator e limit são avaliados separadamente,
+  // e verifyToken faz uma verificação de assinatura (custo real) a cada chamada.
+  if (req._rateLimitTenantKey !== undefined) return req._rateLimitTenantKey;
+
+  let key = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const payload = verifyToken(authHeader.slice(7));
+    const tenantId = payload && (payload.tenantId || payload.userId);
+    if (tenantId) key = `tenant:${tenantId}`;
+  }
+  if (!key && req.headers['x-api-key']) {
+    key = `tenant:${deriveTenantId(String(req.headers['x-api-key']))}`;
+  }
+  req._rateLimitTenantKey = key;
+  return key;
+}
+
 const globalLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000,
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  limit: (req) => (tenantKeyFromRequest(req) ? RATE_LIMIT_MAX_REQUESTS_TENANT : RATE_LIMIT_MAX_REQUESTS),
+  keyGenerator: (req) => tenantKeyFromRequest(req) || ipKeyGenerator(req.ip),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },
@@ -677,8 +708,13 @@ app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, asy
         }
 
         // Store info
-        if (msg.result?.value && !infoData) {
-          infoData = msg.result.value;
+        // O CDP aninha o valor em result.result.value (o mesmo path usado em
+        // cdp-input-handler.js:208). Ler msg.result?.value nunca encontra
+        // nada: info ficava vazio, o overlay saía "URL: unknown" e a altura
+        // de página inteira caía sempre no fallback de 1080px.
+        if (!infoData) {
+          const value = msg.result?.result?.value;
+          if (value) infoData = value;
         }
 
         // Second (id 2 respondeu): resize para a página inteira

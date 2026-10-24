@@ -99,7 +99,9 @@ async function api(method, path, body) {
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(`API ${method} ${path} → ${res.status}: ${data.error || JSON.stringify(data)}`);
+    const err = new Error(`API ${method} ${path} → ${res.status}: ${data.error || JSON.stringify(data)}`);
+    err.status = res.status; // p/ erros de rede (TypeError) fica undefined
+    throw err;
   }
   return data;
 }
@@ -155,6 +157,21 @@ function reactToggleCheckbox(el, checked) {
 // Sessions cache (fallback, mas tentamos buscar do backend)
 const sessionCache = new Map();  // tenantId → sessionId (sobrevivem entre requisições HTTP)
 
+// Timestamp da última validação de sessão bem-sucedida por tenant.
+// Sem isso, CADA tool call gastava uma requisição extra só para conferir se a
+// sessão ainda existia — ou seja, metade do rate limit do tenant era consumida
+// por verificação. A janela é curta (3s): cobre uma sequência de tool calls
+// (navigate → wait → read) sem aceitar sessão morta por muito tempo.
+const sessionValidatedAt = new Map();
+const SESSION_VALIDATION_TTL_MS = parseInt(process.env.SESSION_VALIDATION_TTL_MS) || 3000;
+
+// Erros TRANSITÓRIOS não invalidam a sessão: 429 (rate limit), 5xx e falha de
+// rede são momentâneos. Só 404 (sessão morta) e 401 (token inválido) significam
+// que o cache está obsoleto.
+function isSessionGone(err) {
+  return err && (err.status === 404 || err.status === 401);
+}
+
 function createServer() {
   // Para cada conexão MCP, tentamos usar o cache global primeiro
   async function requireSession() {
@@ -162,11 +179,22 @@ function createServer() {
     let sessionId = sessionCache.get(tenantId);
     // Se tem no cache, verifica se ainda é válida no backend
     if (sessionId) {
+      // Validação recente: confia no cache e economiza 1 request por tool call.
+      const validatedAt = sessionValidatedAt.get(tenantId) || 0;
+      if (Date.now() - validatedAt < SESSION_VALIDATION_TTL_MS) {
+        return sessionId;
+      }
       try {
         await api('GET', `/api/session/${sessionId}`);
+        sessionValidatedAt.set(tenantId, Date.now());
         return sessionId;
       } catch (e) {
+        // Erro transitório (429/5xx/rede): a sessão continua viva. Apagar o
+        // cache aqui é o que transformava um rate limit em "No active session",
+        // fazendo o cliente chamar session_start e agravar o rate limit.
+        if (!isSessionGone(e)) throw e;
         sessionCache.delete(tenantId);
+        sessionValidatedAt.delete(tenantId);
         sessionId = null;
       }
     }
@@ -176,10 +204,12 @@ function createServer() {
       if (data.sessions && data.sessions.length > 0) {
         sessionId = data.sessions[0].sessionId;
         sessionCache.set(tenantId, sessionId);
+        sessionValidatedAt.set(tenantId, Date.now());
         return sessionId;
       }
     } catch (e) {
-      // ignora erro
+      // idem: transiente propaga o erro real, não "no active session"
+      if (!isSessionGone(e)) throw e;
     }
     throw new Error('No active session for this tenant. Use session_start first.');
   }
@@ -208,13 +238,18 @@ function createServer() {
         const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${cachedId}`;
         return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', viewerUrl, message: 'Session already active. Stop it first or use this one.' }, null, 2));
       } catch (e) {
+        // Transiente (429/5xx/rede): a sessão pode continuar viva — não descarta
+        // o cache, senão um rate limit cascateia em "cria outra sessão".
+        if (!isSessionGone(e)) throw e;
         // Sessão não existe mais, limpa cache
         sessionCache.delete(tenantId);
+        sessionValidatedAt.delete(tenantId);
       }
     }
     // Cria nova sessão
     const data = await api('POST', '/api/session', { resolution, startUrl });
     sessionCache.set(tenantId, data.sessionId);
+    sessionValidatedAt.set(tenantId, Date.now());
     const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${data.sessionId}`;
     return ok(JSON.stringify({ sessionId: data.sessionId, status: data.status, resolution: data.resolution, viewerUrl }, null, 2));
   });
@@ -227,6 +262,7 @@ function createServer() {
     const sid = await requireSession();
     const data = await api('DELETE', `/api/session/${sid}`);
     sessionCache.delete(tenantId);
+    sessionValidatedAt.delete(tenantId);
     return ok(data.message || 'Session stopped');
   });
 
