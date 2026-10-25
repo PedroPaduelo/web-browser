@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 
 const BASE_URL = 'https://serende.ddw1sl.easypanel.host';
-const API_KEY = 'serende-dev-key-2024';
+const API_KEY = process.env.KEY;
+if (!API_KEY) {
+  console.error('KEY não definida — este script precisa da chave do cliente no ambiente.');
+  console.error('Ex.: KEY=<chave> node scripts/test-api-endpoints.mjs');
+  process.exit(1);
+}
 
 async function apiCall(method, path, body = null, token = null) {
   const headers = { 'Content-Type': 'application/json' };

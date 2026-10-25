@@ -2,11 +2,16 @@
 /**
  * E2E do fluxo real: MCP público (preview) → sessão → navegação → screenshot.
  * Reproduz o caminho que quebrou com 429. Uso:
- *   MCP=https://sb-serende-p4202.mp.serendiped.com KEY=serende-dev-key-2024 \
+ *   MCP=https://sb-serende-p4202.mp.serendiped.com KEY=<chave-do-cliente> \
  *   node scripts/test-e2e-mcp-publico.js
  */
 const MCP = process.env.MCP || 'http://127.0.0.1:4202';
-const KEY = process.env.KEY || 'serende-dev-key-2024';
+const KEY = process.env.KEY;
+if (!KEY) {
+  console.error('KEY não definida — este script precisa da chave do cliente no ambiente.');
+  console.error('Ex.: KEY=<chave> node scripts/test-e2e-mcp-publico.js');
+  process.exit(1);
+}
 const ALVO = process.env.ALVO || 'https://canaltech.com.br/inteligencia-artificial/';
 
 let falhas = 0;

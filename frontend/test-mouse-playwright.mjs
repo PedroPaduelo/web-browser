@@ -2,6 +2,13 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 
+const API_KEY = process.env.KEY;
+if (!API_KEY) {
+  console.error('KEY não definida — este script precisa da chave do cliente no ambiente.');
+  console.error('Ex.: KEY=<chave> node frontend/test-mouse-playwright.mjs');
+  process.exit(1);
+}
+
 const SCREENSHOTS_DIR = '/workspace/temp-orquestrador/users/5aaf347f-952f-4355-8513-ac3f4024b43e/projetos/remote-browser/frontend/.claude-images';
 
 function log(msg) {
@@ -64,14 +71,14 @@ async function testMouseOffset() {
     log(`Found ${inputInfo.length} inputs: ${JSON.stringify(inputInfo)}`);
 
     // Try to fill API key
-    const inputFilled = await page.evaluate(() => {
+    const inputFilled = await page.evaluate((key) => {
       const inputs = Array.from(document.querySelectorAll('input'));
       for (const input of inputs) {
         const ph = (input.placeholder || '').toLowerCase();
         const nm = (input.name || '').toLowerCase();
         const id = (input.id || '').toLowerCase();
         if (ph.includes('key') || ph.includes('api') || nm.includes('key') || nm.includes('api') || id.includes('key') || id.includes('api')) {
-          input.value = 'serende-dev-key-2024';
+          input.value = key;
           input.dispatchEvent(new Event('input', { bubbles: true }));
           input.dispatchEvent(new Event('change', { bubbles: true }));
           return `Filled input: ${input.placeholder || input.name || input.id}`;
@@ -80,14 +87,14 @@ async function testMouseOffset() {
       // Try the first text/password input
       for (const input of inputs) {
         if (input.type === 'text' || input.type === 'password') {
-          input.value = 'serende-dev-key-2024';
+          input.value = key;
           input.dispatchEvent(new Event('input', { bubbles: true }));
           input.dispatchEvent(new Event('change', { bubbles: true }));
           return `Filled first text input: ${input.placeholder || input.name || input.id || '(none)'}`;
         }
       }
       return null;
-    });
+    }, API_KEY);
     log(`Input fill result: ${inputFilled}`);
 
     if (inputFilled) {
@@ -141,14 +148,14 @@ async function testMouseOffset() {
 
     // 4. Try to create session via API
     log('Trying to create session via API...');
-    const sessionResponse = await page.evaluate(async () => {
+    const sessionResponse = await page.evaluate(async (key) => {
       try {
         const res = await fetch('/api/sessions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': 'serende-dev-key-2024',
-            'Authorization': 'Bearer serende-dev-key-2024'
+            'X-API-Key': key,
+            'Authorization': `Bearer ${key}`
           },
           body: JSON.stringify({ width: 1280, height: 720 })
         });
@@ -157,18 +164,18 @@ async function testMouseOffset() {
       } catch (e) {
         return { error: e.message };
       }
-    });
+    }, API_KEY);
     log(`Session API response: ${JSON.stringify(sessionResponse)}`);
 
     // Also try without /api prefix
-    const sessionResponse2 = await page.evaluate(async () => {
+    const sessionResponse2 = await page.evaluate(async (key) => {
       try {
         const res = await fetch('/sessions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': 'serende-dev-key-2024',
-            'Authorization': 'Bearer serende-dev-key-2024'
+            'X-API-Key': key,
+            'Authorization': `Bearer ${key}`
           },
           body: JSON.stringify({ width: 1280, height: 720 })
         });
@@ -177,20 +184,20 @@ async function testMouseOffset() {
       } catch (e) {
         return { error: e.message };
       }
-    });
+    }, API_KEY);
     log(`Session API response (/sessions): ${JSON.stringify(sessionResponse2)}`);
 
     // Check available API endpoints
     const apiPaths = ['/api/sessions', '/sessions', '/api/session', '/session'];
     for (const apiPath of apiPaths) {
-      const r = await page.evaluate(async (p) => {
+      const r = await page.evaluate(async (p, key) => {
         try {
-          const res = await fetch(p, { headers: { 'X-API-Key': 'serende-dev-key-2024' } });
+          const res = await fetch(p, { headers: { 'X-API-Key': key } });
           return { status: res.status, path: p };
         } catch (e) {
           return { error: e.message, path: p };
         }
-      }, apiPath);
+      }, apiPath, API_KEY);
       log(`GET ${apiPath}: ${JSON.stringify(r)}`);
     }
 

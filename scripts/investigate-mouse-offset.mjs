@@ -12,7 +12,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = join(__dirname, '..', '.claude-images');
 
 const SERENDE_URL = 'https://serende.ddw1sl.easypanel.host';
-const API_KEY = 'serende-dev-key-2024';
+const API_KEY = process.env.KEY;
+if (!API_KEY) {
+  console.error('KEY não definida — este script precisa da chave do cliente no ambiente.');
+  console.error('Ex.: KEY=<chave> node scripts/investigate-mouse-offset.mjs');
+  process.exit(1);
+}
 
 function log(msg) {
   console.log(`[${new Date().toISOString()}] ${msg}`);

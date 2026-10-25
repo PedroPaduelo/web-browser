@@ -12,7 +12,12 @@
  */
 const fs = require('fs');
 const API = process.env.SERENDE_API || 'http://127.0.0.1:4201';
-const KEY = process.env.KEY || 'serende-dev-key-2024';
+const KEY = process.env.KEY;
+if (!KEY) {
+  console.error('KEY não definida — este script precisa da chave do cliente no ambiente.');
+  console.error('Ex.: KEY=<chave> node scripts/test-ffmpeg-leak.js');
+  process.exit(1);
+}
 const CICLOS = parseInt(process.argv[2] || '3', 10);
 
 // Captura os processos de captura de vídeo (o wrapper e o ffmpeg).

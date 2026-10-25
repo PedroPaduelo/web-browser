@@ -1,6 +1,13 @@
 import { chromium } from 'playwright';
 import fs from 'fs';
 
+const API_KEY = process.env.KEY;
+if (!API_KEY) {
+  console.error('KEY não definida — este script precisa da chave do cliente no ambiente.');
+  console.error('Ex.: KEY=<chave> node frontend/test-mouse-offset-final.mjs');
+  process.exit(1);
+}
+
 const SCREENSHOTS_DIR = '/workspace/temp-orquestrador/users/5aaf347f-952f-4355-8513-ac3f4024b43e/projetos/remote-browser/frontend/.claude-images';
 
 function log(msg) {
@@ -47,14 +54,14 @@ async function testMouseOffset() {
 
     // 2. Authenticate via API directly (set token in localStorage)
     log('Step 2: Getting auth token...');
-    const tokenResponse = await page.evaluate(async () => {
+    const tokenResponse = await page.evaluate(async (key) => {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: 'serende-dev-key-2024' })
+        body: JSON.stringify({ apiKey: key })
       });
       return res.json();
-    });
+    }, API_KEY);
     log(`Auth response: ${JSON.stringify(tokenResponse)}`);
 
     // Set token in localStorage

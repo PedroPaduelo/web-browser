@@ -1,3 +1,10 @@
+const API_KEY = process.env.KEY;
+if (!API_KEY) {
+  console.error('KEY não definida — este script precisa da chave do cliente no ambiente.');
+  console.error('Ex.: KEY=<chave> node frontend/test-mouse-offset.mjs');
+  process.exit(1);
+}
+
 const { chromium } = require('playwright');
 
 async function testMouseOffset() {
@@ -26,7 +33,7 @@ async function testMouseOffset() {
       const type = await input.getAttribute('type');
       const placeholder = await input.getAttribute('placeholder') || '';
       if (type === 'text' || type === 'password' || type === 'email' || placeholder.toLowerCase().includes('key') || placeholder.toLowerCase().includes('api')) {
-        await input.fill('serende-dev-key-2024');
+        await input.fill(API_KEY);
         break;
       }
     }

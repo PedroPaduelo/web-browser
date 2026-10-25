@@ -1,6 +1,13 @@
 import { chromium } from 'playwright';
 import fs from 'fs';
 
+const API_KEY = process.env.KEY;
+if (!API_KEY) {
+  console.error('KEY não definida — este script precisa da chave do cliente no ambiente.');
+  console.error('Ex.: KEY=<chave> node frontend/test-mouse-offset-detailed.mjs');
+  process.exit(1);
+}
+
 const SCREENSHOTS_DIR = '/workspace/temp-orquestrador/users/5aaf347f-952f-4355-8513-ac3f4024b43e/projetos/remote-browser/frontend/.claude-images';
 
 function log(msg) {
@@ -40,17 +47,17 @@ async function testMouseOffset() {
     await page.goto('https://serende.ddw1sl.easypanel.host', { waitUntil: 'domcontentloaded' });
     await sleep(2000);
 
-    const authResult = await page.evaluate(async () => {
+    const authResult = await page.evaluate(async (key) => {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: 'serende-dev-key-2024' })
+        body: JSON.stringify({ apiKey: key })
       });
       const data = await res.json();
       localStorage.setItem('serende_token', data.token);
       localStorage.setItem('serende_tenantId', data.tenantId || data.userId);
       return data;
-    });
+    }, API_KEY);
     log(`Auth: tenantId=${authResult.tenantId}`);
 
     await page.reload({ waitUntil: 'domcontentloaded' });
