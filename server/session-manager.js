@@ -224,6 +224,18 @@ function startFfmpegCapture(sessionId, display, width, height) {
     proc = spawn('/bin/sh', ['-c', FFMPEG_WRAPPER_SCRIPT, 'serende-ffmpeg', ffmpegBin, ...args], {
       env: { ...process.env, DISPLAY: display },
       stdio: ['pipe', 'pipe', 'pipe'],
+      // detached: o produtor de vídeo entra em um NOVO process group.
+      //
+      // Mesmo motivo do Xvfb: o memguard da sandbox mata por grupo de
+      // processos. Com o ffmpeg no grupo do backend, o memguard derrubava o
+      // backend junto quando a captura pesava demais (o ffmpeg sozinho passa
+      // de 350 MB por sessão). Isolado, ele derruba o produtor — que é o alvo
+      // certo — e o backend sobrevive.
+      //
+      // Consequência: o grupo precisa ser morto inteiro, senão o ffmpeg (neto
+      // do wrapper sh) fica órfão segurando o socket X do display.
+      // stopCapture() chama killProcessGroup() por causa disso.
+      detached: true,
     });
   } catch (err) {
     console.error(`[Session:${sessionId}] ffmpeg spawn falhou:`, err.message);
@@ -268,7 +280,10 @@ function stopCapture(capture) {
   capture.stopping = true;
   try { capture.stdin?.end(); } catch {}
   try { capture.stdin?.destroy(); } catch {}
-  killProcess(capture.proc);
+  // Mata o GRUPO, não só o wrapper: o ffmpeg roda como neto do sh e, com o
+  // spawn detached, sobreviveria ao sinal dado só ao wrapper — segurando o
+  // socket X do display e a memória do produtor.
+  killProcessGroup(capture.proc);
 }
 
 // Saúde síncrona de uma sessão (processos vivos?) — base da detecção/recuperação de mortas.
@@ -351,7 +366,7 @@ async function startSession(sessionId, tenantId, options = {}) {
   const fail = async (stage, code, message, status) => {
     stopCapture(capture);
     if (chrome) killChromeGroup(chrome);
-    if (xvfb) killProcess(xvfb);
+    if (xvfb) killProcessGroup(xvfb);
     cleanupDisplayArtifacts(displayNum, sessionId);
     releaseOnce();
     try { tenantManager.cleanupSessionDir(tenantId, sessionId); } catch {}
@@ -390,7 +405,23 @@ async function startSession(sessionId, tenantId, options = {}) {
       '+extension', 'GLX',
       '+render',
       '-noreset',
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      // detached: o Xvfb entra em um NOVO process group (setsid).
+      //
+      // Sem isso, Xvfb e ffmpeg ficam no MESMO grupo do backend. O memguard da
+      // sandbox (que roda dentro do container) mata por GRUPO de processos: ele
+      // escolhe o grupo com maior RSS somado e manda SIGTERM no grupo inteiro.
+      // Como o grupo do backend acumulava o Xvfb + o ffmpeg de TODAS as
+      // sessões, ele virava a vítima e o backend recebia SIGTERM junto —
+      // morria com "Shutting down..." (encerramento gracioso, sem stack trace),
+      // derrubando as sessões dos outros agentes. Medido: 1 sessão = 723 MB no
+      // grupo do backend (backend 168 + Xvfb 162 + ffmpeg 381); 4 sessões
+      // passam de 2 GB e o memguard mata o grupo.
+      // Isolados, o memguard derruba o produtor pesado (que é o que ele deve
+      // derrubar) e o backend fica de pé.
+      detached: true,
+    });
   } catch (err) {
     await fail('xvfb', 'xvfb_spawn_failed', `Xvfb não iniciou no display ${display}: ${err.message}`, 502);
   }
@@ -711,7 +742,10 @@ async function stopSession(sessionId, reason = 'manual') {
   stopCapture(session.capture);
 
   setTimeout(() => {
-    killProcess(session.xvfb);
+    // Mata o grupo do Xvfb: ele foi spawneado com detached, então o sinal
+    // precisa alcançar o grupo inteiro (o Xvfb tem filhos que seguram o
+    // socket X do display).
+    killProcessGroup(session.xvfb);
 
     // Limpar lock files do Xvfb para evitar conflitos em restarts futuros
     try {
@@ -828,6 +862,30 @@ function killProcess(proc) {
   try { proc.kill('SIGTERM'); } catch {}
   setTimeout(() => {
     try { process.kill(pid, 'SIGKILL'); } catch {}
+  }, 2000);
+}
+
+// Mata um processo spawneado com `detached: true` E todo o seu grupo.
+//
+// Com setsid, o filho vira líder do novo grupo, então PID = PGID e
+// `process.kill(-pid, sinal)` acerta o grupo inteiro. Precisa ser o grupo: o
+// Xvfb tem filhos e o wrapper do ffmpeg tem o ffmpeg como neto — sinalizar
+// só o líder deixaria os netos vivos segurando memória e o socket X.
+//
+// Fallback para o sinal no PID se o grupo não existir (o processo já morreu).
+function killProcessGroup(proc) {
+  if (!proc || proc.killed) return;
+  const pid = proc.pid;
+  if (!pid) return;
+  try {
+    process.kill(-pid, 'SIGTERM');
+  } catch {
+    try { proc.kill('SIGTERM'); } catch {}
+  }
+  setTimeout(() => {
+    try { process.kill(-pid, 'SIGKILL'); } catch {
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
   }, 2000);
 }
 

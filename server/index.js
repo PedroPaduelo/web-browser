@@ -197,7 +197,16 @@ function isGroupLeader(pid) {
           process.kill(o.pid, 'SIGTERM');
         }
       } else {
-        process.kill(o.pid, 'SIGTERM');
+        // Xvfb e ffmpeg também são spawneados com `detached: true`, então
+        // matam-se por GRUPO: sinalizar só o líder deixaria o ffmpeg (neto do
+        // wrapper sh) e os filhos do Xvfb vivos, segurando o socket X e a
+        // memória. Só mata o grupo se o processo for o LÍDER dele — senão
+        // `kill(-pid)` acertaria o grupo do próprio backend.
+        if (isGroupLeader(o.pid)) {
+          try { process.kill(-o.pid, 'SIGTERM'); } catch { process.kill(o.pid, 'SIGTERM'); }
+        } else {
+          process.kill(o.pid, 'SIGTERM');
+        }
       }
       killed.push(o);
     } catch {}
@@ -218,7 +227,11 @@ function isGroupLeader(pid) {
               try { process.kill(o.pid, 'SIGKILL'); } catch {}
             }
           } else {
-            process.kill(o.pid, 'SIGKILL');
+            if (isGroupLeader(o.pid)) {
+              try { process.kill(-o.pid, 'SIGKILL'); } catch { try { process.kill(o.pid, 'SIGKILL'); } catch {} }
+            } else {
+              try { process.kill(o.pid, 'SIGKILL'); } catch {}
+            }
           }
         } catch {}
       }
