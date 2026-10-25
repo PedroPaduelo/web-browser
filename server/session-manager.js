@@ -202,12 +202,18 @@ function startFfmpegCapture(sessionId, display, width, height) {
   const ffmpegBin = resolveFfmpegPath();
   if (!ffmpegBin) return null;
 
+  // A janela do Chrome em --kiosk ocupa 1279x719 dentro do display 1280x720:
+  // a última linha e a última coluna ficam SEM conteúdo (o último frame do
+  // x11grab mostrava 1px preto em y=719 e x=1279). O usuário lia essa borda
+  // como "tela cortada". O crop remove a faixa não pintada e o scale de volta
+  // para a resolução da sessão entrega o quadro cheio (1280x720) ao usuário.
   const args = [
     '-loglevel', 'error',
     '-f', 'x11grab',
     '-framerate', String(FFMPEG_FRAMERATE),
     '-video_size', `${width}x${height}`,
     '-i', display,
+    '-vf', `crop=${width - 1}:${height - 1}:0:0,scale=${width}:${height}:flags=neighbor`,
     '-q:v', String(FFMPEG_QUALITY),
     '-f', 'mjpeg',
     '-',
@@ -413,6 +419,26 @@ async function startSession(sessionId, tenantId, options = {}) {
       prefs.session.startup_urls = [startUrl];
       delete prefs.sessions;
       if (prefs.profile) prefs.profile.exit_type = 'Normal';
+
+      // --- TEMA DARK POR PADRÃO (injeção no perfil) ---
+      // MEDIDO no Chromium 156 deste host (/usr/lib/chromium/chromium):
+      //   `browser.theme.color_scheme` = 2  => matchMedia('(prefers-color-scheme:
+      //   dark)').matches === true (e 1 => light, 3 => dark).
+      //   `webkit.webprefs.dark_mode` NÃO tem efeito aqui (medido: fica false).
+      //
+      // Por que o perfil e não `--force-dark-mode`: a flag só repinta a UI do
+      // Chrome em dark e NÃO muda `prefers-color-scheme` — sites que respeitam
+      // a preferência do sistema continuariam claros. O usuário quer o SITE em
+      // dark, então o que importa é a media query, e ela sai do perfil.
+      // O Chrome promove o valor para `<chave>2` ao gravar; manter as duas
+      // casas evita que uma leitura antiga do profile reverta o tema.
+      prefs.browser = prefs.browser || {};
+      prefs.browser.theme = prefs.browser.theme || {};
+      prefs.browser.theme.color_scheme = 2;
+      prefs.browser.theme.color_scheme2 = 2;
+      // Sem isso, a página nova (NTP) pode pintar em light por cima.
+      prefs.ntp = prefs.ntp || {};
+
       fs.writeFileSync(prefsPath, JSON.stringify(prefs));
     } catch (e) {
       console.warn(`[Session:${sessionId}] Failed to patch Preferences:`, e.message);
@@ -648,6 +674,25 @@ async function stopSession(sessionId, reason = 'manual') {
   console.log(`[Session:${sessionId}] Stopping session (reason: ${reason})...`);
   sessions.delete(sessionId);
 
+  // Para o timeout tracker se existir
+  if (session.timeoutId) {
+    clearTimeout(session.timeoutId);
+    session.timeoutId = null;
+  }
+
+  // FECHA O CHROME ANTES DE MESCLAR O PROFILE.
+  //
+  // O Chrome segura os cookies em memória e só grava no SQLite do profile
+  // (Default/Cookies) de tempos em tempos. Com o Chrome vivo, o merge copia
+  // um Cookies VELHO: o cookie setado nos últimos segundos antes do stop
+  // sumia na sessão seguinte do mesmo tenant (medido: cookie de 3,5 min
+  // antes do stop sobrevivia; de 40s e de 9s, não).
+  //
+  // O SIGTERM faz o Chrome encerrar de forma graciosa — é o shutdown dele
+  // que persiste o Default/Cookies no disco. Por isso a ordem é:
+  // SIGTERM → ESPERAR o 'exit' → mesclar o profile.
+  await stopChromeAndWait(session.chrome);
+
   if (session.tenantId && reason !== 'timeout') {
     try {
       tenantManager.mergeProfileFromSession(session.tenantId, sessionId);
@@ -659,14 +704,6 @@ async function stopSession(sessionId, reason = 'manual') {
       tenantManager.cleanupSessionDir(session.tenantId, sessionId);
     } catch {}
   }
-
-  // Parar timeout tracker se existir
-  if (session.timeoutId) {
-    clearTimeout(session.timeoutId);
-    session.timeoutId = null;
-  }
-
-  killChromeGroup(session.chrome);
 
   // Mata o produtor de vídeo ANTES do Xvfb: o ffmpeg captura o display, e
   // deixar ele vivo segura o socket X. O wrapper anti-órfão garante que o
@@ -802,6 +839,45 @@ function killProcess(proc) {
 // browser: os renderers/gpu/zygotes ficariam órfãos segurando memória
 // (medido: ~2GB por sessão). Por isso matamos o grupo inteiro (PID = PGID
 // do Chrome, pois setsid faz do filho o líder do novo grupo).
+
+// SIGTERM gracioso no Chrome + espera pelo 'exit', com teto de tempo.
+//
+// Sem isso o merge do profile (mergeProfileFromSession) copiava o
+// Default/Cookies ANTES de o Chrome gravá-lo: quem setava cookie pouco antes
+// do session_stop o perdia na sessão seguinte. O SIGTERM sozinho não basta —
+// killChromeGroup delega o SIGKILL a um setTimeout de 2s, então é preciso
+// AWAIT a morte de fato.
+//
+// Requisito do caso: o Chrome grava o profile durante o shutdown (a
+// 'exit' só vem depois disso), e o SIGKILL seria imediato e sem flush —
+// daí o teto generoso (8s) antes do kill definitivo.
+async function stopChromeAndWait(proc, timeoutMs = 8000) {
+  if (!proc || !proc.pid) return;
+  if (proc.exitCode !== null || proc.killed) return; // já morto
+  const pid = proc.pid;
+
+  const exited = new Promise((resolve) => {
+    let done = false;
+    // 'exit' é o sinal de que o processo morreu (e portanto já fez flush);
+    // 'close' também resolve, para o caso de streams abertos.
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    proc.once('exit', finish);
+    proc.once('close', finish);
+    setTimeout(finish, timeoutMs);
+  });
+
+  try { process.kill(-pid, 'SIGTERM'); } catch {
+    try { proc.kill('SIGTERM'); } catch {}
+  }
+  await exited;
+
+  // Ainda vivo após o teto → quem decide é o kill definitivo (o grupo primeiro,
+  // para renderers/GPU/zygotes não ficarem órfãos).
+  try { process.kill(-pid, 'SIGKILL'); } catch {
+    try { process.kill(pid, 'SIGKILL'); } catch {}
+  }
+}
+
 function killChromeGroup(proc) {
   if (!proc || !proc.pid) return;
   const pid = proc.pid;

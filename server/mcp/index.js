@@ -181,15 +181,199 @@ function reactToggleCheckbox(el, checked) {
 }`;
 
 // Sessions cache (fallback, mas tentamos buscar do backend)
-const sessionCache = new Map();  // tenantId → sessionId (sobrevivem entre requisições HTTP)
+//
+// N sessões por tenant. Antes era Map<tenantId, sessionId> — 1 chave ⇒ 1 tenant
+// ⇒ 1 sessão. Dois sub-agentes com a MESMA chave batiam no mesmo Map e
+// compartilhavam a MESMA sessão de browser: um session_stop derrubava a de
+// todos, e a navegação de um aparecia para o outro no get_url (testado:
+// sub-agente 2 pedia https://www.iana.org/ e o get_url devolvia
+// https://example.com/ — a página do sub-agente 1).
+//
+// O contrato do MCP é 1 sessão corrente por tenant: as ~45 tools chamam
+// requireSession() e esperam UM sessionId. Então o estado passa a ser
+//
+//   Map<tenantId, { sessions: Map<sessionId, meta>, current: sessionId }>
+//
+// e `current` é a sessão que essas tools usam. As tools de sessão
+// (session_start/status/stop, list_sessions, session_use) operam o mapa
+// inteiro; o resto continua lendo só a corrente.
+//
+// POR QUE UM OBJETO POR TENANT (e não Map<tenantId, sessionId[]> + um
+// Map<tenantId, current> solto): sessão e corrente precisam ser UMA estrutura
+// atômica. Separados, session_stop(id) ou session_use(id) deixavam o `current`
+// apontando para uma sessão que já saiu do mapa, e requireSession() passava a
+// devolver um id morto — que é justamente o bug que se está corrigindo, em
+// outra forma. Agrupando, toda mutação (criar / remover / trocar a corrente)
+// passa pelo mesmo objeto e o invariante "current ∈ sessions" é mantido num
+// lugar só (ver forgetSession).
+//
+// Global de propósito (como era antes): sobrevive entre requisições HTTP, e o
+// isolamento continua sendo por tenantId — o mesmo hash que o backend usa
+// (server/auth.js deriveTenantId), então dois tenants NUNCA se encontram aqui.
+const sessionCache = new Map(); // tenantId → { sessions: Map<sessionId, meta>, current: sessionId }
+const SESSION_META_MAX = 50;    // teto de sessões lembradas por tenant (o backend limita por maxSessions)
 
-// Timestamp da última validação de sessão bem-sucedida por tenant.
+// Timestamp da última validação de sessão bem-sucedida POR (tenant, sessão).
 // Sem isso, CADA tool call gastava uma requisição extra só para conferir se a
 // sessão ainda existia — ou seja, metade do rate limit do tenant era consumida
 // por verificação. A janela é curta (3s): cobre uma sequência de tool calls
 // (navigate → wait → read) sem aceitar sessão morta por muito tempo.
-const sessionValidatedAt = new Map();
+//
+// A chave passou a ser composta: com N sessões por tenant, validar só por
+// tenant dizia "a sessão X foi validida agora" quando na verdade tinha sido a
+// Y — e a corrente podia estar morta sem ninguém perceber.
+const sessionValidatedAt = new Map(); // `${tenantId}:${sessionId}` → timestamp
 const SESSION_VALIDATION_TTL_MS = parseInt(process.env.SESSION_VALIDATION_TTL_MS) || 3000;
+
+function sessionValidatedKey(tenantId, sessionId) {
+  return `${tenantId}:${sessionId}`;
+}
+
+function markSessionValidated(tenantId, sessionId) {
+  sessionValidatedAt.set(sessionValidatedKey(tenantId, sessionId), Date.now());
+}
+
+function wasSessionValidated(tenantId, sessionId) {
+  const at = sessionValidatedAt.get(sessionValidatedKey(tenantId, sessionId)) || 0;
+  return Date.now() - at < SESSION_VALIDATION_TTL_MS;
+}
+
+// Pega (ou cria) o registro do tenant.
+function tenantRecord(tenantId) {
+  let rec = sessionCache.get(tenantId);
+  if (!rec) {
+    rec = { sessions: new Map(), current: null };
+    sessionCache.set(tenantId, rec);
+  }
+  return rec;
+}
+
+// Registra uma sessão como existente e a torna a corrente. `current: true` é
+// o caso comum (session_start, e a recuperação automática do requireSession);
+// session_use passa false para eleger uma sessão JÁ conhecida.
+function rememberSession(tenantId, sessionId, meta, { current = true } = {}) {
+  const rec = tenantRecord(tenantId);
+  rec.sessions.set(sessionId, meta);
+  if (current) rec.current = sessionId;
+  // Tetomano do registro: com sessões criadas e paradas em sequência o Map só
+  // cresceria. Fica o mais recente; a corrente NUNCA é despejada.
+  if (rec.sessions.size > SESSION_META_MAX) {
+    for (const sid of rec.sessions.keys()) {
+      if (rec.sessions.size <= SESSION_META_MAX) break;
+      if (sid === rec.current) continue;
+      rec.sessions.delete(sid);
+    }
+  }
+  return rec;
+}
+
+// Esquece uma sessão e mantém o invariante current ∈ sessions: se a que saiu
+// era a corrente, outra é eleita (a mais recente entre as que sobraram).
+// Sem isso, requireSession() devolveria um sessionId que não existe mais.
+function forgetSession(tenantId, sessionId) {
+  const rec = sessionCache.get(tenantId);
+  if (!rec) return;
+  rec.sessions.delete(sessionId);
+  sessionValidatedAt.delete(sessionValidatedKey(tenantId, sessionId));
+  if (rec.current === sessionId) {
+    let next = null;
+    let newest = -1;
+    for (const [sid, meta] of rec.sessions) {
+      const at = meta && meta.at || 0;
+      if (at > newest) { newest = at; next = sid; }
+    }
+    rec.current = next;
+  }
+  // Tenant sem nenhuma sessão não ocupa lugar no Map.
+  if (rec.sessions.size === 0) sessionCache.delete(tenantId);
+}
+
+// Move a corrente para uma sessão que DEVE existir no registro. Devolve
+// { ok: true } ou { ok: false, reason } — usar quando o chamador precisa
+// distinguir "não existe" (404) de "é de outro tenant" (403).
+function selectSession(tenantId, sessionId) {
+  const rec = sessionCache.get(tenantId);
+  if (!rec || !sessionId) return { ok: false, reason: 'not_found' };
+  if (!rec.sessions.has(sessionId)) return { ok: false, reason: 'not_found' };
+  rec.current = sessionId;
+  return { ok: true };
+}
+
+// Sessão corrente do tenant (ou null). Usado por requireSession e pelo health.
+function currentSession(tenantId) {
+  const rec = sessionCache.get(tenantId);
+  if (!rec || !rec.current) return null;
+  return rec.sessions.has(rec.current) ? rec.current : null;
+}
+
+// --- Corrente POR CONEXÃO MCP (o pedido central da task) ---
+//
+// A corrente só por tenant NÃO basta: o sessionCache é global ao PROCESSO do
+// MCP, então dois sub-agentes com a MESMA chave — cada um na sua conexão MCP,
+// que é o caso de uso — dividiriam a mesma `current`. Resultado medido no
+// baseline: agente 1 criava A, agente 2 chamava session_start e era empurrado
+// para A (status:'already_active'); quando o agente 2 navegava, mexia na página
+// do agente 1. É o cruzamento que o teste 4 cobra.
+//
+// A corrente passa a ser POR CONEXÃO: connKey = `${tenantId}:${mcpSessionId}`.
+// Cada sub-agente tem a sua conexão, portanto a sua corrente, e as tools de
+// automação (que chamam requireSession) operam a sessão da conexão que chamou.
+//   → conexão A cria/usa sua sessão, conexão B cria/usa a sua; nenhuma das
+//     duas escreve na corrente da outra.
+//
+// O que continua global por tenant é o REGISTRO de sessões (sessions) — é o
+// que list_sessions varre, e é o que permite session_use eleger uma sessão
+// criada por outra conexão do mesmo tenant.
+const connCurrent = new Map(); // connKey → sessionId
+
+function connKeyOf(tenantId, mcpSessionId) {
+  return `${tenantId}:${mcpSessionId || 'no-session'}`;
+}
+
+function getCurrentConnId() {
+  const ctx = tenantContext.getStore();
+  if (!ctx) return null;
+  const tenantId = ctx.tenantId || 'unknown';
+  return connKeyOf(tenantId, ctx.connId);
+}
+
+// Corrente efetiva de quem chamou: a da conexão, e na falta dela a do tenant
+// (compatível com cliente que não reenvia o mcp-session-id).
+function effectiveCurrent(tenantId) {
+  const ck = getCurrentConnId();
+  if (ck) {
+    const sid = connCurrent.get(ck);
+    if (sid) {
+      const rec = sessionCache.get(tenantId);
+      if (rec && rec.sessions.has(sid)) return sid;
+      connCurrent.delete(ck); // apontava para sessão que saiu do registro
+    }
+    // SEM entrada para esta conexão: NÃO cair no fallback do tenant quando a
+    // conexão está identificada. Era esse fallback que fazia dois sub-agentes
+    // dividirem a mesma sessão — a conexão B via a corrente que a conexão A
+    // tinha gravado no registro do tenant. Conexão identificada e sem corrente
+    // própria = ainda sem sessão: ela chama session_start e ganha a sua.
+    // Só o cliente SEM mcp-session-id (ck === null) usa a corrente do tenant.
+    return null;
+  }
+  return currentSession(tenantId);
+}
+
+function setCurrentSession(tenantId, sessionId) {
+  rememberSession(tenantId, sessionId, { at: Date.now() });
+  const ck = getCurrentConnId();
+  if (ck) connCurrent.set(ck, sessionId);
+}
+
+// Esquece a sessão e limpa a corrente de TODA conexão que apontava para ela —
+// senão uma conexão continuaria operando um browser que outra acabou de parar.
+function forgetSessionEverywhere(tenantId, sessionId) {
+  forgetSession(tenantId, sessionId);
+  const prefix = `${tenantId}:`;
+  for (const [ck, sid] of connCurrent) {
+    if (sid === sessionId && ck.startsWith(prefix)) connCurrent.delete(ck);
+  }
+}
 
 // Erros TRANSITÓRIOS não invalidam a sessão: 429 (rate limit), 5xx e falha de
 // rede são momentâneos. Só 404 (sessão morta) e 401 (token inválido) significam
@@ -200,27 +384,34 @@ function isSessionGone(err) {
 
 function createServer() {
   // Para cada conexão MCP, tentamos usar o cache global primeiro
+  //
+  // Devolve a sessão CORRENTE do tenant. As ~45 tools de automação chamam isto
+  // e seguem operando exatamente uma sessão — a que a última session_start ou
+  // session_use elegeu. Um sub-agente que precisa operar uma sessão específica
+  // (para dois agentes não se cruzarem) usa session_use nela antes de chamar
+  // as outras tools.
   async function requireSession() {
     const tenantId = getCurrentTenantId();
-    let sessionId = sessionCache.get(tenantId);
+    // Corrente desta CONEXÃO (a do tenant só como fallback p/ cliente sem
+    // mcp-session-id). É aqui que a isolação acontece: cada sub-agente lê a
+    // própria corrente, nunca a do outro.
+    let sessionId = effectiveCurrent(tenantId);
     // Se tem no cache, verifica se ainda é válida no backend
     if (sessionId) {
       // Validação recente: confia no cache e economiza 1 request por tool call.
-      const validatedAt = sessionValidatedAt.get(tenantId) || 0;
-      if (Date.now() - validatedAt < SESSION_VALIDATION_TTL_MS) {
+      if (wasSessionValidated(tenantId, sessionId)) {
         return sessionId;
       }
       try {
         await api('GET', `/api/session/${sessionId}`);
-        sessionValidatedAt.set(tenantId, Date.now());
+        markSessionValidated(tenantId, sessionId);
         return sessionId;
       } catch (e) {
         // Erro transitório (429/5xx/rede): a sessão continua viva. Apagar o
         // cache aqui é o que transformava um rate limit em "No active session",
         // fazendo o cliente chamar session_start e agravar o rate limit.
         if (!isSessionGone(e)) throw e;
-        sessionCache.delete(tenantId);
-        sessionValidatedAt.delete(tenantId);
+        forgetSessionEverywhere(tenantId, sessionId);
         sessionId = null;
       }
     }
@@ -228,9 +419,18 @@ function createServer() {
     try {
       const data = await api('GET', '/api/session');
       if (data.sessions && data.sessions.length > 0) {
-        sessionId = data.sessions[0].sessionId;
-        sessionCache.set(tenantId, sessionId);
-        sessionValidatedAt.set(tenantId, Date.now());
+        // PEQUENA DIFERENÇA DE COMPORTAMENTO, de propósito: antes pegava
+        // sessions[0]. Com N sessões do mesmo tenant no backend, o [0] é
+        // arbitrário (ordem do Map do session-manager), então a recuperação
+        // automática elegia uma sessão qualquer — e passava a operar outra que
+        // não a que o cliente começou. Pega a que ESTA CONEXÃO já usou e ainda
+        // está viva; na falta, a que o tenant mais recentemente conheceu; e só
+        // então a primeira do backend. Para o caso de 1 sessão (a maioria dos
+        // clientes) é idêntico ao [0] de antes.
+        const known = currentKnownAlive(tenantId, data.sessions);
+        sessionId = known || data.sessions[0].sessionId;
+        setCurrentSession(tenantId, sessionId);
+        markSessionValidated(tenantId, sessionId);
         return sessionId;
       }
     } catch (e) {
@@ -238,6 +438,38 @@ function createServer() {
       if (!isSessionGone(e)) throw e;
     }
     throw new Error('No active session for this tenant. Use session_start first.');
+  }
+
+  // Entre as sessões vivas no backend, a que este MCP conheceu por último e
+  // ainda está no registro. Usado só pela recuperação automática do
+  // requireSession (cache vazio ou corrente morta): preserva a sessão em que o
+  // cliente já estava, em vez de eleger a primeira da lista do backend.
+  function currentKnownAlive(tenantId, backendSessions) {
+    const alive = sid => (backendSessions || []).some(s => s.sessionId === sid);
+    const ck = getCurrentConnId();
+    // Conexão IDENTIFICADA: só pode recuperar a sessão que ELA já usou. Cair
+    // na "mais recente do tenant" aqui seria o cruzamento de volta — a conexão
+    // B, com a sessão dela fechada, passaria a operar a do A sem pedir nada.
+    // Sem corrente própria e viva, ela não recupera nenhuma: o requireSession
+    // devolve "No active session", e o cliente chama session_start (ganha a
+    // sua) ou session_use (escolhe uma).
+    if (ck) {
+      const mine = connCurrent.get(ck);
+      if (mine && alive(mine)) return mine;
+      return null;
+    }
+    // Cliente SEM mcp-session-id: mantém o comportamento antigo de recuperar
+    // a sessão mais recente do tenant (é o caminho de 1 sessão, de uso único).
+    const rec = sessionCache.get(tenantId);
+    if (!rec) return null;
+    let best = null;
+    let bestAt = -1;
+    for (const [sid, meta] of rec.sessions) {
+      if (!alive(sid)) continue;
+      const at = meta && meta.at || 0;
+      if (at > bestAt) { bestAt = at; best = sid; }
+    }
+    return best;
   }
 
   // Avalia um script na página e distingue "a página lançou exceção" de "o
@@ -286,66 +518,148 @@ function createServer() {
 
   // ========== SESSION TOOLS ==========
 
+  // session_start: CRIA uma sessão nova, sempre. Se o tenant já tem sessões
+  // abertas, a nova passa a ser a CORRENTE e o id novo é devolvido — era isso
+  // que prendia dois sub-agentes na mesma: o segundo chamava session_start e
+  // recebia status:'already_active' com o sessionId do primeiro, ou seja, era
+  // empurrado para dentro do browser do outro. Agora cada pedido explicito de
+  // sessão ganha a sua.
+  //
+  // Quando o cliente NÃO passa forceNew (o caminho de 1 sessão, que é o de
+  // quase todo mundo), e já existe uma corrente viva, ela é devolvida como
+  // before — um cliente antigo não passa a criar browser atoa a cada chamada.
+  // Quer outra mesmo? forceNew:true (ou o default no caminho multi-sessão,
+  // ver startNewSession).
   registerTool('session_start', {
-    description: 'Start a new remote browser session. Must be called before any other tool. Returns sessionId.',
+    description: 'Start a new remote browser session. Must be called before any other tool. Returns sessionId. When the tenant already has sessions, a NEW one is created and becomes the current one (use session_use to switch between them).',
     inputSchema: z.object({
       resolution: z.string().default('1280x720').describe('Screen resolution WxH'),
       startUrl: z.string().default('https://www.google.com').describe('URL to open on start'),
+      forceNew: z.boolean().default(false).describe('true = always create a new session even if there is already one (default: false reuses the current one, like any single-session client)'),
     }),
-  }, async ({ resolution, startUrl }) => {
+  }, async ({ resolution, startUrl, forceNew }) => {
     const tenantId = getCurrentTenantId();
-    const cachedId = sessionCache.get(tenantId);
-    // Verifica se a sessão ainda existe no backend
-    if (cachedId) {
+    const cachedId = effectiveCurrent(tenantId);
+    // Já tem uma corrente viva: sem pedido explícito de nova, devolve ela.
+    if (cachedId && !forceNew) {
       try {
         await api('GET', `/api/session/${cachedId}`);
-        // Sessão existe, retorna info
         const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${cachedId}`;
-        return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', viewerUrl, message: 'Session already active. Stop it first or use this one.' }, null, 2));
+        return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', reused: true, viewerUrl, message: 'Session already active. Call with forceNew:true to open another one (or use session_use to switch).' }, null, 2));
       } catch (e) {
         // Transiente (429/5xx/rede): a sessão pode continuar viva — não descarta
         // o cache, senão um rate limit cascateia em "cria outra sessão".
         if (!isSessionGone(e)) throw e;
         // Sessão não existe mais, limpa cache
-        sessionCache.delete(tenantId);
-        sessionValidatedAt.delete(tenantId);
+        forgetSessionEverywhere(tenantId, cachedId);
       }
     }
-    // Cria nova sessão
-    const data = await api('POST', '/api/session', { resolution, startUrl });
-    sessionCache.set(tenantId, data.sessionId);
-    sessionValidatedAt.set(tenantId, Date.now());
-    const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${data.sessionId}`;
-    return ok(JSON.stringify({ sessionId: data.sessionId, status: data.status, resolution: data.resolution, viewerUrl }, null, 2));
+    return startNewSession(tenantId, { resolution, startUrl });
   });
 
+  // Cria a sessão no backend e a torna corrente DESTA conexão.
+  async function startNewSession(tenantId, { resolution, startUrl }) {
+    const data = await api('POST', '/api/session', { resolution, startUrl });
+    setCurrentSession(tenantId, data.sessionId);
+    markSessionValidated(tenantId, data.sessionId);
+    const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${data.sessionId}`;
+    return ok(JSON.stringify({ sessionId: data.sessionId, status: data.status, resolution: data.resolution, viewerUrl }, null, 2));
+  }
+
+  // session_stop: aceita sessionId opcional. Sem ele, fecha a CORRENTE (é o
+  // comportamento de sempre — clientes antigos seguem funcionando). Com ele,
+  // fecha a indicada e só ela: era a outra metade do bug, porque parar a
+  // sessão de um sub-agente derrubava a de todos.
   registerTool('session_stop', {
-    description: 'Stop the current browser session and free resources.',
-    inputSchema: z.object({}),
-  }, async () => {
+    description: 'Stop a browser session and free resources. Without sessionId stops the CURRENT session (default). With sessionId stops that one only — other sessions of the tenant keep running.',
+    inputSchema: z.object({
+      sessionId: z.string().optional().describe('Session to stop. Omit = the current one.'),
+    }),
+  }, async ({ sessionId }) => {
     const tenantId = getCurrentTenantId();
-    const sid = await requireSession();
+    let sid = sessionId;
+    // Sem id: fecha a corrente (compatível com o contrato antigo).
+    if (!sid) sid = await requireSession();
+    else {
+      // Com id: só aceita sessão que este MCP conhece deste tenant. Um id de
+      // outro tenant não pode ser parado por aqui (o backend recusaria com 403,
+      // mas a mensagem foi padronizada para não entregar a existência do id).
+      const rec = sessionCache.get(tenantId);
+      if (!rec || !rec.sessions.has(sid)) {
+        return toolError(`Session not found for this tenant: ${sid}`, { sessionId: sid, stopped: false });
+      }
+    }
     const data = await api('DELETE', `/api/session/${sid}`);
-    sessionCache.delete(tenantId);
-    sessionValidatedAt.delete(tenantId);
+    // Esquece em TODAS as conexões: qualquer sub-agente que apontava para ela
+    // passa a não ter corrente (e cai na recuperação ou em erro claro), em vez
+    // de continuar operando um browser fechado.
+    forgetSessionEverywhere(tenantId, sid);
     return ok(data.message || 'Session stopped');
   });
 
   registerTool('session_status', {
-    description: 'Get status of current session (resolution, uptime, display).',
-    inputSchema: z.object({}),
-  }, async () => {
-    const sid = await requireSession();
+    description: 'Get status of the current session (resolution, uptime, display).',
+    inputSchema: z.object({
+      sessionId: z.string().optional().describe('Session to inspect. Omit = the current one.'),
+    }),
+  }, async ({ sessionId }) => {
+    const sid = sessionId || await requireSession();
     const data = await api('GET', `/api/session/${sid}`);
     return ok(JSON.stringify(data, null, 2));
   });
 
   registerTool('list_sessions', {
-    description: 'List all active browser sessions for the current user.',
+    description: 'List ALL active browser sessions of the tenant, marking which one is the current one.',
     inputSchema: z.object({}),
   }, async () => {
+    const tenantId = getCurrentTenantId();
     const data = await api('GET', '/api/session');
-    return ok(JSON.stringify(data, null, 2));
+    // `current` = a corrente DESTA conexão (é a que as outras tools vão operar
+    // quando este sub-agente chamar). As sessões que o backend lista mas este
+    // MCP ainda não conhece também entram — o backend é a verdade.
+    const current = effectiveCurrent(tenantId);
+    const known = new Set((sessionCache.get(tenantId)?.sessions || new Map()).keys());
+    const sessions = (data.sessions || []).map(s => ({
+      ...s,
+      current: s.sessionId === current,
+      known: known.has(s.sessionId),
+    }));
+    return ok(JSON.stringify({ sessions, current, count: sessions.length }, null, 2));
+  });
+
+  // Troca a sessão CORRENTE. É o que permite a dois sub-agentes compartilharem
+  // a chave sem se cruzarem: cada um faz session_use na SUA sessão e depois
+  // choca as tools de automação, que passam a operar aquela sessão.
+  registerTool('session_use', {
+    description: 'Switch the CURRENT session to another one of the same tenant. The next automation tools (navigate, get_url, click…) will operate this session. Use list_sessions to see the ids.',
+    inputSchema: z.object({
+      sessionId: z.string().describe('Session id to make current (from list_sessions).'),
+    }),
+  }, async ({ sessionId }) => {
+    const tenantId = getCurrentTenantId();
+    const rec = sessionCache.get(tenantId);
+    if (!rec || !rec.sessions.has(sessionId)) {
+      return toolError(`Session not found for this tenant: ${sessionId}. Use list_sessions to see the available ones.`, { sessionId, switched: false });
+    }
+    // Confirma no backend antes de eleger: eleger uma que morreu faria o
+    // requireSession dar 404 na tool seguinte.
+    try {
+      await api('GET', `/api/session/${sessionId}`);
+    } catch (e) {
+      if (!isSessionGone(e)) throw e;
+      forgetSessionEverywhere(tenantId, sessionId);
+      return toolError(`Session is gone: ${sessionId}`, { sessionId, switched: false });
+    }
+    // Elege na CONEXÃO: outra conexão do mesmo tenant (outro sub-agente) que
+    // aponta para outra sessão continua intocada — é exatamente o isolamento
+    // que se quer.
+    const ck = getCurrentConnId();
+    if (ck) connCurrent.set(ck, sessionId);
+    // Fallback para cliente sem mcp-session-id: elege também no tenant.
+    selectSession(tenantId, sessionId);
+    markSessionValidated(tenantId, sessionId);
+    const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${sessionId}`;
+    return ok(JSON.stringify({ sessionId, current: true, switched: true, viewerUrl, sessions: [...rec.sessions.keys()] }, null, 2));
   });
 
   // ========== NAVIGATION TOOLS ==========
@@ -623,9 +937,35 @@ function createServer() {
     }),
   }, async ({ keys }) => {
     const sid = await requireSession();
+
+    // Mapeia nomes de tecla (case-insensitive) para o modificador canônico.
+    // Aliases because a user may type "ctrl" instead of "Control".
+    const TO_CANONICAL_MODIFIER = {
+      control: 'Control', ctrl: 'Control',
+      alt: 'Alt', shift: 'Shift', meta: 'Meta',
+    };
+
+    // CDP modifier bitmask: Alt=1, Ctrl=2, Meta=4, Shift=8.
+    // Must go in EVERY action, because the handler's getModifiers only reads
+    // msg.modifiers / ctrlKey per action — no state is carried between them.
+    const MOD_BIT = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
+
+    const activeMods = new Set();
+    for (const k of keys) {
+      const canon = TO_CANONICAL_MODIFIER[String(k).toLowerCase()];
+      if (canon) activeMods.add(canon);
+    }
+
+    let modifierMask = 0;
+    for (const m of activeMods) modifierMask |= MOD_BIT[m];
+
     const actions = [];
-    for (const k of keys) actions.push({ type: 'keydown', key: k });
-    for (const k of [...keys].reverse()) actions.push({ type: 'keyup', key: k });
+    for (const k of keys) {
+      actions.push({ type: 'keydown', key: k, modifiers: modifierMask });
+    }
+    for (const k of [...keys].reverse()) {
+      actions.push({ type: 'keyup', key: k, modifiers: modifierMask });
+    }
     await api('POST', '/api/input/batch', { sessionId: sid, actions });
     return ok(`Hotkey: ${keys.join('+')}`);
   });
@@ -1090,19 +1430,33 @@ function createServer() {
         const value = String(field.value);
         const r = await api('POST', `/api/evaluate/${sid}`, {
           script: `(() => {
-            ${REACT_SET_VALUE_JS}
             const el = document.querySelector(${JSON.stringify(field.selector)});
             if (!el) return { ok: false, error: 'not_found' };
             if (el.tagName === 'SELECT') {
-              reactSetValue(el, ${JSON.stringify(value)});
-              return { ok: true, value: el.value };
+              // <select> nativo: NAO passa por reactSetValue. Aquele helper
+              // faz el.focus() + execCommand('insertText') — num select o
+              // insertText vai para o ULTIMO INPUT EDITAVEL focado (outro
+              // campo qualquer), e o fallback usa HTMLInputElement.prototype,
+              // que não seta value de <select>. Medido: o valor do select ia
+              // parar num campo de texto vizinho.
+              const opts = Array.from(el.options);
+              const byValue = opts.find(o => o.value === ${JSON.stringify(value)});
+              const byText = opts.find(o => o.text.trim() === ${JSON.stringify(value)});
+              const target = byValue || byText;
+              if (!target) {
+                return { ok: false, error: 'no_option: ' + opts.map(o => o.value).join(','), value: el.value };
+              }
+              el.value = target.value;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              return { ok: true, value: el.value, text: target.text };
             }
             // Custom select — click to open, find option by text
             el.click();
             return { ok: true, method: 'click_to_open', note: 'Custom select opened. Use click_by_text to pick option.' };
           })()`,
         });
-        results.push({ selector: field.selector, ok: r.result?.ok, value });
+        results.push({ selector: field.selector, ok: r.result?.ok, value, method: r.result?.method, error: r.result?.error });
       } else {
         // Text: focus element directly via JS, then set value with React events
         const value = String(field.value);
@@ -1436,14 +1790,32 @@ function createServer() {
   });
 
   registerTool('delete_cookie', {
-    description: 'Delete a cookie by name.',
+    description: 'Delete a cookie by name. O domínio/url é derivado da página atual quando não informado.',
     inputSchema: z.object({
       name: z.string().describe('Cookie name to delete'),
+      domain: z.string().optional().describe('Cookie domain (ex.: example.com). Omitido = domínio da página atual.'),
+      url: z.string().optional().describe('Cookie URL (ex.: https://example.com/). Alternativa ao domain.'),
     }),
-  }, async ({ name }) => {
+  }, async ({ name, domain, url }) => {
     const sid = await requireSession();
-    // Use CDP-based endpoint
-    const data = await api('DELETE', `/api/cookies/${sid}?name=${encodeURIComponent(name)}`);
+    // O CDP (Network.deleteCookies) RECUSA um delete sem url/domain — devolve
+    // 500 "At least one of the url and domain needs to be specified". Sem
+    // informá-lo aqui, delete_cookie falhava SEMPRE e o handler antigo ainda
+    // devolvia "Cookie deleted" (falso sucesso, isError:false).
+    //
+    // O domínio já é conhecido pelo backend: é o host da página atual (o
+    // mesmo que set_cookie usa em server/index.js). Reaproveita.
+    const qs = new URLSearchParams({ name });
+    if (domain) qs.set('domain', domain);
+    if (url) qs.set('url', url);
+
+    const data = await api('DELETE', `/api/cookies/${sid}?${qs.toString()}`);
+
+    // Nega o sucesso: a tool tem de falhar alto quando o backend não apagou.
+    if (data && data.success === true) return ok(`Cookie deleted: ${name}`);
+    if (data && data.success === false) {
+      return toolError(`Cookie not deleted: ${name} (backend devolveu success=false)`, { name, deleted: false });
+    }
     return ok(`Cookie deleted: ${name}`);
   });
 
@@ -1573,6 +1945,14 @@ function createServer() {
     }),
   }, async ({ formSelector, buttonSelector }) => {
     const sid = await requireSession();
+
+    // 1) Clica o botao NO DOM (nao por coordenada) e captura a evidencia:
+    //    se o submit aconteceu mesmo, marca o form com um flag.
+    //    Antes o handler media o rect do botao, devolvia x/y, e so depois
+    //    mandava o clique por coordenada noutra chamada. Entre as duas o
+    //    layout podia mudar (banner que aparece, scroll, re-render) e o clique
+    //    caia em outro elemento — medido na Wikipedia: 3/3 tentativas com
+    //    `submitted:true` e a URL nao mudou.
     let data;
     try {
       data = await evalPage(sid, `(() => {
@@ -1585,9 +1965,19 @@ function createServer() {
           btn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
         }
         if (!btn) return { ok: false, error: 'Submit button not found' };
+
+        form.__qaSubmitSeen = false;
+        form.addEventListener('submit', () => { form.__qaSubmitSeen = true; }, true);
+
         btn.scrollIntoView({ behavior: 'instant', block: 'center' });
-        const r = btn.getBoundingClientRect();
-        return { ok: true, x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2), tag: btn.tagName, text: btn.innerText?.substring(0,50) };
+        btn.click();
+
+        return {
+          ok: true,
+          submitFired: form.__qaSubmitSeen === true,
+          tag: btn.tagName,
+          text: btn.innerText?.substring(0,50),
+        };
       })()`);
     } catch (e) {
       return toolError(pageErrorMessage(formSelector, e.message), { formSelector, ok: false });
@@ -1595,10 +1985,35 @@ function createServer() {
     if (!data?.ok) {
       return toolError(data?.error || 'Submit failed', { formSelector, ok: false });
     }
-    // Click the submit button (triggers React onSubmit)
-    await api('POST', '/api/input', { sessionId: sid, type: 'click', x: data.x, y: data.y, button: 0 });
-    await new Promise(r => setTimeout(r, 500));
-    return ok(JSON.stringify({ submitted: true, button: data.text, x: data.x, y: data.y }));
+
+    await new Promise(r => setTimeout(r, 300));
+
+    // 2) Confirma o resultado: submit disparou de verdade, ou a URL mudou, ou
+    //    um alvo/visitante de requestStart (fetch/XHR) saiu do form.
+    //    Se nao houve evidencia nenhuma, a tool NAO mente: reporta que o
+    //    submit nao aconteceu.
+    let after = null;
+    try {
+      after = await evalPage(sid, `(() => ({
+        submitFired: document.querySelector(${JSON.stringify(formSelector)})?.__qaSubmitSeen === true,
+        url: location.href,
+        pending: !!window.__qaFormRequests,
+      }))()`);
+    } catch { /* ignora: a evidencia principal é o submitFired */ }
+
+    const submitFired = Boolean(data.submitFired || after?.submitFired);
+    if (!submitFired) {
+      return toolError('Submit did not fire — no submit event on the form', {
+        formSelector, ok: false, button: data.text,
+      });
+    }
+
+    return ok(JSON.stringify({
+      submitted: true,
+      button: data.text,
+      evidence: submitFired ? 'submit_event' : 'none',
+      url: after?.url,
+    }));
   });
 
   // ========== NEW: GET NETWORK REQUESTS ==========
@@ -1705,11 +2120,16 @@ function createServer() {
       } catch (e) {
         authStatus = `auth_failed: ${e.message}`;
       }
+      // Multi-sessão: o health passa a informar quantas sessões do tenant este
+      // MCP conhece e qual é a corrente (antes cravava o id único).
+      const rec = sessionCache.get(tenantId);
+      const cur = effectiveCurrent(tenantId);
       return ok(JSON.stringify({
         backend: healthData,
         auth: authStatus,
         tenantId,
-        currentSession: sessionCache.get(tenantId) || 'none',
+        currentSession: cur || 'none',
+        tenantSessions: rec ? rec.sessions.size : 0,
         activeTenants: sessionCache.size,
         apiUrl: SERENDE_API,
       }, null, 2));
@@ -1746,7 +2166,13 @@ function requireApiKey(req, res, next) {
 
 function withTenantContext(handler) {
   return (req, res) => {
-    tenantContext.run({ apiKey: req.apiKey, tenantId: req.tenantId }, () => handler(req, res));
+    // connId = o mcp-session-id desta requisição. É o que faz a "sessão
+    // corrente" ser por CONEXÃO (ver o bloco connCurrent): dois sub-agentes
+    // com a mesma chave, cada um no seu mcp-session-id, têm correntes
+    // separadas — e por isso não se cruzam. No initialize o header ainda não
+    // existe, e o fallback é 'no-session' (a corrente por tenant).
+    const connId = req.headers['mcp-session-id'] || null;
+    tenantContext.run({ apiKey: req.apiKey, tenantId: req.tenantId, connId }, () => handler(req, res));
   };
 }
 
@@ -1789,7 +2215,15 @@ app.post('/mcp', requireApiKey, withTenantContext(async (req, res) => {
   transport.onclose = () => {
     const sid = transport.sessionId;
     if (sid) {
+      // Dono lido ANTES do delete (depois a entrada já saiu do Map).
+      const ownerTenant = transports.get(sid)?.tenantId;
       transports.delete(sid);
+      // A conexão morreu: a corrente dela não pode ficar no Map — viraria
+      // vazamento (e, se o mcp-session-id for reaproveitado, ressuscitaria uma
+      // escolha antiga). As SESSÕES em si ficam: são do tenant, não da conexão.
+      // Aqui NÃO há tenantContext (o onclose roda fora do request), por isso a
+      // limpeza é pelo dono registrado no `transports`.
+      if (ownerTenant) connCurrent.delete(connKeyOf(ownerTenant, sid));
       console.log(`[MCP] Session closed: ${sid} (active: ${transports.size})`);
     }
   };

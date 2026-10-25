@@ -744,6 +744,17 @@ async function getPageTargetWsUrl(cdpPort) {
   }
 }
 
+async function getCurrentPageUrl(cdpPort) {
+  try {
+    const result = await cdpRequest(cdpPort, 'Page.getNavigationHistory', {});
+    const entries = result?.entries || [];
+    const idx = result?.currentIndex || 0;
+    return entries[idx]?.url || null;
+  } catch {
+    return null;
+  }
+}
+
 function getSessionAndValidate(req, res) {
   const sessionId = req.params.sessionId || req.query.sessionId || req.body?.sessionId;
   if (!sessionId) { res.status(400).json({ error: 'Missing sessionId' }); return null; }
@@ -1264,14 +1275,31 @@ app.delete('/api/cookies/:sessionId', authMiddleware, trackActivity, async (req,
   const session = getSessionAndValidate(req, res);
   if (!session) return;
 
-  const { name, domain } = req.query || {};
+  const { name, domain, url } = req.query || {};
   if (!name) {
     return res.status(400).json({ error: 'name query param required' });
   }
 
   try {
-    await cdpRequest(session.cdpPort, 'Network.deleteCookies', { name, domain: domain || undefined });
-    res.json({ success: true });
+    // O CDP exige URL OU domínio para apagar um cookie. Sem os dois ele
+    // responde "At least one of the url and domain needs to be specified" —
+    // é o que fazia delete_cookie falhar 100% das vezes. O domínio padrão é
+    // o host da página atual: o Chrome aceita um delete com domain exato
+    // para um cookie com host-only (domain ""), então é a derivação mais
+    // segura sem consultar o cookie antes.
+    let cookieDomain = domain || undefined;
+    let cookieUrl = url || undefined;
+    if (!cookieDomain && !cookieUrl) {
+      const currentUrl = await getCurrentPageUrl(session.cdpPort);
+      if (currentUrl) cookieDomain = new URL(currentUrl).hostname;
+    }
+
+    const result = await cdpRequest(session.cdpPort, 'Network.deleteCookies', {
+      name,
+      domain: cookieDomain,
+      url: cookieUrl,
+    });
+    res.json({ success: result?.success !== false });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

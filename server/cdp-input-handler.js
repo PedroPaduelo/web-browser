@@ -6,6 +6,18 @@ const BUTTON_MASK = { left: 1, middle: 4, right: 2 };
 // Bitmask "modifiers" do CDP: Alt=1, Ctrl=2, Meta=4, Shift=8.
 const MOD_ALT = 1, MOD_CTRL = 2, MOD_META = 4, MOD_SHIFT = 8;
 
+// Teclas de controle que o Chrome converte em caractere. Só estas levam
+// `text` no keyDown — sem ele o CDP não gera `keypress`, e sem keypress o
+// browser não faz a ação implícita (Enter não submete form).
+// Deliberadamente TAB, Escape, setas e F-keys ficam de fora: elas não têm
+// char, e mandar text faria o browser digitar onde devia navegar.
+const CHAR_BY_KEY = {
+  Enter: '\r',
+  NumpadEnter: '\r',
+  Space: ' ',
+  ' ': ' ',
+};
+
 // Teclas especiais -> { key, code, windowsVirtualKeyCode }.
 // Antes só o `key` textual ia no dispatchKeyEvent; sem code/virtualKey o Chrome
 // ignorava Enter/Tab/Esc/setas/F-keys. Mapa completo dos especiais + modificadores.
@@ -329,6 +341,15 @@ function createInputHandler(displayNum, opts = {}) {
         params.text = params.key;
       } else if (typeof msg.text === 'string' && msg.text) {
         params.text = msg.text;
+      } else {
+        // Tecla de controle que o Chrome traduz em char: sem `text` o CDP emite
+        // só keydown+keyup, e NUNCA o `keypress` de que o browser precisa para
+        // agir. Medido no DOM com Enter: ['keydown','keyup'] — sem keypress o
+        // form NÃO é submetido (a busca da Wikipedia não acontecia).
+        // Só as que têm tradução própria (CHAR_BY_KEY); Tab, Esc, setas e
+        // F-keys continuam sem text, senão o browser as trataria como caractere.
+        const ch = CHAR_BY_KEY[params.key];
+        if (ch) params.text = ch;
       }
     }
     return params;

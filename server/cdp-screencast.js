@@ -19,9 +19,13 @@ class CDPScreencast {
     // (80 gerava ~2x bytes sem ganho visível em tela remota).
     this.quality = Number.isFinite(+opts.quality)
       ? Math.min(100, Math.max(10, Math.round(+opts.quality))) : 70;
-    // Teto de resolução do frame (0 = nativo do Chrome).
+    // Teto de resolução do frame. maxWidth GUARDE o teto de largura; maxHeight
+    // passa a ter valor padrão explícito (720) quando quem não informar, para
+    // o screencast nunca escalar abaixo da altura útil da sessão — antes ele
+    // ficava 0 ("sem limite") e o frame saía no tamanho que o Chrome quisesse
+    // dar, o que podia cortar o rodapé da página.
     this.maxWidth = Math.max(0, Math.round(+opts.maxWidth || 1280));
-    this.maxHeight = Math.max(0, Math.round(+opts.maxHeight || 0));
+    this.maxHeight = Math.max(0, Math.round(+opts.maxHeight || 720));
     // Throttling na origem: 1 = todo frame; 2 = metade dos frames, etc.
     this.everyNthFrame = Math.max(1, Math.round(+opts.everyNthFrame || 1));
     // Throttling local em fps (0 = desligado).
