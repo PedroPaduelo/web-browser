@@ -646,11 +646,11 @@ function createServer() {
   // Quer outra mesmo? forceNew:true (ou o default no caminho multi-sessão,
   // ver startNewSession).
   registerTool('session_start', {
-    description: 'Start a new remote browser session. Must be called before any other tool. Returns sessionId. When the tenant already has sessions, a NEW one is created and becomes the current one (use session_use to switch between them). IMPORTANT: keep the returned sessionId and pass it to every other call — with more than one session open, a call without sessionId is refused.',
+    description: 'Start a remote browser session and return its sessionId. Must be called before any other tool. Keep the sessionId and pass it to EVERY other call: with more than one session open, a call without sessionId is refused (ambiguous_session). If several agents share this API key, each one must call session_start with forceNew:true. Without it, the call can return a session that is already open (status already_active), possibly one opened by another agent.',
     inputSchema: z.object({
       resolution: z.string().optional().describe('Screen resolution WxH. Omit = 1280x720. If a session is already open with a DIFFERENT resolution, a new one is created instead of silently reusing it.'),
       startUrl: z.string().default('https://www.google.com').describe('URL to open on start'),
-      forceNew: z.boolean().default(false).describe('true = always create a new session even if there is already one (default: false reuses the current one, like any single-session client)'),
+      forceNew: z.boolean().default(false).describe('true = always create a new session (required when several agents share this key). false (default) = reuse the session already open for this connection when its resolution matches, like a single-session client.'),
     }),
   }, async ({ resolution, startUrl, forceNew }) => {
     const tenantId = getCurrentTenantId();
@@ -668,7 +668,7 @@ function createServer() {
         // Agora a resolução divergente cria a sessão pedida.
         if (!resolution || sameResolution(existing, resolution)) {
           const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${cachedId}`;
-          return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', reused: true, resolution: existing.resolution, viewerUrl, message: 'Session already active. Call with forceNew:true to open another one (or use session_use to switch).' }, null, 2));
+          return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', reused: true, resolution: existing.resolution, viewerUrl, message: 'Reused a session that was already open. If other agents use this key, call session_start with forceNew:true to get your own session.' }, null, 2));
         }
         // Resolução diferente da sessão existente: o pedido é por outra.
         return startNewSession(tenantId, { resolution, startUrl });
@@ -747,7 +747,7 @@ function createServer() {
   });
 
   registerTool('list_sessions', {
-    description: 'List ALL active browser sessions of the tenant, marking which one is the current one.',
+    description: 'List ALL active browser sessions of the tenant, marking which one is the current one. The current marker is shared by every agent that uses the same key: to act on your own session, pass sessionId on each call.',
     inputSchema: z.object({}),
   }, async () => {
     const tenantId = getCurrentTenantId();
@@ -769,7 +769,7 @@ function createServer() {
   // a chave sem se cruzarem: cada um faz session_use na SUA sessão e depois
   // choca as tools de automação, que passam a operar aquela sessão.
   registerTool('session_use', {
-    description: 'Switch the CURRENT session to another one of the same tenant. The next automation tools (navigate, get_url, click…) will operate this session. Use list_sessions to see the ids.',
+    description: 'Make sessionId the current session of this connection. NOT safe when several agents share this API key: another agent can change the current session between your calls. Prefer passing sessionId on every call.',
     inputSchema: z.object({
       sessionId: z.string().describe('Session id to make current (from list_sessions).'),
     }),
