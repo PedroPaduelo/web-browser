@@ -114,6 +114,28 @@ function ok(text) {
   return { content: [{ type: 'text', text }] };
 }
 
+// Envelope de erro padronizado das tools.
+//
+//   - isError:true → quem decide por isError passa a tratar "não achei" e
+//     "timeout" como FALHA. Antes esses casos saíam como isError:false e o
+//     agente seguia como se a operação tivesse dado certo.
+//   - texto em JSON → o mesmo contrato do caminho de sucesso: quem faz
+//     JSON.parse(data) não quebra quando a chamada falha.
+function toolError(message, extra = {}) {
+  return {
+    content: [{ type: 'text', text: JSON.stringify({ error: message, ...extra }, null, 2) }],
+    isError: true,
+  };
+}
+
+// Exceção lançada pelo script dentro da página (ex.: seletor CSS inválido).
+class PageScriptError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'PageScriptError';
+  }
+}
+
 // --- Reusable JS snippets for React-compatible input simulation ---
 
 const REACT_SET_VALUE_JS = `
@@ -218,14 +240,53 @@ function createServer() {
     throw new Error('No active session for this tenant. Use session_start first.');
   }
 
+  // Avalia um script na página e distingue "a página lançou exceção" de "o
+  // script devolveu vazio".
+  //
+  // O /api/evaluate devolve só {result: value}: quando o script lança (ex.:
+  // querySelector com seletor CSS inválido → SyntaxError) o valor some e o
+  // MCP passa a dizer "0 elementos encontrados" (falso sucesso) ou devolve
+  // texto indefinido (dump de schema do SDK). O try/catch roda NO BROWSER,
+  // então o erro volta como dado.
+  async function evalPage(sid, script) {
+    const wrapped = `(() => { try { return { __ok: true, value: (${script}) }; } catch (e) { return { __ok: false, error: (e && e.message) ? String(e.message) : String(e) }; } })()`;
+    const data = await api('POST', `/api/evaluate/${sid}`, { script: wrapped });
+    const r = data.result;
+    if (r && r.__ok === false) throw new PageScriptError(r.error);
+    return r ? r.value : undefined;
+  }
+
+  // Mensagem de erro para exceção de script. Seletor CSS inválido é o caso
+  // mais comum (querySelector lança SyntaxError).
+  function pageErrorMessage(selector, message) {
+    if (/is not a valid selector/i.test(message)) {
+      return `Seletor CSS inválido: ${selector}`;
+    }
+    return `Erro ao avaliar o seletor "${selector}" na página: ${message}`;
+  }
+
   const server = new McpServer({
     name: 'serende-browser',
     version: '3.0.0',
   });
 
+  // Registro de tool com envelope de erro uniforme: qualquer exceção lançada
+  // pelo handler (sem sessão, rate limit, API fora do ar) vira o mesmo formato
+  // das tools — isError:true e texto JSON. Sem isso, o caminho de exceção
+  // devolvia um texto solto e quem faz JSON.parse(data) quebrava justamente
+  // no erro.
+  const registerTool = (name, config, handler) =>
+    server.registerTool(name, config, async (...handlerArgs) => {
+      try {
+        return await handler(...handlerArgs);
+      } catch (e) {
+        return toolError(e.message || String(e));
+      }
+    });
+
   // ========== SESSION TOOLS ==========
 
-  server.registerTool('session_start', {
+  registerTool('session_start', {
     description: 'Start a new remote browser session. Must be called before any other tool. Returns sessionId.',
     inputSchema: z.object({
       resolution: z.string().default('1280x720').describe('Screen resolution WxH'),
@@ -258,7 +319,7 @@ function createServer() {
     return ok(JSON.stringify({ sessionId: data.sessionId, status: data.status, resolution: data.resolution, viewerUrl }, null, 2));
   });
 
-  server.registerTool('session_stop', {
+  registerTool('session_stop', {
     description: 'Stop the current browser session and free resources.',
     inputSchema: z.object({}),
   }, async () => {
@@ -270,7 +331,7 @@ function createServer() {
     return ok(data.message || 'Session stopped');
   });
 
-  server.registerTool('session_status', {
+  registerTool('session_status', {
     description: 'Get status of current session (resolution, uptime, display).',
     inputSchema: z.object({}),
   }, async () => {
@@ -279,7 +340,7 @@ function createServer() {
     return ok(JSON.stringify(data, null, 2));
   });
 
-  server.registerTool('list_sessions', {
+  registerTool('list_sessions', {
     description: 'List all active browser sessions for the current user.',
     inputSchema: z.object({}),
   }, async () => {
@@ -289,7 +350,7 @@ function createServer() {
 
   // ========== NAVIGATION TOOLS ==========
 
-  server.registerTool('navigate', {
+  registerTool('navigate', {
     description: 'Navigate the browser to a URL. Automatically waits for page load to complete before returning.',
     inputSchema: z.object({
       url: z.string().describe('Full URL to navigate to (e.g. https://google.com)'),
@@ -313,7 +374,7 @@ function createServer() {
     return ok(`Navigated to: ${url}`);
   });
 
-  server.registerTool('get_url', {
+  registerTool('get_url', {
     description: 'Get the current page URL.',
     inputSchema: z.object({}),
   }, async () => {
@@ -324,7 +385,7 @@ function createServer() {
 
   // ========== SCREENSHOT ==========
 
-  server.registerTool('screenshot', {
+  registerTool('screenshot', {
     description: 'Take a screenshot of the current browser screen. Returns JPEG image with URL and title info overlay. Use this to see what is on screen before interacting.',
     inputSchema: z.object({}),
   }, async () => {
@@ -349,7 +410,7 @@ function createServer() {
 
   // ========== MOUSE TOOLS ==========
 
-  server.registerTool('mouse_move', {
+  registerTool('mouse_move', {
     description: 'Move mouse cursor to (x, y) coordinates.',
     inputSchema: z.object({
       x: z.number().describe('X coordinate'),
@@ -361,7 +422,7 @@ function createServer() {
     return ok(`Moved to (${x}, ${y})`);
   });
 
-  server.registerTool('mouse_click', {
+  registerTool('mouse_click', {
     description: 'Click at (x, y). Use button 0=left, 1=middle, 2=right. Always take a screenshot first to know where to click.',
     inputSchema: z.object({
       x: z.number().describe('X coordinate'),
@@ -374,7 +435,7 @@ function createServer() {
     return ok(`Clicked (${x}, ${y}) button=${button}`);
   });
 
-  server.registerTool('mouse_double_click', {
+  registerTool('mouse_double_click', {
     description: 'Double-click at (x, y).',
     inputSchema: z.object({
       x: z.number().describe('X coordinate'),
@@ -382,17 +443,15 @@ function createServer() {
     }),
   }, async ({ x, y }) => {
     const sid = await requireSession();
-    await api('POST', '/api/input/batch', {
-      sessionId: sid,
-      actions: [
-        { type: 'click', x, y, button: 0 },
-        { type: 'click', x, y, button: 0 },
-      ]
-    });
+    // dblclick: o handler CDP (server/cdp-input-handler.js) trata o tipo
+    // 'dblclick' como press+release com clickCount=2 — é esse par que o Chrome
+    // usa para sintetizar o evento dblclick no DOM. Dois 'click' separados
+    // (clickCount=1) NUNCA geram dblclick (medido: dblclick:0 no DOM).
+    await api('POST', '/api/input', { sessionId: sid, type: 'dblclick', x, y, button: 0 });
     return ok(`Double-clicked (${x}, ${y})`);
   });
 
-  server.registerTool('mouse_right_click', {
+  registerTool('mouse_right_click', {
     description: 'Right-click at (x, y) to open context menu.',
     inputSchema: z.object({
       x: z.number().describe('X coordinate'),
@@ -404,7 +463,7 @@ function createServer() {
     return ok(`Right-clicked (${x}, ${y})`);
   });
 
-  server.registerTool('mouse_down', {
+  registerTool('mouse_down', {
     description: 'Press mouse button down (for drag start).',
     inputSchema: z.object({
       x: z.number().describe('X coordinate'),
@@ -417,7 +476,7 @@ function createServer() {
     return ok(`Mouse down (${x}, ${y}) button=${button}`);
   });
 
-  server.registerTool('mouse_up', {
+  registerTool('mouse_up', {
     description: 'Release mouse button (for drag end).',
     inputSchema: z.object({
       x: z.number().describe('X coordinate'),
@@ -430,7 +489,7 @@ function createServer() {
     return ok(`Mouse up (${x}, ${y}) button=${button}`);
   });
 
-  server.registerTool('scroll', {
+  registerTool('scroll', {
     description: 'Scroll at (x, y). Positive deltaY = scroll down, negative = scroll up. One notch = 120.',
     inputSchema: z.object({
       x: z.number().describe('X coordinate'),
@@ -443,7 +502,7 @@ function createServer() {
     return ok(`Scrolled at (${x}, ${y}) deltaY=${deltaY}`);
   });
 
-  server.registerTool('drag', {
+  registerTool('drag', {
     description: 'Drag from (fromX, fromY) to (toX, toY) with smooth interpolation. Generates intermediate mousemove events so canvas, sliders, and drag-and-drop work correctly.',
     inputSchema: z.object({
       fromX: z.number().describe('Start X'),
@@ -476,7 +535,7 @@ function createServer() {
 
   // ========== KEYBOARD TOOLS ==========
 
-  server.registerTool('key_press', {
+  registerTool('key_press', {
     description: 'Press and release a key (Enter, Tab, Escape, Backspace, Delete, ArrowUp/Down/Left/Right, F1-F12, or any character).',
     inputSchema: z.object({
       key: z.string().describe('Key name'),
@@ -493,7 +552,7 @@ function createServer() {
     return ok(`Pressed: ${key}`);
   });
 
-  server.registerTool('key_down', {
+  registerTool('key_down', {
     description: 'Hold a key down. Use with key_up for combos like Ctrl+C.',
     inputSchema: z.object({
       key: z.string().describe('Key name'),
@@ -504,7 +563,7 @@ function createServer() {
     return ok(`Key down: ${key}`);
   });
 
-  server.registerTool('key_up', {
+  registerTool('key_up', {
     description: 'Release a held key.',
     inputSchema: z.object({
       key: z.string().describe('Key name'),
@@ -515,7 +574,7 @@ function createServer() {
     return ok(`Key up: ${key}`);
   });
 
-  server.registerTool('type_text', {
+  registerTool('type_text', {
     description: 'Type text into the focused field. For texts > 3 chars, uses clipboard paste (fast). For short texts or when humanized=true, types char-by-char with realistic delay. Always verifies the result.',
     inputSchema: z.object({
       text: z.string().describe('Text to type'),
@@ -557,7 +616,7 @@ function createServer() {
     return ok(`Typed (keys): "${text}"`);
   });
 
-  server.registerTool('hotkey', {
+  registerTool('hotkey', {
     description: 'Press a keyboard shortcut. Keys pressed in order, released in reverse. Example: ["Control", "a"] for Ctrl+A.',
     inputSchema: z.object({
       keys: z.array(z.string()).describe('Array of key names, e.g. ["Control", "c"]'),
@@ -573,7 +632,7 @@ function createServer() {
 
   // ========== JS EXECUTION ==========
 
-  server.registerTool('evaluate_js', {
+  registerTool('evaluate_js', {
     description: 'Execute JavaScript in the browser page and return the result. Powerful for complex interactions, reading DOM, etc.',
     inputSchema: z.object({
       script: z.string().describe('JavaScript to execute in browser context'),
@@ -586,7 +645,7 @@ function createServer() {
 
   // ========== PAGE INSPECTION TOOLS ==========
 
-  server.registerTool('get_page_title', {
+  registerTool('get_page_title', {
     description: 'Get the current page title.',
     inputSchema: z.object({}),
   }, async () => {
@@ -595,7 +654,7 @@ function createServer() {
     return ok(data.result ?? 'untitled');
   });
 
-  server.registerTool('get_page_text', {
+  registerTool('get_page_text', {
     description: 'Get all visible text from the page. Useful to understand page content without a screenshot.',
     inputSchema: z.object({
       maxLength: z.number().default(5000).describe('Max chars to return (default 5000)'),
@@ -608,7 +667,7 @@ function createServer() {
     return ok(data.result ?? '');
   });
 
-  server.registerTool('get_page_html', {
+  registerTool('get_page_html', {
     description: 'Get HTML of the page or a specific element. Useful for understanding DOM structure.',
     inputSchema: z.object({
       selector: z.string().default('body').describe('CSS selector (default: body)'),
@@ -617,14 +676,19 @@ function createServer() {
   }, async ({ selector, outer }) => {
     const sid = await requireSession();
     const prop = outer ? 'outerHTML' : 'innerHTML';
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el ? el.${prop}.substring(0, 10000) : null; })()`,
-    });
-    if (data.result === null) return ok(`Element not found: ${selector}`);
-    return ok(data.result);
+    let html;
+    try {
+      html = await evalPage(sid, `(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el ? el.${prop}.substring(0, 10000) : null; })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(selector, e.message), { selector, found: false });
+    }
+    if (html === null || html === undefined) {
+      return toolError(`Element not found: ${selector}`, { selector, found: false });
+    }
+    return ok(html);
   });
 
-  server.registerTool('find_element', {
+  registerTool('find_element', {
     description: 'Find an element by CSS selector. Returns position (x, y, width, height), text, tag, and attributes. Automatically scrolls element into view if off-screen.',
     inputSchema: z.object({
       selector: z.string().describe('CSS selector (e.g. "#login-btn", ".submit", "input[name=email]")'),
@@ -632,15 +696,21 @@ function createServer() {
     }),
   }, async ({ selector, scrollToView }) => {
     const sid = await requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
+    let value;
+    try {
+      value = await evalPage(sid, `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return null;
         const r = el.getBoundingClientRect();
         const wasOffscreen = r.top < 0 || r.bottom > window.innerHeight;
         if (${scrollToView} && wasOffscreen) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // 'instant', e NÃO 'smooth': o scroll suave é ASSÍNCRONO, então o
+          // rect lido em seguida era o PRÉ-scroll (a coordenada apontava para
+          // outro pixel da tela — erro medido de até 414px). Com 'instant' o
+          // scroll é síncrono e o rect abaixo já é o final.
+          el.scrollIntoView({ behavior: 'instant', block: 'center' });
         }
+        // Rect RELIDO depois do scroll: esta é a posição real do elemento.
         const r2 = el.getBoundingClientRect();
         return {
           found: true,
@@ -657,13 +727,15 @@ function createServer() {
           visible: r2.width > 0 && r2.height > 0,
           wasScrolled: wasOffscreen
         };
-      })()`,
-    });
-    if (data.result === null) return ok(`Element not found: ${selector}`);
-    return ok(JSON.stringify(data.result, null, 2));
+      })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(selector, e.message), { selector, found: false });
+    }
+    if (value === null) return toolError(`Element not found: ${selector}`, { selector, found: false });
+    return ok(JSON.stringify(value, null, 2));
   });
 
-  server.registerTool('find_all_elements', {
+  registerTool('find_all_elements', {
     description: 'Find all elements matching a CSS selector. Returns array of {tag, text, x, y, width, height}. Max 20 results.',
     inputSchema: z.object({
       selector: z.string().describe('CSS selector'),
@@ -671,8 +743,9 @@ function createServer() {
     }),
   }, async ({ selector, maxResults }) => {
     const sid = await requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
+    let value;
+    try {
+      value = await evalPage(sid, `(() => {
         const els = document.querySelectorAll(${JSON.stringify(selector)});
         const results = [];
         for (let i = 0; i < Math.min(els.length, ${maxResults}); i++) {
@@ -690,12 +763,14 @@ function createServer() {
           });
         }
         return { count: els.length, results };
-      })()`,
-    });
-    return ok(JSON.stringify(data.result ?? { count: 0, results: [] }, null, 2));
+      })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(selector, e.message), { selector });
+    }
+    return ok(JSON.stringify(value ?? { count: 0, results: [] }, null, 2));
   });
 
-  server.registerTool('find_element_by_text', {
+  registerTool('find_element_by_text', {
     description: 'Find a clickable element by its visible text. Searches buttons, links, and other interactive elements. Returns coordinates for clicking.',
     inputSchema: z.object({
       text: z.string().describe('Text to search for (case-insensitive, partial match)'),
@@ -703,8 +778,9 @@ function createServer() {
     }),
   }, async ({ text, tag }) => {
     const sid = await requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
+    let value;
+    try {
+      value = await evalPage(sid, `(() => {
         const searchText = ${JSON.stringify(text)}.toLowerCase();
         const tagFilter = ${JSON.stringify(tag)};
         const selector = tagFilter === '*' ? 'a, button, input, [role="button"], [onclick], label, select, textarea, [tabindex]' : tagFilter;
@@ -726,13 +802,17 @@ function createServer() {
           if (results.length >= 5) break;
         }
         return results.length ? results : null;
-      })()`,
-    });
-    if (data.result === null) return ok(`No clickable element found with text: "${text}"`);
-    return ok(JSON.stringify(data.result, null, 2));
+      })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(tag, e.message), { text, tag });
+    }
+    if (value === null) {
+      return toolError(`No clickable element found with text: "${text}"`, { text, tag, found: false });
+    }
+    return ok(JSON.stringify(value, null, 2));
   });
 
-  server.registerTool('wait_for_element', {
+  registerTool('wait_for_element', {
     description: 'Wait for an element to appear on the page (polls every 500ms). Returns element info when found or error on timeout.',
     inputSchema: z.object({
       selector: z.string().describe('CSS selector to wait for'),
@@ -742,8 +822,9 @@ function createServer() {
     const sid = await requireSession();
     const maxAttempts = Math.ceil(timeoutMs / 500);
     for (let i = 0; i < maxAttempts; i++) {
-      const data = await api('POST', `/api/evaluate/${sid}`, {
-        script: `(() => {
+      let value;
+      try {
+        value = await evalPage(sid, `(() => {
           const el = document.querySelector(${JSON.stringify(selector)});
           if (!el) return null;
           const r = el.getBoundingClientRect();
@@ -756,17 +837,21 @@ function createServer() {
             width: Math.round(r.width),
             height: Math.round(r.height)
           };
-        })()`,
-      });
-      if (data.result) return ok(JSON.stringify(data.result, null, 2));
+        })()`);
+      } catch (e) {
+        return toolError(pageErrorMessage(selector, e.message), { selector, found: false });
+      }
+      if (value) return ok(JSON.stringify(value, null, 2));
       await new Promise(r => setTimeout(r, 500));
     }
-    return ok(`Timeout: element "${selector}" not found after ${timeoutMs}ms`);
+    return toolError(`Timeout: element "${selector}" not found after ${timeoutMs}ms`, {
+      selector, found: false, timeout: true, elapsed: timeoutMs,
+    });
   });
 
   // ========== HIGH-LEVEL TOOLS ==========
 
-  server.registerTool('wait_for_page_ready', {
+  registerTool('wait_for_page_ready', {
     description: 'Wait for page to be fully loaded and interactive. Checks document.readyState, DOM stability, pending fetches, React hydration, and SPA routing. Works with Next.js, React Router, Vue Router, etc.',
     inputSchema: z.object({
       timeoutMs: z.number().default(15000).describe('Max wait time (ms)'),
@@ -780,8 +865,9 @@ function createServer() {
     let stableSince = null;
 
     while (Date.now() - start < timeoutMs) {
-      const result = await api('POST', `/api/evaluate/${sid}`, {
-        script: `(() => {
+      let state;
+      try {
+        state = await evalPage(sid, `(() => {
           const loaderSelectors = '.loader, .spinner, .loading, [aria-busy="true"], .skeleton, [data-loading]:not(img):not(iframe), .animate-pulse, .nprogress-busy';
           const reactRoot = document.getElementById('__next') || document.getElementById('root') || document.getElementById('app');
           const isHydrating = reactRoot && reactRoot.hasAttribute('data-reactroot') && document.querySelectorAll('[data-reactid]').length === 0;
@@ -795,10 +881,11 @@ function createServer() {
             hydrating: !!isHydrating,
             pendingFetches: typeof window.__NEXT_DATA__ !== 'undefined' ? 0 : (performance.getEntriesByType?.('resource')?.filter(r => !r.responseEnd)?.length || 0)
           };
-        })()`,
-      });
+        })()`);
+      } catch (e) {
+        return toolError(`Erro ao avaliar a página: ${e.message}`);
+      }
 
-      const state = result.result;
       if (state?.complete && !state?.loading && !state?.hydrating) {
         const currentState = `${state.bodyLen}:${state.childCount}:${state.url}`;
         if (currentState === lastDomState) {
@@ -813,10 +900,12 @@ function createServer() {
       }
       await new Promise(r => setTimeout(r, 200));
     }
-    return ok(JSON.stringify({ ready: false, timeout: true, elapsed: timeoutMs }));
+    return toolError(`Timeout: page not ready after ${timeoutMs}ms`, {
+      ready: false, timeout: true, elapsed: timeoutMs,
+    });
   });
 
-  server.registerTool('click_element', {
+  registerTool('click_element', {
     description: 'Click an element by CSS selector. Scrolls element into view first, then clicks. Waits a bit after click for UI to respond.',
     inputSchema: z.object({
       selector: z.string().describe('CSS selector of element to click'),
@@ -824,8 +913,9 @@ function createServer() {
     }),
   }, async ({ selector, button }) => {
     const sid = await requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
+    let found;
+    try {
+      found = await evalPage(sid, `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return { found: false };
         el.scrollIntoView({ behavior: 'instant', block: 'center' });
@@ -842,24 +932,26 @@ function createServer() {
           y: Math.round(r.y + r.height / 2),
           method: 'x11'
         };
-      })()`,
-    });
-    if (!data.result?.found) return ok(`Element not found: ${selector}`);
+      })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(selector, e.message), { selector, found: false });
+    }
+    if (!found?.found) return toolError(`Element not found: ${selector}`, { selector, found: false });
 
-    if (data.result.method === 'x11') {
+    if (found.method === 'x11') {
       await api('POST', '/api/input', {
         sessionId: sid,
         type: 'click',
-        x: data.result.x,
-        y: data.result.y,
+        x: found.x,
+        y: found.y,
         button,
       });
     }
     await new Promise(r => setTimeout(r, 300));
-    return ok(`Clicked "${selector}" at (${data.result.x}, ${data.result.y})`);
+    return ok(`Clicked "${selector}" at (${found.x}, ${found.y})`);
   });
 
-  server.registerTool('scroll_to_element', {
+  registerTool('scroll_to_element', {
     description: 'Scroll the page to bring an element into view. Does NOT click.',
     inputSchema: z.object({
       selector: z.string().describe('CSS selector of element'),
@@ -867,24 +959,33 @@ function createServer() {
     }),
   }, async ({ selector, block }) => {
     const sid = await requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
+    let res;
+    try {
+      res = await evalPage(sid, `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return { found: false };
-        el.scrollIntoView({ behavior: 'smooth', block: ${JSON.stringify(block)} });
+        // 'instant', e NÃO 'smooth': o scroll suave é ASSÍNCRONO — o rect lido
+        // em seguida era o PRÉ-scroll, e a resposta dizia "now visible: false"
+        // para um elemento que já estava visível.
+        el.scrollIntoView({ behavior: 'instant', block: ${JSON.stringify(block)} });
+        // Rect relido DEPOIS do scroll.
         const r = el.getBoundingClientRect();
         return {
           found: true,
-          nowVisible: r.top >= 0 && r.top <= window.innerHeight,
-          y: Math.round(r.top)
+          // Visível = o retângulo do elemento intersecta o viewport.
+          nowVisible: r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth,
+          y: Math.round(r.top),
+          scrollY: Math.round(window.scrollY)
         };
-      })()`,
-    });
-    if (!data.result?.found) return ok(`Element not found: ${selector}`);
-    return ok(`Scrolled to "${selector}" (now visible: ${data.result.nowVisible}, y: ${data.result.y})`);
+      })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(selector, e.message), { selector, found: false });
+    }
+    if (!res?.found) return toolError(`Element not found: ${selector}`, { selector, found: false });
+    return ok(`Scrolled to "${selector}" (now visible: ${res.nowVisible}, y: ${res.y})`);
   });
 
-  server.registerTool('clipboard_write', {
+  registerTool('clipboard_write', {
     description: 'Write text to clipboard via JavaScript. Useful for copy/paste workflows.',
     inputSchema: z.object({
       text: z.string().describe('Text to copy to clipboard'),
@@ -907,10 +1008,10 @@ function createServer() {
       })()`,
     });
     if (data.result?.ok) return ok(`Copied to clipboard: "${text}"`);
-    return ok(`Failed to copy: ${data.result?.error || 'unknown'}`);
+    return toolError(`Failed to copy: ${data.result?.error || 'unknown'}`, { ok: false });
   });
 
-  server.registerTool('clipboard_read', {
+  registerTool('clipboard_read', {
     description: 'Read text from clipboard via JavaScript.',
     inputSchema: z.object({}),
   }, async () => {
@@ -924,10 +1025,10 @@ function createServer() {
       })()`,
     });
     if (data.result?.ok) return ok(`Clipboard: "${data.result.text}"`);
-    return ok(`Failed to read: ${data.result?.error || 'unknown'}`);
+    return toolError(`Failed to read: ${data.result?.error || 'unknown'}`, { ok: false });
   });
 
-  server.registerTool('fill_form', {
+  registerTool('fill_form', {
     description: 'Fill multiple form fields at once. React/Vue/Angular compatible. Each field: { selector, value, type } where type=text|select|checkbox|radio. For text fields, clicks first then sets value with proper React event simulation.',
     inputSchema: z.object({
       fields: z.array(z.object({
@@ -1027,7 +1128,7 @@ function createServer() {
     return ok(JSON.stringify({ filled: results.length, results }, null, 2));
   });
 
-  server.registerTool('click_and_type', {
+  registerTool('click_and_type', {
     description: 'Click at (x, y), wait for focus, then type text. Use clearFirst=true to clear existing text first. Better than separate click+type.',
     inputSchema: z.object({
       x: z.number().describe('X coordinate to click'),
@@ -1089,7 +1190,7 @@ function createServer() {
 
   // ========== NEW: CLICK BY TEXT (robust) ==========
 
-  server.registerTool('click_by_text', {
+  registerTool('click_by_text', {
     description: 'Find an element by visible text and click it. Searches ALL elements (not just buttons/links). Much more robust than find_element_by_text + mouse_click. Supports data-testid fallback.',
     inputSchema: z.object({
       text: z.string().describe('Text to search for (case-insensitive, partial match)'),
@@ -1100,8 +1201,9 @@ function createServer() {
   }, async ({ text, tag, exact, index }) => {
     const sid = await requireSession();
     // Find + scroll + click all in one JS evaluation for reliability
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
+    let clicked;
+    try {
+      clicked = await evalPage(sid, `(() => {
         const searchText = ${JSON.stringify(text)}.toLowerCase();
         const isExact = ${exact};
         const tagFilter = ${JSON.stringify(tag)};
@@ -1135,16 +1237,18 @@ function createServer() {
         target.el.click();
         const r = target.el.getBoundingClientRect();
         return { clicked: true, text: target.text, tag: target.tag, x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2), totalMatches: matches.length };
-      })()`,
-    });
-    if (!data.result) return ok(`No element found with text: "${text}"`);
+      })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(tag, e.message), { text, tag });
+    }
+    if (!clicked) return toolError(`No element found with text: "${text}"`, { text, tag, found: false });
     await new Promise(r => setTimeout(r, 300));
-    return ok(JSON.stringify(data.result));
+    return ok(JSON.stringify(clicked));
   });
 
   // ========== NEW: WAIT FOR URL ==========
 
-  server.registerTool('wait_for_url', {
+  registerTool('wait_for_url', {
     description: 'Wait for the URL to change or match a pattern. Essential for SPA navigation (React Router, Next.js, etc.) where page doesn\'t reload.',
     inputSchema: z.object({
       url: z.string().default('').describe('URL or partial URL to match. Empty = wait for any URL change.'),
@@ -1168,12 +1272,14 @@ function createServer() {
       await new Promise(r => setTimeout(r, 300));
     }
     const finalUrl = (await api('POST', `/api/evaluate/${sid}`, { script: 'location.href' })).result;
-    return ok(JSON.stringify({ timeout: true, currentUrl: finalUrl, elapsed: timeoutMs }));
+    return toolError(`Timeout: URL ${url ? `"${url}" ` : ''}not matched after ${timeoutMs}ms`, {
+      timeout: true, currentUrl: finalUrl, elapsed: timeoutMs,
+    });
   });
 
   // ========== NEW: WAIT FOR TEXT ==========
 
-  server.registerTool('wait_for_text', {
+  registerTool('wait_for_text', {
     description: 'Wait for specific text to appear on the page. Useful after form submissions, navigation, or async data loads.',
     inputSchema: z.object({
       text: z.string().describe('Text to wait for (case-insensitive)'),
@@ -1184,23 +1290,28 @@ function createServer() {
     const sid = await requireSession();
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const data = await api('POST', `/api/evaluate/${sid}`, {
-        script: `(() => {
+      let state;
+      try {
+        state = await evalPage(sid, `(() => {
           const el = document.querySelector(${JSON.stringify(selector)});
           if (!el) return { found: false };
           const content = el.innerText || el.textContent || '';
           return { found: content.toLowerCase().includes(${JSON.stringify(text.toLowerCase())}), length: content.length };
-        })()`,
-      });
-      if (data.result?.found) return ok(JSON.stringify({ found: true, elapsed: Date.now() - start }));
+        })()`);
+      } catch (e) {
+        return toolError(pageErrorMessage(selector, e.message), { text, selector, found: false });
+      }
+      if (state?.found) return ok(JSON.stringify({ found: true, elapsed: Date.now() - start }));
       await new Promise(r => setTimeout(r, 400));
     }
-    return ok(JSON.stringify({ found: false, timeout: true, elapsed: timeoutMs }));
+    return toolError(`Timeout: text "${text}" not found after ${timeoutMs}ms`, {
+      text, found: false, timeout: true, elapsed: timeoutMs,
+    });
   });
 
   // ========== NEW: WAIT FOR SELECTOR GONE ==========
 
-  server.registerTool('wait_for_selector_gone', {
+  registerTool('wait_for_selector_gone', {
     description: 'Wait for an element to disappear from the page (e.g., loading spinners, modals, overlays).',
     inputSchema: z.object({
       selector: z.string().describe('CSS selector of element to wait for disappearance'),
@@ -1210,18 +1321,23 @@ function createServer() {
     const sid = await requireSession();
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const data = await api('POST', `/api/evaluate/${sid}`, {
-        script: `!document.querySelector(${JSON.stringify(selector)})`,
-      });
-      if (data.result === true) return ok(JSON.stringify({ gone: true, elapsed: Date.now() - start }));
+      let gone;
+      try {
+        gone = await evalPage(sid, `!document.querySelector(${JSON.stringify(selector)})`);
+      } catch (e) {
+        return toolError(pageErrorMessage(selector, e.message), { selector, gone: false });
+      }
+      if (gone === true) return ok(JSON.stringify({ gone: true, elapsed: Date.now() - start }));
       await new Promise(r => setTimeout(r, 400));
     }
-    return ok(JSON.stringify({ gone: false, timeout: true, elapsed: timeoutMs }));
+    return toolError(`Timeout: element "${selector}" still present after ${timeoutMs}ms`, {
+      selector, gone: false, timeout: true, elapsed: timeoutMs,
+    });
   });
 
   // ========== NEW: GET CONSOLE MESSAGES ==========
 
-  server.registerTool('get_console_messages', {
+  registerTool('get_console_messages', {
     description: 'Start capturing or retrieve browser console messages (log, error, warn, info). Call first to start capture, then call again to retrieve. Essential for debugging.',
     inputSchema: z.object({
       action: z.enum(['start', 'get', 'clear']).default('get').describe('start=begin capture, get=retrieve messages, clear=clear buffer'),
@@ -1273,7 +1389,7 @@ function createServer() {
 
   // ========== NEW: GET/SET COOKIES (CDP-based) ==========
 
-  server.registerTool('get_cookies', {
+  registerTool('get_cookies', {
     description: 'Get all cookies for the current page. Returns array of {name, value, domain, path, expires}.',
     inputSchema: z.object({
       name: z.string().default('').describe('Filter by cookie name (empty = all)'),
@@ -1292,7 +1408,7 @@ function createServer() {
     return ok(JSON.stringify(cookies, null, 2));
   });
 
-  server.registerTool('set_cookie', {
+  registerTool('set_cookie', {
     description: 'Set a cookie on the current page.',
     inputSchema: z.object({
       name: z.string().describe('Cookie name'),
@@ -1319,7 +1435,7 @@ function createServer() {
     return ok(`Cookie set (CDP response): ${JSON.stringify(data)}`);
   });
 
-  server.registerTool('delete_cookie', {
+  registerTool('delete_cookie', {
     description: 'Delete a cookie by name.',
     inputSchema: z.object({
       name: z.string().describe('Cookie name to delete'),
@@ -1333,7 +1449,7 @@ function createServer() {
 
   // ========== NEW: GET ELEMENTS (structured) ==========
 
-  server.registerTool('get_elements', {
+  registerTool('get_elements', {
     description: 'Get structured data about all elements matching a selector. Returns full attributes, computed styles, visibility, and hierarchy. Much richer than find_all_elements.',
     inputSchema: z.object({
       selector: z.string().describe('CSS selector'),
@@ -1342,8 +1458,9 @@ function createServer() {
     }),
   }, async ({ selector, maxResults, includeAttributes }) => {
     const sid = await requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
+    let value;
+    try {
+      value = await evalPage(sid, `(() => {
         const els = document.querySelectorAll(${JSON.stringify(selector)});
         const results = [];
         for (let i = 0; i < Math.min(els.length, ${maxResults}); i++) {
@@ -1384,14 +1501,16 @@ function createServer() {
           results.push(item);
         }
         return { total: els.length, returned: results.length, results };
-      })()`,
-    });
-    return ok(JSON.stringify(data.result || { total: 0, returned: 0, results: [] }, null, 2));
+      })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(selector, e.message), { selector });
+    }
+    return ok(JSON.stringify(value ?? { total: 0, returned: 0, results: [] }, null, 2));
   });
 
   // ========== NEW: REACT FILL INPUT ==========
 
-  server.registerTool('react_fill_input', {
+  registerTool('react_fill_input', {
     description: 'Fill an input field using React-compatible event simulation. Works with React Hook Form, Formik, controlled components, Radix UI, etc. Clicks the element, clears it, sets value, and triggers all necessary React events.',
     inputSchema: z.object({
       selector: z.string().describe('CSS selector of the input (or data-testid like [data-testid="email"])'),
@@ -1401,19 +1520,22 @@ function createServer() {
   }, async ({ selector, value, clearFirst }) => {
     const sid = await requireSession();
     // Find and click
-    const findResult = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
+    let found;
+    try {
+      found = await evalPage(sid, `(() => {
         const el = document.querySelector(${JSON.stringify(selector)});
         if (!el) return null;
         el.scrollIntoView({ behavior: 'instant', block: 'center' });
         const r = el.getBoundingClientRect();
         return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), tag: el.tagName, type: el.type };
-      })()`,
-    });
-    if (!findResult.result) return ok(JSON.stringify({ ok: false, error: 'Element not found: ' + selector }));
+      })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(selector, e.message), { selector, ok: false });
+    }
+    if (!found) return toolError(`Element not found: ${selector}`, { selector, ok: false });
 
     // Click to focus
-    await api('POST', '/api/input', { sessionId: sid, type: 'click', x: findResult.result.x, y: findResult.result.y, button: 0 });
+    await api('POST', '/api/input', { sessionId: sid, type: 'click', x: found.x, y: found.y, button: 0 });
     await new Promise(r => setTimeout(r, 200));
 
     // Clear + set value with full React event chain
@@ -1434,12 +1556,16 @@ function createServer() {
         return { ok: true, value: el.value, method: 'react_set' };
       })()`,
     });
-    return ok(JSON.stringify(setResult.result || { ok: false, error: 'unknown' }));
+    const payload = setResult.result || { ok: false, error: 'unknown' };
+    if (!payload.ok) {
+      return toolError(payload.error || 'unknown', { selector, ok: false });
+    }
+    return ok(JSON.stringify(payload));
   });
 
   // ========== NEW: SUBMIT FORM (React-aware) ==========
 
-  server.registerTool('submit_form', {
+  registerTool('submit_form', {
     description: 'Submit a form by clicking its submit button. Finds the submit button automatically or by selector. Works with React onSubmit handlers.',
     inputSchema: z.object({
       formSelector: z.string().default('form').describe('CSS selector of the form'),
@@ -1447,8 +1573,9 @@ function createServer() {
     }),
   }, async ({ formSelector, buttonSelector }) => {
     const sid = await requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
+    let data;
+    try {
+      data = await evalPage(sid, `(() => {
         const form = document.querySelector(${JSON.stringify(formSelector)});
         if (!form) return { ok: false, error: 'Form not found: ${formSelector}' };
         let btn;
@@ -1461,18 +1588,22 @@ function createServer() {
         btn.scrollIntoView({ behavior: 'instant', block: 'center' });
         const r = btn.getBoundingClientRect();
         return { ok: true, x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2), tag: btn.tagName, text: btn.innerText?.substring(0,50) };
-      })()`,
-    });
-    if (!data.result?.ok) return ok(JSON.stringify(data.result));
+      })()`);
+    } catch (e) {
+      return toolError(pageErrorMessage(formSelector, e.message), { formSelector, ok: false });
+    }
+    if (!data?.ok) {
+      return toolError(data?.error || 'Submit failed', { formSelector, ok: false });
+    }
     // Click the submit button (triggers React onSubmit)
-    await api('POST', '/api/input', { sessionId: sid, type: 'click', x: data.result.x, y: data.result.y, button: 0 });
+    await api('POST', '/api/input', { sessionId: sid, type: 'click', x: data.x, y: data.y, button: 0 });
     await new Promise(r => setTimeout(r, 500));
-    return ok(JSON.stringify({ submitted: true, button: data.result.text, x: data.result.x, y: data.result.y }));
+    return ok(JSON.stringify({ submitted: true, button: data.text, x: data.x, y: data.y }));
   });
 
   // ========== NEW: GET NETWORK REQUESTS ==========
 
-  server.registerTool('get_network_activity', {
+  registerTool('get_network_activity', {
     description: 'Get recent network requests/responses from the browser. Must call with action="start" first to begin capture, then action="get" to retrieve.',
     inputSchema: z.object({
       action: z.enum(['start', 'get', 'clear']).default('get').describe('start=begin capture, get=retrieve, clear=reset'),
@@ -1530,7 +1661,7 @@ function createServer() {
 
   // ========== NEW: SCREENSHOT WITH DELAY ==========
 
-  server.registerTool('screenshot_after', {
+  registerTool('screenshot_after', {
     description: 'Take a screenshot after waiting a specified delay. Useful for capturing after animations, transitions, or async renders. Returns image with URL and title info.',
     inputSchema: z.object({
       delayMs: z.number().default(1000).describe('Delay before screenshot (ms)'),
@@ -1557,7 +1688,7 @@ function createServer() {
 
   // ========== UTILITY TOOLS ==========
 
-  server.registerTool('health', {
+  registerTool('health', {
     description: 'Check if backend is online and auth is valid. Use to diagnose connection issues.',
     inputSchema: z.object({}),
   }, async () => {
