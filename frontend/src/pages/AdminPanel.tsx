@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   adminLogin, adminLogout, loadAdminIdentity, changeAdminPassword, clearAdminToken,
   getAdminStats, getAdminKeys, createAdminKey, updateAdminKey, revokeAdminKey, regenerateAdminKey,
@@ -247,6 +247,16 @@ export default function AdminPanel() {
 
   const tenantSessions = (tenantId: string) => sessions.filter(s => s.tenantId === tenantId)
 
+  // Lista expandida (por tenant) e lista global dividem a mesma paginacao: o
+  // endpoint /api/admin/sessions devolve tudo de uma vez, sem page/limit, entao
+  // fatiar no cliente é o que dá para fazer sem tocar no backend.
+  const expandedSessions = useMemo(
+    () => (expandedTenant ? sessions.filter(s => s.tenantId === expandedTenant) : []),
+    [sessions, expandedTenant]
+  )
+  const tenantPagination = usePagination(expandedSessions, expandedTenant ?? 'none')
+  const allPagination = usePagination(sessions)
+
   // --- LOGIN ---
   if (!authed) {
     if (booting) {
@@ -416,61 +426,124 @@ export default function AdminPanel() {
               <h3 style={{ fontSize: 14, color: colors.textMuted }}>
                 Sessoes ativas — {keys.find(k => k.id === expandedTenant)?.name || expandedTenant}
               </h3>
-              <button onClick={() => setExpandedTenant(null)} style={{ background: 'none', border: 'none', color: colors.textDim, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 12, color: colors.textDim }}>
+                  {expandedSessions.length === 0
+                    ? '0 de 0'
+                    : `${tenantPagination.from}-${tenantPagination.to} de ${expandedSessions.length}`}
+                </span>
+                <button onClick={() => setExpandedTenant(null)} style={{ background: 'none', border: 'none', color: colors.textDim, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
+              </div>
             </div>
-            {tenantSessions(expandedTenant).length === 0 ? (
+            {expandedSessions.length === 0 ? (
               <p style={{ color: colors.textDim, fontSize: 13 }}>Nenhuma sessao ativa</p>
             ) : (
-              <div style={{ display: 'grid', gap: 8, maxHeight: 400, overflowY: 'auto', paddingRight: 4 }}>
-                {tenantSessions(expandedTenant).map(s => {
-                  const token = sessionTokens[s.sessionId]
-                  const sessionUrl = `${window.location.origin}?session=${s.sessionId}`
-                  const openUrl = token
-                    ? `${window.location.origin}?session=${s.sessionId}&token=${encodeURIComponent(token)}`
-                    : sessionUrl
-                  return (
-                    <div key={s.sessionId} style={{ background: colors.bgInput, padding: 12, borderRadius: 8, fontSize: 13 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                        <span><code>{s.sessionId.slice(0, 8)}...</code></span>
-                        <span style={{ color: colors.textMuted }}>{s.resolution.width}x{s.resolution.height}</span>
-                        <span style={{ color: colors.textMuted }}>Uptime: {formatDuration(s.uptime)}</span>
-                        {s.timeout && <span style={{ color: s.timeout.warningSoon ? colors.warning : colors.textMuted }}>
-                          Idle: {formatDuration(Math.floor(s.timeout.inactive / 1000))}
-                        </span>}
-                      </div>
-                      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <code style={{ flex: 1, fontSize: 11, color: colors.accent, wordBreak: 'break-all' }}>{sessionUrl}</code>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(sessionUrl)}
-                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
-                        >Copiar</button>
-                        <button
-                          onClick={() => { navigator.clipboard.writeText(openUrl).catch(() => {}); setOpenedUrl(openUrl) }}
-                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap' }}
-                        >Abrir</button>
-                        <button
-                          onClick={() => handleCloseSession(s.sessionId)}
-                          disabled={actionLoading}
-                          style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.danger, whiteSpace: 'nowrap' }}
-                        >Fechar</button>
-                      </div>
-                      {(() => {
-                        const k = keys.find(k => k.id === expandedTenant)
-                        if (!k) return null
-                        const pct = Math.min(100, (tenantSessions(expandedTenant).length / k.maxSessions) * 100)
-                        return (
+              <>
+                <div style={{ display: 'grid', gap: 8, maxHeight: 400, overflowY: 'auto', paddingRight: 4 }}>
+                  {tenantPagination.page.map(s => {
+                    const token = sessionTokens[s.sessionId]
+                    const sessionUrl = `${window.location.origin}?session=${s.sessionId}`
+                    const openUrl = token
+                      ? `${window.location.origin}?session=${s.sessionId}&token=${encodeURIComponent(token)}`
+                      : sessionUrl
+                    const pct = Math.min(100, (expandedSessions.length / kMaxSessions(keys, expandedTenant)) * 100)
+                    return (
+                      <div key={s.sessionId} style={{ background: colors.bgInput, padding: 12, borderRadius: 8, fontSize: 13 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                          <span><code>{s.sessionId.slice(0, 8)}...</code></span>
+                          <span style={{ color: colors.textMuted }}>{s.resolution.width}x{s.resolution.height}</span>
+                          <span style={{ color: colors.textMuted }}>Uptime: {formatDuration(s.uptime)}</span>
+                          {s.timeout && <span style={{ color: s.timeout.warningSoon ? colors.warning : colors.textMuted }}>
+                            Idle: {formatDuration(Math.floor(s.timeout.inactive / 1000))}
+                          </span>}
+                        </div>
+                        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <code style={{ flex: 1, fontSize: 11, color: colors.accent, wordBreak: 'break-all' }}>{sessionUrl}</code>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(sessionUrl)}
+                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
+                          >Copiar</button>
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(openUrl).catch(() => {}); setOpenedUrl(openUrl) }}
+                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap' }}
+                          >Abrir</button>
+                          <button
+                            onClick={() => handleCloseSession(s.sessionId)}
+                            disabled={actionLoading}
+                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.danger, whiteSpace: 'nowrap' }}
+                          >Fechar</button>
+                        </div>
+                        {pct >= 0 && (
                           <div style={{ marginTop: 8, background: '#333', borderRadius: 4, height: 4 }}>
                             <div style={{ width: `${pct}%`, background: pct > 80 ? colors.danger : colors.accent, borderRadius: 4, height: 4 }} />
                           </div>
-                        )
-                      })()}
-                    </div>
-                  )
-                })}
-              </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <Pagination {...tenantPagination} total={expandedSessions.length} />
+              </>
             )}
           </div>
         )}
+
+        {/* Todas as sessoes */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 500 }}>Todas as sessoes</h2>
+            <span style={{ fontSize: 12, color: colors.textDim }}>
+              {sessions.length === 0 ? '0 de 0' : `${allPagination.from}-${allPagination.to} de ${sessions.length}`}
+            </span>
+          </div>
+          <div style={{ background: colors.bgCard, borderRadius: 10, border: `1px solid ${colors.border}`, padding: 16 }}>
+            {sessions.length === 0 ? (
+              <p style={{ color: colors.textDim, fontSize: 13 }}>Nenhuma sessao ativa</p>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gap: 8, maxHeight: 520, overflowY: 'auto', paddingRight: 4 }}>
+                  {allPagination.page.map(s => {
+                    const token = sessionTokens[s.sessionId]
+                    const sessionUrl = `${window.location.origin}?session=${s.sessionId}`
+                    const openUrl = token
+                      ? `${window.location.origin}?session=${s.sessionId}&token=${encodeURIComponent(token)}`
+                      : sessionUrl
+                    return (
+                      <div key={s.sessionId} style={{ background: colors.bgInput, padding: 12, borderRadius: 8, fontSize: 13 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                          <span style={{ color: colors.textMuted }}>{s.tenantName}</span>
+                          <span><code>{s.sessionId.slice(0, 8)}...</code></span>
+                          <span style={{ color: colors.textMuted }}>{s.resolution.width}x{s.resolution.height}</span>
+                          <span style={{ color: colors.textMuted }}>Uptime: {formatDuration(s.uptime)}</span>
+                          {s.timeout && <span style={{ color: s.timeout.warningSoon ? colors.warning : colors.textMuted }}>
+                            Idle: {formatDuration(Math.floor(s.timeout.inactive / 1000))}
+                          </span>}
+                        </div>
+                        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <code style={{ flex: 1, fontSize: 11, color: colors.accent, wordBreak: 'break-all' }}>{sessionUrl}</code>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(sessionUrl)}
+                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
+                          >Copiar</button>
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(openUrl).catch(() => {}); setOpenedUrl(openUrl) }}
+                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap' }}
+                          >Abrir</button>
+                          <button
+                            onClick={() => handleCloseSession(s.sessionId)}
+                            disabled={actionLoading}
+                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.danger, whiteSpace: 'nowrap' }}
+                          >Fechar</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                <Pagination {...allPagination} total={sessions.length} />
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Create Modal */}
         {showCreate && (
@@ -551,6 +624,86 @@ export default function AdminPanel() {
 }
 
 // --- Sub-components ---
+
+/** Quantas sessoes por pagina da lista do admin. */
+const PAGE_SIZE = 20
+
+/**
+ * Paginacao no cliente: `items` ja vem completo do endpoint (sem page/limit no
+ * backend), entao aqui so cortamos a fatia da pagina corrente.
+ * `resetKey` muda quando a lista muda de dono (outro tenant aberto/fechado) e
+ * joga a pagina de volta pra 1 — senao uma lista de 2 itens ficaria na pagina 4.
+ */
+function usePagination(items: AdminSession[], resetKey?: string) {
+  const [page, setPage] = useState(1)
+  const total = items.length
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  const lastKey = useRef(resetKey)
+  useEffect(() => {
+    if (resetKey !== undefined && lastKey.current !== resetKey) {
+      lastKey.current = resetKey
+      setPage(1)
+    }
+  }, [resetKey])
+
+  // Sessao fechada pelo painel esvazia a lista: volta pra 1 para nao sobrar
+  // numa pagina fora do intervalo.
+  useEffect(() => {
+    if (page > pages) setPage(1)
+  }, [page, pages])
+
+  const safePage = Math.min(page, pages)
+  const start = (safePage - 1) * PAGE_SIZE
+
+  return {
+    page: items.slice(start, start + PAGE_SIZE),
+    pages,
+    current: safePage,
+    onChange: setPage,
+    from: total === 0 ? 0 : start + 1,
+    to: Math.min(start + PAGE_SIZE, total),
+  }
+}
+
+function kMaxSessions(keys: AdminKey[], tenantId: string): number {
+  return keys.find(k => k.id === tenantId)?.maxSessions || 1
+}
+
+function Pagination({
+  total, pages, current, from, to, onChange,
+}: {
+  total: number
+  pages: number
+  current: number
+  from: number
+  to: number
+  onChange: (p: number) => void
+}) {
+  if (total === 0) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}`, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 12, color: colors.textMuted }}>
+        Exibindo {from}-{to} de {total}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <button
+          onClick={() => onChange(current - 1)}
+          disabled={current <= 1}
+          style={{ ...smallBtnStyle, padding: '5px 12px', fontSize: 12, opacity: current <= 1 ? 0.4 : 1 }}
+        >‹ Anterior</button>
+        <span style={{ fontSize: 12, color: colors.textMuted, padding: '0 4px' }}>
+          Pagina {current} de {pages}
+        </span>
+        <button
+          onClick={() => onChange(current + 1)}
+          disabled={current >= pages}
+          style={{ ...smallBtnStyle, padding: '5px 12px', fontSize: 12, opacity: current >= pages ? 0.4 : 1 }}
+        >Proxima ›</button>
+      </div>
+    </div>
+  )
+}
 
 function StatCard({ label, value, color }: { label: string; value: number; color?: string }) {
   return (
