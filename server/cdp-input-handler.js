@@ -133,6 +133,11 @@ function createInputHandler(displayNum, opts = {}) {
   let pendingMove = null;
   let moveScheduled = false;
   let pressedMask = 0;
+  // Botão segurado no momento ('left'|'middle'|'right'|null). O Chrome só
+  // mantém o gesto de arraste se o `mouseMoved` vier com o campo `button`
+  // (bissecção CDP do QA: com `button` a seleção de texto deu len:18; sem,
+  // len:0 — o mousemove virava só hover).
+  let pressedButton = null;
   // Último clickCount despachado (press/release): permite saber se o
   // dblclick já foi entregue e não duplicar o par de eventos.
   let lastPressCC = 0;
@@ -143,6 +148,10 @@ function createInputHandler(displayNum, opts = {}) {
   let lastReleaseAt = 0;
   let lastReleaseX = -1;
   let lastReleaseY = -1;
+  // Quem está esperando o WS do CDP conectar. Sem isso, a PRIMEIRA ação de
+  // input depois de abrir a sessão era descartada (sendInput só age com
+  // `connected`), e o gesto (arrasto/clique) começava pela metade.
+  const readyWaiters = [];
 
   const CDP_BASE_PORT = 9222;
   const DISPLAY_MIN = 100;
@@ -186,6 +195,8 @@ function createInputHandler(displayNum, opts = {}) {
       ws = new WebSocket(page.webSocketDebuggerUrl);
       ws.on('open', () => {
         connected = true; retries = 0;
+        // Libera quem estava esperando o input ficar pronto.
+        while (readyWaiters.length) readyWaiters.shift()();
         requestLayoutMetrics();
         startLayoutTimer();
       });
@@ -282,6 +293,11 @@ function createInputHandler(displayNum, opts = {}) {
     send('Input.dispatchMouseEvent', {
       type: 'mouseMoved', x: m.x, y: m.y,
       modifiers: m.modifiers, buttons: m.buttons,
+      // `button` = botão pressionado durante o gesto. SEM ele o Chrome
+      // ignora o movimento como parte do arraste (o QA mediu len:0 na
+      // seleção de texto; com `button` mediu len:18).
+      // `undefined` => a chave some do JSON (equivalente ao default 'none').
+      button: pressedButton || undefined,
     });
   }
 
@@ -347,6 +363,7 @@ function createInputHandler(displayNum, opts = {}) {
         // ordem real no Chrome era press -> release -> move).
         if (pendingMove) { flushMove(); }
         pressedMask |= BUTTON_MASK[button] || 1;
+        pressedButton = button;
         const cc = clickCountOf(msg);
         lastPressCC = cc;
         // Novo press invalida o release anterior (evita dedupe de dblclick
@@ -361,7 +378,13 @@ function createInputHandler(displayNum, opts = {}) {
         const { x, y } = scalePoint(msg);
         const button = BUTTON_MAP[msg.button] || 'left';
         const mask = BUTTON_MASK[button] || 1;
+        // FLUSH do movimento pendente ANTES do release. Sem isso o Chrome
+        // recebe o `mousemove` DEPOIS do `mouseup` — ordem real medida no
+        // DOM: pointerdown → mousedown → pointerup → mouseup → click →
+        // pointermove → mousemove — e o gesto de arraste morre no meio.
+        if (pendingMove) { flushMove(); }
         pressedMask &= ~mask;
+        if (!pressedMask) pressedButton = null;
         // clickCount no release também: sem ele o Chrome nunca monta o
         // dblclick (detail=2), porque o par press/release precisa bater.
         const cc = msg.clickCount || (lastPressCC > 1 ? lastPressCC : 1);
@@ -427,6 +450,39 @@ function createInputHandler(displayNum, opts = {}) {
       if (Number.isFinite(+h) && +h > 0) chromeH = +h;
     },
 
+    // Descarrega o mousemove pendente AGORA. O batch (/api/input/batch)
+    // usa isso entre as ações: sem o flush, o coalescing (pendingMove +
+    // setImmediate) entrega o movimento só no fim — e o Chrome o recebe
+    // depois do `mouseup`, o que desfaz o arraste.
+    flush() {
+      if (pendingMove) flushMove();
+    },
+
+    // Espera (bounded) o WS do CDP ficar conectado. O handler abre a
+    // conexão 300ms depois de criado; até lá `sendInput` descarta tudo — e a
+    // primeira ação de input da sessão (o primeiro arrasto/clique) chegava
+    // pela metade. Resolve `true` quando conectou, `false` no timeout.
+    waitReady(timeoutMs = 3000) {
+      if (connected) return Promise.resolve(true);
+      return new Promise((resolve) => {
+        let done = false;
+        const onReady = () => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(true);
+        };
+        const timer = setTimeout(() => {
+          if (done) return;
+          done = true;
+          const i = readyWaiters.indexOf(onReady);
+          if (i >= 0) readyWaiters.splice(i, 1);
+          resolve(false);
+        }, timeoutMs);
+        readyWaiters.push(onReady);
+      });
+    },
+
     setScale(sx, sy) {
       if (Number.isFinite(+sx) && +sx > 0) scaleX = +sx;
       scaleY = (Number.isFinite(+sy) && +sy > 0) ? +sy : scaleX;
@@ -436,7 +492,7 @@ function createInputHandler(displayNum, opts = {}) {
 
     reconnect() {
       retries = 0;
-      pendingMove = null; moveScheduled = false; pressedMask = 0;
+      pendingMove = null; moveScheduled = false; pressedMask = 0; pressedButton = null;
       lastPressCC = 0; lastReleaseCC = 0;
       if (ws) { try { ws.close(); } catch (e) { console.error(`${tag()} erro ao fechar WS no reconnect:`, (e && e.message) || e); } ws = null; }
       connected = false;
@@ -446,7 +502,7 @@ function createInputHandler(displayNum, opts = {}) {
     stop() {
       retries = 99;
       connected = false;
-      pendingMove = null; moveScheduled = false; pressedMask = 0;
+      pendingMove = null; moveScheduled = false; pressedMask = 0; pressedButton = null;
       lastPressCC = 0; lastReleaseCC = 0;
       if (layoutTimer) { clearInterval(layoutTimer); layoutTimer = null; }
       if (ws) { try { ws.close(); } catch (e) { console.error(`${tag()} erro ao fechar WS no stop:`, (e && e.message) || e); } ws = null; }

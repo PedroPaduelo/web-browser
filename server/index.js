@@ -1,6 +1,14 @@
 const path = require('path');
 require('dotenv').config({ override: true, path: path.resolve(__dirname, '.env') });
 
+// Identidade desta instância do backend. Viaja no ambiente de todos os
+// filhos que o backend spawna (Xvfb, Chrome, ffmpeg), e é o que permite
+// limpiar órfãos SEM tocar nas outras instâncias do host (ver
+// cleanupOrphanedProcesses). Precisa ser definido ANTES de qualquer require
+// que possa spawnar processo.
+const INSTANCE_ID = process.env.SERENDE_INSTANCE_ID || 'default';
+process.env.SERENDE_INSTANCE_ID = INSTANCE_ID;
+
 const express = require('express');
 const http = require('http');
 const { WebSocketServer } = require('./node_modules/ws');
@@ -122,31 +130,111 @@ app.use((req, res, next) => {
   next();
 });
 
-// --- Limpar processos órfãos do display range na inicialização ---
-// Se o backend crashou antes, Xvfb e Chrome podem ter ficado rodando
-(function cleanupOrphanedProcesses() {
-  const { execSync } = require('child_process');
-  const fs = require('fs');
+// O processo é líder do seu próprio process group? (PGID == PID).
+// /proc/<pid>/stat: depois do ')' vem state, ppid, pgrp.
+function isGroupLeader(pid) {
   try {
-    // Matar qualquer Xvfb nos displays 100-199 (range do sistema)
-    execSync('pkill -f "Xvfb :[1-9][0-9][0-9]" 2>/dev/null || true', // eslint-disable-line no-useless-escape
-      { stdio: 'ignore' });
-    // ffmpeg x11grab órfão de um backend que morreu: segura o socket X do
-    // display e faria a próxima sessão capturar lixo. O wrapper anti-órfão
-    // cobre a morte normal do pai; isto cobre o backend morto por SIGKILL.
-    // O padrão usa [x]11grab para NÃO casar com a própria linha de comando
-    // do pkill (senão o pkill mata o próprio shell).
-    execSync('pkill -f "[x]11grab" 2>/dev/null || true', { stdio: 'ignore' });
-    execSync('pkill -f "[s]erende-ffmpeg" 2>/dev/null || true', { stdio: 'ignore' });
-    // Limpar lock files e sockets
-    for (let d = 100; d <= 199; d++) {
-      try { if (fs.existsSync(`/tmp/.X${d}-lock`)) fs.unlinkSync(`/tmp/.X${d}-lock`); } catch {}
-      try { if (fs.existsSync(`/tmp/.X11-unix/X${d}`)) fs.unlinkSync(`/tmp/.X11-unix/X${d}`); } catch {}
-    }
-    console.log('[Startup] Cleaned up orphaned Xvfb/ffmpeg processes and lock files');
-  } catch (e) {
-    console.warn('[Startup] Cleanup failed (non-fatal):', e.message);
+    const stat = require('fs').readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return Number(fields[2]) === pid;
+  } catch {
+    return false;
   }
+}
+
+// --- Limpar processos órfãos DESTA instância ---
+// Se o backend crashou antes, Xvfb, Chrome e ffmpeg podem ter ficado
+// rodando e segurando display/porta.
+//
+// ESCOPO: só processos desta instância (SERENDE_INSTANCE_ID no ambiente).
+// Antes o boot fazia `pkill -f "Xvfb :[1-9][0-9][0-9]"` (e `pkill -f x11grab`,
+// `pkill -f serende-ffmpeg`), que matava TUDO no host — inclusive os
+// browsers das OUTRAS instâncias (um backend de teste isolado derrubava o
+// Xvfb da produção). Os lock files também eram apagados sem olhar quem era
+// o dono do display.
+(function cleanupOrphanedProcesses() {
+  const fs = require('fs');
+  const liveDisplays = new Set(); // displays com Xvfb vivo (qualquer instância)
+  const orphans = []; // { pid, cmd, kind }
+
+  let entries = [];
+  try { entries = fs.readdirSync('/proc'); } catch { entries = []; }
+
+  for (const name of entries) {
+    if (!/^\d+$/.test(name)) continue;
+    const pid = Number(name);
+    if (pid === process.pid) continue;
+
+    let cmd = '';
+    try { cmd = fs.readFileSync(`/proc/${name}/cmdline`, 'utf8').replace(/\0/g, ' '); } catch { continue; }
+    if (!cmd) continue;
+
+    const xvfbMatch = cmd.match(/Xvfb\s+:(\d+)/);
+    if (xvfbMatch) liveDisplays.add(Number(xvfbMatch[1]));
+
+    let env = '';
+    try { env = fs.readFileSync(`/proc/${name}/environ`, 'utf8'); } catch { env = ''; }
+    if (!env.includes(`SERENDE_INSTANCE_ID=${INSTANCE_ID}`)) continue; // outra instância
+
+    const isXvfb = !!xvfbMatch;
+    const isFfmpeg = /x11grab/.test(cmd) || /serende-ffmpeg/.test(cmd);
+    const isChrome = /remote-debugging-port=\d+/.test(cmd);
+    if (!isXvfb && !isFfmpeg && !isChrome) continue;
+
+    orphans.push({ pid, cmd, kind: isXvfb ? 'xvfb' : isFfmpeg ? 'ffmpeg' : 'chrome' });
+  }
+
+  const killed = [];
+  for (const o of orphans) {
+    try {
+      if (o.kind === 'chrome') {
+        // Só mata o PROCESS GROUP se o Chrome for o líder dele (spawn
+        // detached => setsid => PGID == PID). Se não for, matar -pid
+        // atingiria o grupo do próprio backend.
+        if (isGroupLeader(o.pid)) {
+          try { process.kill(-o.pid, 'SIGTERM'); } catch { process.kill(o.pid, 'SIGTERM'); }
+        } else {
+          process.kill(o.pid, 'SIGTERM');
+        }
+      } else {
+        process.kill(o.pid, 'SIGTERM');
+      }
+      killed.push(o);
+    } catch {}
+  }
+
+  // Escalona para SIGKILL o que não morreu (rechecando o cmdline para não
+  // matar um PID reaproveitado).
+  if (killed.length) {
+    setTimeout(() => {
+      for (const o of killed) {
+        try {
+          const cmd = fs.readFileSync(`/proc/${o.pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+          if (!cmd) continue;
+          if (o.kind === 'chrome') {
+            if (isGroupLeader(o.pid)) {
+              try { process.kill(-o.pid, 'SIGKILL'); } catch { try { process.kill(o.pid, 'SIGKILL'); } catch {} }
+            } else {
+              try { process.kill(o.pid, 'SIGKILL'); } catch {}
+            }
+          } else {
+            process.kill(o.pid, 'SIGKILL');
+          }
+        } catch {}
+      }
+    }, 2000).unref?.();
+  }
+
+  // Lock/socket de display: só remove se NÃO houver Xvfb vivo naquele
+  // display (lock órfão de um crash). Antes apagava tudo, inclusive o lock
+  // de displays de outras instências vivas.
+  for (let d = 100; d <= 199; d++) {
+    if (liveDisplays.has(d)) continue;
+    try { if (fs.existsSync(`/tmp/.X${d}-lock`)) fs.unlinkSync(`/tmp/.X${d}-lock`); } catch {}
+    try { if (fs.existsSync(`/tmp/.X11-unix/X${d}`)) fs.unlinkSync(`/tmp/.X11-unix/X${d}`); } catch {}
+  }
+
+  console.log(`[Startup] Cleanup de órfãos da instância "${INSTANCE_ID}": ${killed.length} processo(s) (${killed.map((k) => `${k.kind}:${k.pid}`).join(', ') || 'nenhum'})`);
 })();
 
 const sessionResources = new Map();
@@ -473,7 +561,7 @@ app.get('/api/session/:sessionId', authMiddleware, trackActivity, (req, res) => 
   res.json(session);
 });
 
-app.post('/api/input', authMiddleware, trackActivity, (req, res) => {
+app.post('/api/input', authMiddleware, trackActivity, async (req, res) => {
   const { sessionId } = req.body || {};
   if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
 
@@ -486,12 +574,22 @@ app.post('/api/input', authMiddleware, trackActivity, (req, res) => {
 
   const resources = sessionResources.get(sessionId);
   if (resources) {
+    // O handler abre a conexão CDP ~300ms depois de criado; antes disso a
+    // ação seria descartada. Espera ficar pronto (bounded).
+    if (resources.inputHandler.waitReady) await resources.inputHandler.waitReady(3000);
     resources.inputHandler.sendInput(msg);
   }
   res.json({ ok: true });
 });
 
-app.post('/api/input/batch', authMiddleware, trackActivity, (req, res) => {
+// Um mousemove por frame do navegador. O Chrome COALESCING os moves
+// pendentes (no máximo um `mousemove` no DOM por frame): despachar N moves
+// seguidos no mesmo tick chega ao DOM como ~N/2 eventos (medido: 10 moves
+// -> 5 eventos no DOM), e o arrasto "anda" aos trancos. 16ms = 1 frame a
+// 60Hz: cada move vira um evento próprio, na ordem.
+const MOUSE_MOVE_FRAME_MS = 16;
+
+app.post('/api/input/batch', authMiddleware, trackActivity, async (req, res) => {
   const { sessionId, actions } = req.body || {};
   if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
   if (!Array.isArray(actions)) return res.status(400).json({ error: 'Missing actions array' });
@@ -502,8 +600,30 @@ app.post('/api/input/batch', authMiddleware, trackActivity, (req, res) => {
 
   const resources = sessionResources.get(sessionId);
   if (resources) {
+    const input = resources.inputHandler;
+    // Espera o handler estar conectado no CDP: até lá a ação seria
+    // descartada e o gesto começaria pela metade (o primeiro arrasto da
+    // sessão perdia o mousedown).
+    if (input.waitReady) await input.waitReady(3000);
     for (const msg of actions) {
-      if (msg && msg.type) resources.inputHandler.sendInput(msg);
+      if (!msg || !msg.type) continue;
+      input.sendInput(msg);
+      // Cada ação precisa sair ANTES da próxima:
+      //  - `flush()` descarrega o mousemove pendente (o coalescing do handler
+      //    colapsaria N movimentos em 1 e o Chrome receberia o movimento só
+      //    no fim do lote);
+      //  - o `await` dá a volta do event loop para o setImmediate do flush
+      //    rodar, garantindo a ORDEM dos eventos no DOM
+      //    (pointerdown → mousedown → mousemove(s) → mouseup).
+      // Sem isso o `drag` com steps:10 entregava 1 mousemove, e ele chegava
+      // DEPOIS do mouseup (medido no DOM pelo QA).
+      if (input.flush) input.flush();
+      await new Promise((resolve) => setImmediate(resolve));
+      // Um move por frame: o Chrome coalesce os mousemove pendentes e o
+      // DOM receberia ~metade dos eventos (o arrasto anda aos trancos).
+      if (msg.type === 'mousemove') {
+        await new Promise((resolve) => setTimeout(resolve, MOUSE_MOVE_FRAME_MS));
+      }
     }
   }
   res.json({ ok: true, count: actions.length });
@@ -548,15 +668,18 @@ async function getCdpClient(cdpPort) {
     });
 
     client.on('message', (data) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.id && pool.pendingRequests.has(msg.id)) {
-          const { resolve: res, reject: rej } = pool.pendingRequests.get(msg.id);
-          pool.pendingRequests.delete(msg.id);
-          if (msg.result) res(msg.result);
-          else rej(new Error(msg.error?.message || 'CDP error'));
-        }
-      } catch {}
+      let msg;
+      try { msg = JSON.parse(data); } catch { return; }
+      if (!msg) return;
+      // Eventos do CDP (não têm `id`): é por eles que a rede é capturada
+      // (Network.requestWillBeSent / responseReceived / loadingFinished).
+      if (msg.method) { dispatchCdpEvent(cdpPort, msg); return; }
+      if (msg.id && pool.pendingRequests.has(msg.id)) {
+        const { resolve: res, reject: rej } = pool.pendingRequests.get(msg.id);
+        pool.pendingRequests.delete(msg.id);
+        if (msg.result) res(msg.result);
+        else rej(new Error(msg.error?.message || 'CDP error'));
+      }
     });
 
     client.on('close', () => {
@@ -672,7 +795,41 @@ app.get('/api/screenshot/:sessionId', authMiddleware, trackActivity, async (req,
   }
 });
 
+// Dimensões de um JPEG (marcador SOF). Usado para reportar o tamanho real
+// da imagem capturada — é o que permite checar "a coordenada lida na imagem
+// é a mesma que o find_element devolve".
+function jpegSize(buf) {
+  if (!buf || buf.length < 4) return null;
+  let i = 2;
+  while (i < buf.length - 9) {
+    if (buf[i] !== 0xff) { i++; continue; }
+    const marker = buf[i + 1];
+    // marcadores sem payload (SOI, RSTn, TEM)
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+    if (marker === 0xff) { i++; continue; }
+    const len = buf.readUInt16BE(i + 2);
+    // SOF0..SOF15, exceto DHT (C4), JPG (C8) e DAC (CC)
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+    }
+    i += 2 + len;
+  }
+  return null;
+}
+
 // Screenshot com info (URL, title, timestamp) - para exibir no viewer com overlay
+//
+// A captura respeita a RESOLUÇÃO DA SESSÃO (o viewport real do Chrome).
+// Antes, antes de capturar, o handler aplicava
+// `Emulation.setDeviceMetricsOverride {width: 1920, height: max(scrollHeight,2000)}`:
+// a imagem saía 1920-wide enquanto a sessão era 1280x720, e o conteúdo ficava
+// deslocado ~320px em X — a coordenada lida na imagem NÃO era a que
+// `find_element` devolve, e o agente clicava no lugar errado (a descrição de
+// `mouse_click` manda "always take a screenshot first").
+//
+// Regra agora: imagem 1:1 com o viewport => coordenada da imagem ==
+// coordenada do DOM. E o override é LIMPO antes da captura, para consertar
+// sessões que já ficaram presas no 1920-wide de uma captura anterior.
 app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, async (req, res) => {
   const session = getSessionAndValidate(req, res);
   if (!session) return;
@@ -684,74 +841,94 @@ app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, asy
     const ws = await import('./node_modules/ws/index.js');
     const result = await new Promise((resolve, reject) => {
       const client = new ws.default(pageUrl);
-      let id = 1;
-      let screenshotTaken = false;
       let infoData = null;
+      let viewport = null;
+      let done = false;
+
+      const MEASURE = '({ url: location.href, title: document.title, scrollHeight: Math.max(document.body && document.body.scrollHeight || 0, document.documentElement.scrollHeight), width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio })';
 
       client.on('open', () => {
-        client.send(JSON.stringify({ id: id++, method: 'Page.enable', params: {} }));
+        client.send(JSON.stringify({ id: 1, method: 'Page.enable', params: {} }));
       });
 
       client.on('message', (data) => {
+        if (done) return;
         const msg = JSON.parse(data);
-
-        // First: get page info (url, title, scrollHeight)
-        // Os ids são atribuídos uma única vez por etapa — incrementar dentro do
-        // send E na condição seguinte desalinhava a máquina de estados e a
-        // etapa de captura nunca disparava (timeout de 15s → 500).
-        if (msg.id === 1 && msg.result) {
-          client.send(JSON.stringify({
-            id: 2,
-            method: 'Runtime.evaluate',
-            params: { expression: '({ url: location.href, title: document.title, scrollHeight: Math.max(document.body && document.body.scrollHeight || 0, document.documentElement.scrollHeight), width: window.innerWidth, height: window.innerHeight })', returnByValue: true }
-          }));
+        if (msg.error) {
+          // clearDeviceMetricsOverride é tolerante: se o Chrome não souber
+          // o comando, segue medindo e capturando (a captura não depende dele).
+          if (msg.id === 3) {
+            client.send(JSON.stringify({ id: 4, method: 'Runtime.evaluate', params: { expression: MEASURE, returnByValue: true } }));
+            return;
+          }
+          done = true; client.close(); reject(new Error(msg.error.message)); return;
         }
 
-        // Store info
-        // O CDP aninha o valor em result.result.value (o mesmo path usado em
-        // cdp-input-handler.js:208). Ler msg.result?.value nunca encontra
-        // nada: info ficava vazio, o overlay saía "URL: unknown" e a altura
-        // de página inteira caía sempre no fallback de 1080px.
-        if (!infoData) {
+        // 1 -> 2: mede a página (url/title/viewport).
+        if (msg.id === 1 && msg.result) {
+          client.send(JSON.stringify({ id: 2, method: 'Runtime.evaluate', params: { expression: MEASURE, returnByValue: true } }));
+          return;
+        }
+
+        // 2 -> 3: o CDP aninha o valor em result.result.value (mesmo path do
+        // cdp-input-handler). Ler msg.result?.value nunca achava nada.
+        if (msg.id === 2 && msg.result) {
           const value = msg.result?.result?.value;
           if (value) infoData = value;
+          if (value && value.width > 0 && value.height > 0) viewport = { width: value.width, height: value.height };
+          // Limpa qualquer override de device metrics (sessão envenenada por
+          // uma captura 1920-wide anterior) e volta a medir o viewport real.
+          client.send(JSON.stringify({ id: 3, method: 'Emulation.clearDeviceMetricsOverride', params: {} }));
+          return;
         }
 
-        // Second (id 2 respondeu): resize para a página inteira
-        if (msg.id === 2 && msg.result && !screenshotTaken) {
-          screenshotTaken = true;
-          client.send(JSON.stringify({
-            id: 3,
-            method: 'Emulation.setDeviceMetricsOverride',
-            params: {
-              width: 1920,
-              height: Math.max(infoData?.scrollHeight || 1080, 2000),
-              deviceScaleFactor: 1,
-              mobile: false
-            }
-          }));
-        }
-
-        // Third: capture after resize
+        // 3 -> 4: depois do clear o renderer pode levar um tick para
+          // re-layoutar; mede de novo (é esta a medida que vale).
         if (msg.id === 3 && msg.result) {
-          client.send(JSON.stringify({ id: 4, method: 'Page.captureScreenshot', params: { format: 'jpeg', quality: 80 } }));
+          setTimeout(() => {
+            if (done) return;
+            client.send(JSON.stringify({ id: 4, method: 'Runtime.evaluate', params: { expression: MEASURE, returnByValue: true } }));
+          }, 150);
+          return;
         }
 
-        // Finally: return result
-        if (screenshotTaken && msg.result?.data) {
+        // 4 -> 5: viewport final + captura do viewport (sem override).
+        if (msg.id === 4 && msg.result) {
+          const value = msg.result?.result?.value;
+          if (value) {
+            infoData = value;
+            if (value.width > 0 && value.height > 0) viewport = { width: value.width, height: value.height };
+          }
+          client.send(JSON.stringify({
+            id: 5,
+            method: 'Page.captureScreenshot',
+            params: { format: 'jpeg', quality: 80, captureBeyondViewport: false, fromSurface: true },
+          }));
+          return;
+        }
+
+        // 5: imagem capturada.
+        if (msg.id === 5 && msg.result && msg.result.data) {
+          done = true;
           client.close();
-          resolve({ screenshot: msg.result.data, info: infoData || {} });
+          resolve({ screenshot: msg.result.data, info: infoData || {}, viewport });
         }
-
-        if (msg.error) { client.close(); reject(new Error(msg.error.message)); }
       });
       client.on('error', reject);
-      setTimeout(() => { client.close(); reject(new Error('Screenshot timeout')); }, 15000);
+      setTimeout(() => { if (!done) { done = true; client.close(); reject(new Error('Screenshot timeout')); } }, 15000);
     });
 
+    const image = jpegSize(Buffer.from(result.screenshot, 'base64'));
     res.json({
       screenshot: result.screenshot,
-      info: result.info || { url: '', title: 'Unknown', timestamp: Date.now() }
+      info: {
+        ...(result.info || {}),
+        timestamp: Date.now(),
+        // Viewport real da sessão e o tamanho da imagem capturada: é o que
+        // permite conferir "a coordenada lida na imagem = a do find_element".
+        viewport: result.viewport || null,
+        image: image || null,
+      },
     });
   } catch (err) {
     res.status(500).json({ error: 'Screenshot failed: ' + err.message });
@@ -794,22 +971,172 @@ app.post('/api/evaluate/:sessionId', authMiddleware, trackActivity, async (req, 
   const { script } = req.body || {};
   if (!script) return res.status(400).json({ error: 'Missing script' });
   try {
-    const result = await cdpRequest(session.cdpPort, 'Runtime.evaluate', { expression: script, returnByValue: true });
-    res.json({ result: result.result?.value });
+    const result = await cdpRequest(session.cdpPort, 'Runtime.evaluate', {
+      expression: script,
+      returnByValue: true,
+      // Sem awaitPromise, um script que devolve uma Promise voltava como
+      // "sem valor" ({} no corpo) — indistinguível de erro.
+      awaitPromise: true,
+    });
+
+    // O CDP NÃO sinaliza exceção como erro de protocolo: vem em
+    // `exceptionDetails`, com `result` vazio. Descartar esse campo (o
+    // código antigo fazia `res.json({ result: result.result?.value })`)
+    // transformava QUALQUER exceção em HTTP 200 + corpo vazio — o agente
+    // recebia "sucesso" sem valor e não tinha como distinguir erro de
+    // resultado vazio. Agora a exceção é erro de verdade (4xx, mensagem
+    // real) e o MCP vira isError:true.
+    const exception = result.exceptionDetails;
+    if (exception) {
+      const message = exception.exception?.description
+        || (exception.exception?.value !== undefined ? String(exception.exception.value) : null)
+        || exception.text
+        || 'Script execution failed';
+      return res.status(400).json({
+        error: String(message),
+        code: 'script_exception',
+        stage: 'evaluate',
+        errorType: exception.exception?.className || exception.text || 'Error',
+        lineNumber: exception.lineNumber ?? null,
+        columnNumber: exception.columnNumber ?? null,
+        stack: (exception.stackTrace?.callFrames || []).slice(0, 5).map((f) => ({
+          functionName: f.functionName || '<anonymous>',
+          url: f.url || '',
+          lineNumber: f.lineNumber ?? null,
+          columnNumber: f.columnNumber ?? null,
+        })),
+        requestId: req.requestId,
+      });
+    }
+
+    // Sem exceção: resultado legítimo. Distingue "valor vazio" (undefined /
+    // não serializável) de "erro" — o valor continua em `result` para não
+    // quebrar os consumidores (find_element, get_text, ...).
+    const remote = result.result || {};
+    const hasValue = Object.prototype.hasOwnProperty.call(remote, 'value');
+    res.json({
+      result: hasValue ? remote.value : null,
+      hasValue,
+      type: remote.type || null,
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message, requestId: req.requestId });
   }
 });
 
 // ========== NETWORK TRACKING ==========
-const networkEvents = new Map(); // sessionId -> { requests: [], responses: [], enabled: bool }
+//
+// A rede é capturada PELOS EVENTOS do CDP (Network.requestWillBeSent,
+// Network.responseReceived, Network.loadingFinished/loadingFailed), que é a
+// única forma de o CDP expor o histórico.
+//
+// Antes, o handler chamava `Network.getRequests` e `Network.getResponses`:
+// ESSES MÉTODOS NÃO EXISTEM no CDP (o comando responde "wasn't found"), e o
+// fallback preenchia `responses` com `Network.getAllCookies` — ou seja, as
+// "respostas HTTP" eram COOKIES (sem url, método, status ou tamanho), e o
+// filtro por URL nunca casava.
+//
+// Buffer por sessão: { cdpPort, enabled, requests[], responses[], byRequestId }
+const networkEvents = new Map();
 
-async function enableNetworkTracking(cdpPort) {
+// Handler de eventos CDP por porta: o pool de WebSocket do backend recebe os
+// eventos (eles não têm `id`) e os despacha por porta.
+const cdpEventHandlers = new Map();
+
+function dispatchCdpEvent(cdpPort, msg) {
+  const handler = cdpEventHandlers.get(cdpPort);
+  if (!handler) return;
+  try { handler(msg); } catch (e) { console.error('[Network] handler de evento falhou:', e.message); }
+}
+
+// Limite do buffer (evita crescimento infinito em navegação longa).
+const NETWORK_BUFFER_MAX = 500;
+
+function pushCapped(arr, entry) {
+  arr.push(entry);
+  if (arr.length > NETWORK_BUFFER_MAX) arr.splice(0, arr.length - NETWORK_BUFFER_MAX);
+}
+
+// Monta o handler de eventos de rede de uma sessão.
+function networkEventHandler(sid) {
+  return (msg) => {
+    const ev = networkEvents.get(sid);
+    if (!ev || !ev.enabled) return;
+    const p = msg.params || {};
+    const now = Date.now();
+
+    if (msg.method === 'Network.requestWillBeSent') {
+      const req = p.request || {};
+      const entry = {
+        requestId: p.requestId,
+        url: req.url || '',
+        method: req.method || 'GET',
+        type: p.type || '',
+        timestamp: now,
+        cdpTimestamp: p.timestamp,
+        postData: typeof req.postData === 'string' ? req.postData.slice(0, 2000) : undefined,
+      };
+      ev.byRequestId.set(p.requestId, entry);
+      pushCapped(ev.requests, entry);
+      return;
+    }
+
+    if (msg.method === 'Network.responseReceived') {
+      const resp = p.response || {};
+      let entry = ev.byRequestId.get(p.requestId);
+      if (!entry) {
+        entry = {
+          requestId: p.requestId,
+          url: resp.url || '',
+          method: '',
+          type: p.type || '',
+          timestamp: now,
+        };
+        ev.byRequestId.set(p.requestId, entry);
+        pushCapped(ev.requests, entry);
+      }
+      entry.url = resp.url || entry.url;
+      entry.status = resp.status || 0;
+      entry.statusText = resp.statusText || '';
+      entry.mimeType = resp.mimeType || '';
+      entry.fromCache = !!resp.fromDiskCache;
+      entry.responseTimestamp = now;
+      const contentLength = resp.headers && (resp.headers['content-length'] || resp.headers['Content-Length']);
+      if (contentLength !== undefined) entry.contentLength = Number(contentLength) || 0;
+      pushCapped(ev.responses, entry);
+      return;
+    }
+
+    if (msg.method === 'Network.loadingFinished') {
+      const entry = ev.byRequestId.get(p.requestId);
+      if (!entry) return;
+      entry.size = Number(p.encodedDataLength) || 0;
+      entry.durationMs = entry.responseTimestamp ? now - entry.responseTimestamp : undefined;
+      entry.finished = true;
+      return;
+    }
+
+    if (msg.method === 'Network.loadingFailed') {
+      const entry = ev.byRequestId.get(p.requestId);
+      if (!entry) return;
+      entry.failed = true;
+      entry.errorText = p.errorText || 'request failed';
+      entry.durationMs = entry.responseTimestamp ? now - entry.responseTimestamp : undefined;
+    }
+  };
+}
+
+async function enableNetworkTracking(sessionId, cdpPort) {
   try {
+    // Só `Network.enable`. O `Network.setRequestInterception` (que o código
+    // antigo usava) PAUSA toda requisição e não continua nunca — a navegação
+    // ficava pendurada. Para captura passiva não é preciso.
     await cdpRequest(cdpPort, 'Network.enable', {});
-    await cdpRequest(cdpPort, 'Network.setRequestInterception', { patterns: [{ urlPattern: '*' }] });
+    cdpEventHandlers.set(cdpPort, networkEventHandler(sessionId));
+    return true;
   } catch (err) {
     console.error('[Network] Failed to enable:', err.message);
+    return false;
   }
 }
 
@@ -819,17 +1146,7 @@ async function disableNetworkTracking(cdpPort) {
   } catch (err) {
     // ignore
   }
-}
-
-// Register CDP event handlers for network
-function setupNetworkEvents(sessionId, cdpPort) {
-  if (networkEvents.has(sessionId)) return;
-
-  const events = { requests: [], responses: [], enabled: false };
-  networkEvents.set(sessionId, events);
-
-  // We'll use a polling approach since CDP events need separate WebSocket
-  // For now, just enable tracking and let the endpoint handle it
+  cdpEventHandlers.delete(cdpPort);
 }
 
 app.post('/api/network/:sessionId/start', authMiddleware, trackActivity, async (req, res) => {
@@ -839,19 +1156,17 @@ app.post('/api/network/:sessionId/start', authMiddleware, trackActivity, async (
   const sid = session.sessionId;
   let events = networkEvents.get(sid);
   if (!events) {
-    events = { requests: [], responses: [], enabled: false };
+    events = { cdpPort: session.cdpPort, enabled: false, requests: [], responses: [], byRequestId: new Map() };
     networkEvents.set(sid, events);
   }
+  events.cdpPort = session.cdpPort;
 
-  try {
-    await enableNetworkTracking(session.cdpPort);
-    events.enabled = true;
-    events.requests = [];
-    events.responses = [];
-    res.json({ status: 'enabled', message: 'Network tracking started' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  const ok = await enableNetworkTracking(sid, session.cdpPort);
+  events.enabled = ok;
+  events.requests = [];
+  events.responses = [];
+  events.byRequestId = new Map();
+  res.json({ status: ok ? 'enabled' : 'failed', enabled: ok, message: ok ? 'Network tracking started' : 'Failed to enable Network domain' });
 });
 
 app.post('/api/network/:sessionId/stop', authMiddleware, trackActivity, async (req, res) => {
@@ -881,27 +1196,17 @@ app.get('/api/network/:sessionId', authMiddleware, trackActivity, async (req, re
     return res.json({ enabled: false, requests: [], responses: [] });
   }
 
-  // Fetch all network events via CDP
+  // Garante o domínio Network ligado na conexão atual (o pool CDP é
+  // descartado após 30s ocioso e recriado — sem isso os eventos param de
+  // chegar depois do idle).
   if (events.enabled) {
-    try {
-      // Get all requests
-      const reqResult = await cdpRequest(session.cdpPort, 'Network.getRequests', {});
-      // Get all responses
-      const resResult = await cdpRequest(session.cdpPort, 'Network.getResponses', {});
-
-      events.requests = reqResult?.requests || [];
-      events.responses = resResult?.responses || [];
-    } catch (err) {
-      // CDP might not support these methods, try alternative
-      try {
-        const loadingResult = await cdpRequest(session.cdpPort, 'Network.getAllCookies', {});
-        events.responses = loadingResult?.cookies || [];
-      } catch (e) {
-        // Fallback: just return what we have
-      }
+    try { await cdpRequest(session.cdpPort, 'Network.enable', {}); } catch {}
+    if (!cdpEventHandlers.has(session.cdpPort)) {
+      cdpEventHandlers.set(session.cdpPort, networkEventHandler(sid));
     }
   }
 
+  // Lista vazia é honesta; cookie disfarçado de resposta HTTP não é.
   res.json({
     enabled: events.enabled,
     requests: events.requests,
