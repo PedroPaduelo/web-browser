@@ -142,6 +142,30 @@ function isGroupLeader(pid) {
   }
 }
 
+// Opções do screencast CDP, ancoradas na resolução REAL da sessão.
+//
+// O `maxHeight` tinha o default 720 (cdp-screencast.js) e NINGUÉM passava a
+// altura da sessão. Com o teto de largura em 1280, o Chrome escala
+// proporcionalmente: uma janela 1440x900 saía num frame 1280x720 — 180px de
+// rodapé fora de quadro. Era a complaint do usuário ("a tela abre parecendo
+// que tá cortando lá embaixo a tela útil de navegação").
+//
+// Agora o limite de ALTURA é a altura da própria sessão: o frame nunca corta a
+// área útil. O limite de LARGURA (1280) continua, porque ele existe para
+// segurar banda — e como a escala é proporcional, a altura resultante cabe
+// dentro do limite de altura (o Chrome só reduz, nunca amplia).
+function screencastOptions(sessionId, raw = {}) {
+  const sess = sessionManager.getSession(sessionId);
+  const res = (sess && sess.resolution) || (raw && raw.resolution);
+  return {
+    quality: 60,
+    maxWidth: 1280,
+    maxHeight: res && Number(res.height) ? Number(res.height) : 0,
+    everyNthFrame: 1,
+    sessionId,
+  };
+}
+
 // --- Limpar processos órfãos DESTA instância ---
 // Se o backend crashou antes, Xvfb, Chrome e ffmpeg podem ter ficado
 // rodando e segurando display/porta.
@@ -263,9 +287,8 @@ sessionManager.onCaptureDied((sessionId, reason) => {
   try { resources.streamManager.mode = 'cdp'; } catch {}
   try {
     if (!resources.screencast) {
-      resources.screencast = new CDPScreencast(sessionManager.getSession(sessionId)?.cdpPort, {
-        quality: 60, maxWidth: 1280, everyNthFrame: 1, sessionId,
-      });
+      resources.screencast = new CDPScreencast(sessionManager.getSession(sessionId)?.cdpPort,
+        screencastOptions(sessionId));
     }
     resources.screencast.start((frame) => resources.streamManager.pushFrame(frame));
   } catch (e) {
@@ -452,12 +475,7 @@ app.post('/api/session', authMiddleware, async (req, res) => {
       // Primário: ffmpeg x11grab (30fps). Fallback: CDP screencast (~0.3-20fps,
       // só emite frame quando a página repinta).
       const streamMgr = new StreamManager();
-      const screencast = new CDPScreencast(raw.cdpPort, {
-        quality: 60,
-        maxWidth: 1280,
-        everyNthFrame: 1,
-        sessionId,
-      });
+      const screencast = new CDPScreencast(raw.cdpPort, screencastOptions(sessionId, raw));
 
       let captureMode = 'cdp';
       if (raw.capture && raw.capture.stdout) {
