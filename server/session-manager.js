@@ -1,6 +1,7 @@
 const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { WebSocket } = require('./node_modules/ws');
 const profileManager = require('./profile-manager');
 const tenantManager = require('./tenant-manager');
 
@@ -716,13 +717,17 @@ async function stopSession(sessionId, reason = 'manual') {
   // O Chrome segura os cookies em memória e só grava no SQLite do profile
   // (Default/Cookies) de tempos em tempos. Com o Chrome vivo, o merge copia
   // um Cookies VELHO: o cookie setado nos últimos segundos antes do stop
-  // sumia na sessão seguinte do mesmo tenant (medido: cookie de 3,5 min
-  // antes do stop sobrevivia; de 40s e de 9s, não).
+  // sumia na sessão seguinte do mesmo tenant.
   //
-  // O SIGTERM faz o Chrome encerrar de forma graciosa — é o shutdown dele
-  // que persiste o Default/Cookies no disco. Por isso a ordem é:
-  // SIGTERM → ESPERAR o 'exit' → mesclar o profile.
-  await stopChromeAndWait(session.chrome);
+  // MEDIDO nesta rodada: o SIGTERM NÃO grava o cookie store. Com SIGTERM,
+  // um cookie criado 5s antes do stop não sobrevivia; o MESMO cookie criado
+  // 30s antes sobrevivia — o que gravava era o commit PERIÓDICO do cookie
+  // store (~30s), não o shutdown. A ordem "esperar o exit" já estava certa;
+  // o que faltava era pedir o shutdown pelo caminho oficial.
+  //
+  // Agora: Browser.close via CDP (o shutdown gracioso do Chrome, que roda o
+  // flush do cookie store) → ESPERAR o 'exit' → mesclar o profile.
+  await stopChromeAndWait(session.chrome, 8000, session.cdpUrl);
 
   if (session.tenantId && reason !== 'timeout') {
     try {
@@ -909,7 +914,45 @@ function killProcessGroup(proc) {
 // Requisito do caso: o Chrome grava o profile durante o shutdown (a
 // 'exit' só vem depois disso), e o SIGKILL seria imediato e sem flush —
 // daí o teto generoso (8s) antes do kill definitivo.
-async function stopChromeAndWait(proc, timeoutMs = 8000) {
+// Pede ao Chrome um fechamento GRACIOSO via CDP (`Browser.close`).
+//
+// POR QUE: o SIGTERM não faz o Chrome gravar o store de cookies. Medido:
+// um cookie criado e guardado 5s antes do stop não sobrevivia à sessão
+// seguinte; o mesmo cookie, guardado 30s antes, sobrevivia — o signal
+// mostra que o que gravava era o commit PERIÓDICO do cookie store (~30s),
+// não o shutdown. `Browser.close` é o caminho oficial de shutdown do Chrome
+// e roda o flush do cookie store.
+//
+// Devolve true se o pedido foi enviado (não garante que o Chrome morreu).
+function requestBrowserClose(cdpUrl, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    if (!cdpUrl) { resolve(false); return; }
+    let ws;
+    try {
+      ws = new WebSocket(cdpUrl, { handshakeTimeout: timeoutMs });
+    } catch {
+      resolve(false);
+      return;
+    }
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      try { ws.close(); } catch {}
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    ws.on('open', () => {
+      try { ws.send(JSON.stringify({ id: 1, method: 'Browser.close' })); } catch { finish(false); }
+    });
+    // O browser pode fechar a conexão antes de responder: isso também é sucesso.
+    ws.on('message', () => { clearTimeout(timer); finish(true); });
+    ws.on('close', () => { clearTimeout(timer); finish(true); });
+    ws.on('error', () => { clearTimeout(timer); finish(false); });
+  });
+}
+
+async function stopChromeAndWait(proc, timeoutMs = 8000, cdpUrl = null) {
   if (!proc || !proc.pid) return;
   if (proc.exitCode !== null || proc.killed) return; // já morto
   const pid = proc.pid;
@@ -924,8 +967,13 @@ async function stopChromeAndWait(proc, timeoutMs = 8000) {
     setTimeout(finish, timeoutMs);
   });
 
-  try { process.kill(-pid, 'SIGTERM'); } catch {
-    try { proc.kill('SIGTERM'); } catch {}
+  // Primeiro o shutdown gracioso via CDP (é o que grava os cookies). O SIGTERM
+  // fica como plano B, para o caso de o CDP já estar fora do ar.
+  const pediuCdp = await requestBrowserClose(cdpUrl, 3000);
+  if (!pediuCdp) {
+    try { process.kill(-pid, 'SIGTERM'); } catch {
+      try { proc.kill('SIGTERM'); } catch {}
+    }
   }
   await exited;
 

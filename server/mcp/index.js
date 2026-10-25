@@ -438,9 +438,13 @@ function createServer() {
       const live = await liveSessionsOfTenant();
       if (live.length >= 2) throw ambiguousSessionError(live);
       if (live.length === 1) {
-        setCurrentSession(tenantId, live[0]);
-        markSessionValidated(tenantId, live[0]);
-        return live[0];
+        // live[] são os OBJETOS de sessão do backend: o id é o campo sessionId.
+        // Devolver o objeto inteiro fazia a URL virar "/api/cookies/[object
+        // Object]" — o cookie nunca era gravado e o teste via 404.
+        const unica = live[0].sessionId || live[0];
+        setCurrentSession(tenantId, unica);
+        markSessionValidated(tenantId, unica);
+        return unica;
       }
     }
 
