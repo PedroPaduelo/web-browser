@@ -6,5 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 export MCP_PORT="${MCP_PORT:-4202}"
 export SERENDE_API="${SERENDE_API:-http://localhost:4201}"
-# AUTH_API_KEY vem do ambiente (ou do .env do server), nunca com default aqui.
+# Auth: o MCP NÃO carrega o .env do server e não tem fallback de ambiente no
+# requireApiKey. A chave do cliente vem sempre no header X-API-Key (obrigatório,
+# sem chave a rota /mcp devolve 401) e quem valida é o backend em :4201.
+# Aqui o ambiente serve só para porte/URL — nunca para injetar chave.
 exec node index.js

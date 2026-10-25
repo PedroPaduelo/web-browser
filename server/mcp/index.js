@@ -1,18 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import dotenv from 'dotenv';
 
 import crypto from 'node:crypto';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.resolve(__dirname, '.env'), override: true });
+// Auth: o MCP NÃO carrega server/.env de propósito.
+// A chave de API tem um lugar só de verdade: o server/.env, lido pelo backend
+// (:4201), que valida a chave do cliente e guarda o hash no key store. O proxy
+// não precisa da chave no ambiente — e carregá-la aqui colocaria AUTH_API_KEY,
+// JWT_SECRET e ADMIN_SECRET no processo do proxy, que é justamente o que a
+// rota /mcp NÃO pode fazer: aceitar requisição sem X-API-Key do cliente.
+// O cliente manda a própria chave no header X-API-Key (obrigatório, ver
+// requireApiKey); o MCP só a repassa ao backend, que decide se é válida.
+// O ambiente do MCP serve para porte/URL: MCP_PORT, SERENDE_API e
+// SESSION_VALIDATION_TTL_MS (ver run-mcp.sh).
 
 const SERENDE_API = process.env.SERENDE_API || 'http://localhost:4201';
 const SERENDE_PUBLIC_URL = process.env.SERENDE_PUBLIC_URL || 'https://serende.ddw1sl.easypanel.host';
@@ -1592,10 +1596,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const transports = new Map(); // sessionId → { transport, server }
+// sessionId → { transport, server, tenantId }. O tenantId é o DONO da sessão:
+// sem ele, qualquer X-API-Key válida reaproveitaria a sessão de outro tenant.
+const transports = new Map();
 
 function requireApiKey(req, res, next) {
-  const apiKey = req.headers['x-api-key'] || process.env.AUTH_API_KEY;
+  // Header obrigatório, sem fallback de ambiente: o MCP não guarda chave
+  // própria (não carrega o .env do server), então requisição sem X-API-Key
+  // é recusada com 401.
+  const apiKey = req.headers['x-api-key'];
   if (!apiKey) {
     return res.status(401).json({ error: 'X-API-Key header required' });
   }
@@ -1610,13 +1619,32 @@ function withTenantContext(handler) {
   };
 }
 
+// Isolamento por tenant: cada sessão MCP pertence ao tenant que a criou.
+// Reaproveitar a sessão de outro tenant seria session hijacking — o tenant B
+// passaria a operar o browser do tenant A (e GET/DELETE ainda derrubariam a
+// sessão alheia). Sessão sem dono legível (sem tenantId) também é recusada.
+//   → { ok: true, entry }                  sessão existe e é do tenant da requisição
+//   → { ok: false, reason: 'not_found' }  sessão não existe
+//   → { ok: false, reason: 'not_owner' }  sessão existe, mas é de outro tenant
+function lookupSession(sessionId, tenantId) {
+  if (!sessionId) return { ok: false, reason: 'not_found' };
+  const entry = transports.get(sessionId);
+  if (!entry) return { ok: false, reason: 'not_found' };
+  if (!entry.tenantId || entry.tenantId !== tenantId) return { ok: false, reason: 'not_owner' };
+  return { ok: true, entry };
+}
+
 app.post('/mcp', requireApiKey, withTenantContext(async (req, res) => {
   const sessionId = req.headers['mcp-session-id'];
+  const found = lookupSession(sessionId, req.tenantId);
 
-  if (sessionId && transports.has(sessionId)) {
-    const { transport } = transports.get(sessionId);
-    await transport.handleRequest(req, res, req.body);
+  if (found.ok) {
+    await found.entry.transport.handleRequest(req, res, req.body);
     return;
+  }
+  if (found.reason === 'not_owner') {
+    // A sessão existe mas é de outro tenant: recusa sem entregar nada dela.
+    return res.status(403).json({ error: 'Session does not belong to this tenant' });
   }
 
   // New session — create transport + server
@@ -1638,27 +1666,34 @@ app.post('/mcp', requireApiKey, withTenantContext(async (req, res) => {
   await transport.handleRequest(req, res, req.body);
 
   if (transport.sessionId) {
-    transports.set(transport.sessionId, { transport, server });
+    transports.set(transport.sessionId, { transport, server, tenantId: req.tenantId });
     console.log(`[MCP] New session: ${transport.sessionId} (active: ${transports.size})`);
   }
 }));
 
 app.get('/mcp', requireApiKey, withTenantContext(async (req, res) => {
   const sessionId = req.headers['mcp-session-id'];
-  if (!sessionId || !transports.has(sessionId)) {
+  const found = lookupSession(sessionId, req.tenantId);
+  if (!found.ok) {
+    if (found.reason === 'not_owner') {
+      return res.status(403).json({ error: 'Session does not belong to this tenant' });
+    }
     return res.status(400).json({ error: 'Invalid or missing session. Send initialize first via POST.' });
   }
-  const { transport } = transports.get(sessionId);
-  await transport.handleRequest(req, res);
+  await found.entry.transport.handleRequest(req, res);
 }));
 
 app.delete('/mcp', requireApiKey, withTenantContext(async (req, res) => {
   const sessionId = req.headers['mcp-session-id'];
-  if (!sessionId || !transports.has(sessionId)) {
+  const found = lookupSession(sessionId, req.tenantId);
+  if (!found.ok) {
+    if (found.reason === 'not_owner') {
+      return res.status(403).json({ error: 'Session does not belong to this tenant' });
+    }
     return res.status(400).json({ error: 'Invalid or missing session.' });
   }
-  const { transport } = transports.get(sessionId);
-  await transport.handleRequest(req, res);
+  await found.entry.transport.handleRequest(req, res);
+  // Só o dono encerra a sessão — o delete de outro tenant nem chega aqui.
   transports.delete(sessionId);
 }));
 
@@ -1667,8 +1702,10 @@ app.delete('/mcp', requireApiKey, withTenantContext(async (req, res) => {
 // Sessões MCP criadas por este proxy. O cliente reenvia o mcp-session-id na
 // chamada seguinte; o proxy repassa esse id ao transporte interno para que a
 // mesma sessão seja reutilizada. Só ids emitidos por aqui são aceitos — um id
-// arbitrário é recusado, não repassado cegamente.
-const proxySessions = new Set();
+// arbitrário é recusado, não repassado cegamente. Cada id guarda o tenant que
+// o criou: reenviar o id de outro tenant é recusado (403), senão o proxy
+// entregaria a sessão alheia.
+const proxySessions = new Map(); // sessionId → tenantId
 
 app.post('/mcp/json', async (req, res) => {
   // Auth: o cliente precisa enviar a própria chave (mesma exigência da rota /mcp).
@@ -1678,13 +1715,22 @@ app.post('/mcp/json', async (req, res) => {
   if (!apiKey) {
     return res.status(401).json({ error: 'X-API-Key header required' });
   }
+  const tenantId = deriveTenantId(apiKey);
 
   // Sessão: id emitido pelo proxy numa chamada anterior (o initialize não traz).
   const clientSessionId = req.headers['mcp-session-id'];
-  if (clientSessionId && !proxySessions.has(clientSessionId)) {
-    return res.status(404).json({
-      error: 'Unknown mcp-session-id. Send initialize first via POST /mcp/json.',
-    });
+  if (clientSessionId) {
+    const owner = proxySessions.get(clientSessionId);
+    if (!owner) {
+      return res.status(404).json({
+        error: 'Unknown mcp-session-id. Send initialize first via POST /mcp/json.',
+      });
+    }
+    if (owner !== tenantId) {
+      // A sessão pertence a outro tenant: recusa sem repassar o id ao
+      // transporte interno (lá a checagem de dono é a mesma).
+      return res.status(403).json({ error: 'Session does not belong to this tenant' });
+    }
   }
 
   try {
@@ -1724,10 +1770,10 @@ app.post('/mcp/json', async (req, res) => {
       // ids mortos para o registro não crescer sem limite. (A entrada do
       // transporte é criada antes de a resposta chegar, então um id novo nunca
       // é descartado aqui.)
-      for (const sid of proxySessions) {
+      for (const sid of proxySessions.keys()) {
         if (!transports.has(sid)) proxySessions.delete(sid);
       }
-      proxySessions.add(issuedSessionId);
+      proxySessions.set(issuedSessionId, tenantId);
       res.setHeader('Mcp-Session-Id', issuedSessionId);
     }
 
