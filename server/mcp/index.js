@@ -1664,11 +1664,28 @@ app.delete('/mcp', requireApiKey, withTenantContext(async (req, res) => {
 
 // JSON-RPC proxy: intercept SSE and return plain JSON (for orquestrador compatibility)
 app.post('/mcp/json', async (req, res) => {
+  // Auth: o cliente precisa enviar a própria chave (mesma exigência da rota /mcp).
+  // Sem fallback de ambiente ou chave hardcoded: o proxy não pode se autenticar
+  // como o próprio servidor.
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) {
+    return res.status(401).json({ error: 'X-API-Key header required' });
+  }
+
   try {
     // Forward all headers from the original request
     const forwardHeaders = {
       'Content-Type': 'application/json',
-      'X-API-Key': req.headers['x-api-key'] || process.env.AUTH_API_KEY || 'serende-dev-key-2024',
+      // O transporte StreamableHTTP do SDK exige que o Accept liste application/json
+      // E text/event-stream. Repassa o Accept do cliente quando ele já cumpre o
+      // requisito; caso contrário usa o par canônico.
+      'Accept':
+        req.headers.accept &&
+        req.headers.accept.includes('application/json') &&
+        req.headers.accept.includes('text/event-stream')
+          ? req.headers.accept
+          : 'application/json, text/event-stream',
+      'X-API-Key': apiKey,
     };
 
     const resp = await fetch(`http://localhost:${MCP_PORT}/mcp`, {
