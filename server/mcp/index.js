@@ -391,7 +391,59 @@ function createServer() {
   // (para dois agentes não se cruzarem) usa session_use nela antes de chamar
   // as outras tools.
   async function requireSession() {
+    const sid = await resolveSession();
+    // A sessão RESOLVIDA (mesmo sem id explícito) fica no contexto, para a
+    // resposta ecoar em qual sessão a operação rodou. Sem isso, no caminho
+    // legado o agente não tem como saber.
+    const ctx = tenantContext.getStore();
+    if (ctx) ctx.resolvedSessionId = sid;
+    return sid;
+  }
+
+  async function resolveSession() {
     const tenantId = getCurrentTenantId();
+    const ctx = tenantContext.getStore();
+    const explicit = ctx && ctx.sessionId ? String(ctx.sessionId) : null;
+
+    // 1) ID EXPLÍCITO — opera exatamente essa sessão.
+    //
+    // A posse é validada pelo próprio backend: ele escopa as sessões pela
+    // chave da API, então um id de outro tenant responde 404 aqui. Não existe
+    // como um agente operar a sessão de outro: ou é dele, ou é erro.
+    if (explicit) {
+      if (wasSessionValidated(tenantId, explicit)) return explicit;
+      try {
+        await api('GET', `/api/session/${explicit}`);
+        markSessionValidated(tenantId, explicit);
+        rememberSession(tenantId, explicit, { at: Date.now() });
+        return explicit;
+      } catch (e) {
+        // Transiente (429/5xx/rede): a sessão continua viva — não descarta o
+        // cache, senão um rate limit cascateia em "cria outra sessão".
+        if (!isSessionGone(e)) throw e;
+        forgetSessionEverywhere(tenantId, explicit);
+        throw new Error(
+          `session_not_found: a sessão ${explicit} não existe ou não pertence a esta chave.`
+        );
+      }
+    }
+
+    // 2) SEM ID — só é unívoco se houver UMA sessão viva.
+    //
+    // Com duas ou mais, escolher uma no escuro é exatamente o cruzamento que
+    // o QA mediu. Fail-closed: o agente precisa dizer qual sessão é dele.
+    const known = knownSessions(tenantId);
+    if (known.length >= 2) {
+      // Pode ter morrido no meio: confirma no backend antes de recusar.
+      const live = await liveSessionsOfTenant();
+      if (live.length >= 2) throw ambiguousSessionError(live);
+      if (live.length === 1) {
+        setCurrentSession(tenantId, live[0]);
+        markSessionValidated(tenantId, live[0]);
+        return live[0];
+      }
+    }
+
     // Corrente desta CONEXÃO (a do tenant só como fallback p/ cliente sem
     // mcp-session-id). É aqui que a isolação acontece: cada sub-agente lê a
     // própria corrente, nunca a do outro.
@@ -418,59 +470,54 @@ function createServer() {
     // Busca sessão ativa do backend
     try {
       const data = await api('GET', '/api/session');
-      if (data.sessions && data.sessions.length > 0) {
-        // PEQUENA DIFERENÇA DE COMPORTAMENTO, de propósito: antes pegava
-        // sessions[0]. Com N sessões do mesmo tenant no backend, o [0] é
-        // arbitrário (ordem do Map do session-manager), então a recuperação
-        // automática elegia uma sessão qualquer — e passava a operar outra que
-        // não a que o cliente começou. Pega a que ESTA CONEXÃO já usou e ainda
-        // está viva; na falta, a que o tenant mais recentemente conheceu; e só
-        // então a primeira do backend. Para o caso de 1 sessão (a maioria dos
-        // clientes) é idêntico ao [0] de antes.
-        const known = currentKnownAlive(tenantId, data.sessions);
-        sessionId = known || data.sessions[0].sessionId;
+      const sessions = (data.sessions || []);
+      if (sessions.length === 1) {
+        sessionId = sessions[0].sessionId;
         setCurrentSession(tenantId, sessionId);
         markSessionValidated(tenantId, sessionId);
         return sessionId;
       }
+      if (sessions.length > 1) {
+        // 2+ sessões vivas e o chamador não disse qual é a dele: recusa.
+        throw ambiguousSessionError(sessions);
+      }
     } catch (e) {
+      // A ambiguidade é um erro de SEMÂNTICA, não de transporte: propaga.
+      if (e && String(e.message || '').startsWith('ambiguous_session')) throw e;
       // idem: transiente propaga o erro real, não "no active session"
       if (!isSessionGone(e)) throw e;
     }
     throw new Error('No active session for this tenant. Use session_start first.');
   }
 
-  // Entre as sessões vivas no backend, a que este MCP conheceu por último e
-  // ainda está no registro. Usado só pela recuperação automática do
-  // requireSession (cache vazio ou corrente morta): preserva a sessão em que o
-  // cliente já estava, em vez de eleger a primeira da lista do backend.
-  function currentKnownAlive(tenantId, backendSessions) {
-    const alive = sid => (backendSessions || []).some(s => s.sessionId === sid);
-    const ck = getCurrentConnId();
-    // Conexão IDENTIFICADA: só pode recuperar a sessão que ELA já usou. Cair
-    // na "mais recente do tenant" aqui seria o cruzamento de volta — a conexão
-    // B, com a sessão dela fechada, passaria a operar a do A sem pedir nada.
-    // Sem corrente própria e viva, ela não recupera nenhuma: o requireSession
-    // devolve "No active session", e o cliente chama session_start (ganha a
-    // sua) ou session_use (escolhe uma).
-    if (ck) {
-      const mine = connCurrent.get(ck);
-      if (mine && alive(mine)) return mine;
-      return null;
-    }
-    // Cliente SEM mcp-session-id: mantém o comportamento antigo de recuperar
-    // a sessão mais recente do tenant (é o caminho de 1 sessão, de uso único).
-    const rec = sessionCache.get(tenantId);
-    if (!rec) return null;
-    let best = null;
-    let bestAt = -1;
-    for (const [sid, meta] of rec.sessions) {
-      if (!alive(sid)) continue;
-      const at = meta && meta.at || 0;
-      if (at > bestAt) { bestAt = at; best = sid; }
-    }
-    return best;
+  // Erro de ambiguidade: o chamador precisa escolher a sessão.
+  function ambiguousSessionError(sessions) {
+    const ids = sessions.map(s => (s && s.sessionId) || s).join(', ');
+    return new Error(
+      `ambiguous_session: esta chave tem ${sessions.length} sessões abertas (${ids}). ` +
+      `Passe sessionId na chamada para escolher uma — sem isso a operação seria executada ` +
+      `na sessão errada (foi o que o QA mediu com 4 agentes em paralelo).`
+    );
   }
+
+  // Sessões que este MCP conhece deste tenant.
+  function knownSessions(tenantId) {
+    const rec = sessionCache.get(tenantId);
+    if (!rec) return [];
+    return [...rec.sessions.keys()];
+  }
+
+  // Sessões vivas no backend, do ponto de vista desta chave.
+  async function liveSessionsOfTenant() {
+    try {
+      const data = await api('GET', '/api/session');
+      return (data && data.sessions) || [];
+    } catch (e) {
+      if (!isSessionGone(e)) throw e;
+      return [];
+    }
+  }
+
 
   // Avalia um script na página e distingue "a página lançou exceção" de "o
   // script devolveu vazio".
@@ -507,14 +554,78 @@ function createServer() {
   // das tools — isError:true e texto JSON. Sem isso, o caminho de exceção
   // devolvia um texto solto e quem faz JSON.parse(data) quebrava justamente
   // no erro.
-  const registerTool = (name, config, handler) =>
-    server.registerTool(name, config, async (...handlerArgs) => {
+  //
+  // Toda tool que age numa sessão aceita `sessionId` opcional, e o parâmetro é
+  // injetado AQUI, uniformemente, para não depender de cada tool lembrar dele.
+  //
+  // POR QUE EXISTE: "qual é a minha sessão" era estado IMPLÍCITO do servidor
+  // (um ponteiro). Medido no QA real — 4 sub-agentes em paralelo, mesma
+  // chave — o ponteiro é compartilhado e as operações caem na sessão de outro
+  // agente: evaluate_js rodou na sessão alheia, a URL ganhou a sonda de outro
+  // agente e um dado foi escrito no formulário de outro. Com o id explícito a
+  // operação é endereçada e a corrida some por construção.
+  const SESSION_ID_PARAM = z.string().optional().describe(
+    'Session to operate on. REQUIRED when this key has more than one session open. Omit = the current one (only when unambiguous).'
+  );
+
+  const registerTool = (name, config, handler) => {
+    let cfg = config;
+    try {
+      const shape = config && config.inputSchema && config.inputSchema.shape;
+      if (shape && !('sessionId' in shape)) {
+        cfg = { ...config, inputSchema: config.inputSchema.extend({ sessionId: SESSION_ID_PARAM }) };
+      }
+    } catch {
+      cfg = config; // schema sem .extend: segue como está
+    }
+    return server.registerTool(name, cfg, async (...handlerArgs) => {
       try {
-        return await handler(...handlerArgs);
+        const args = handlerArgs[0] || {};
+        // O id explícito entra no contexto da requisição: requireSession() o lê
+        // e opera exatamente essa sessão. Zera quando a chamada não traz id —
+        // senão um id de uma chamada anterior vazaria para a seguinte.
+        const ctx = tenantContext.getStore();
+        if (ctx) {
+          ctx.sessionId = args.sessionId ? String(args.sessionId) : null;
+          ctx.resolvedSessionId = null;
+        }
+        const result = await handler(...handlerArgs);
+        return echoSession(result, ctx && (ctx.sessionId || ctx.resolvedSessionId));
       } catch (e) {
         return toolError(e.message || String(e));
       }
     });
+  };
+
+  // Ecoa a sessão operada na resposta, para o agente perceber um desvio sem
+  // precisar de sonda externa.
+  //
+  // Duas formas, porque as tools respondem de duas maneiras:
+  //   - resposta em JSON  → vira um campo `sessionId` (o JSON continua válido,
+  //     quem faz JSON.parse não quebra);
+  //   - resposta em texto  → ganha um sufixo "[session: <id>]" (texto simples
+  //     não é parseado como JSON, então nada quebra).
+  //
+  // Sem isso o agente não tem como saber em qual sessão a operação rodou —
+  // foi exatamente o que o QA precisou contornar com sentinela na página.
+  function echoSession(result, sessionId) {
+    if (!sessionId || !result || !Array.isArray(result.content)) return result;
+    const first = result.content[0];
+    if (!first || first.type !== 'text' || typeof first.text !== 'string') return result;
+    let parsed = null;
+    let isJson = true;
+    try { parsed = JSON.parse(first.text); } catch { isJson = false; }
+    if (isJson && parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (parsed.sessionId) return result;
+      const pretty = first.text.includes('\n');
+      const text = JSON.stringify({ ...parsed, sessionId }, null, pretty ? 2 : 0);
+      return { ...result, content: [{ ...first, text }] };
+    }
+    if (isJson) return result; // JSON que não é objeto (array/numero): não mexe
+    if (first.text.includes(`[session: ${sessionId}]`)) return result;
+    const text = `${first.text}\n[session: ${sessionId}]`;
+    return { ...result, content: [{ ...first, text }] };
+  }
 
   // ========== SESSION TOOLS ==========
 
@@ -531,9 +642,9 @@ function createServer() {
   // Quer outra mesmo? forceNew:true (ou o default no caminho multi-sessão,
   // ver startNewSession).
   registerTool('session_start', {
-    description: 'Start a new remote browser session. Must be called before any other tool. Returns sessionId. When the tenant already has sessions, a NEW one is created and becomes the current one (use session_use to switch between them).',
+    description: 'Start a new remote browser session. Must be called before any other tool. Returns sessionId. When the tenant already has sessions, a NEW one is created and becomes the current one (use session_use to switch between them). IMPORTANT: keep the returned sessionId and pass it to every other call — with more than one session open, a call without sessionId is refused.',
     inputSchema: z.object({
-      resolution: z.string().default('1280x720').describe('Screen resolution WxH'),
+      resolution: z.string().optional().describe('Screen resolution WxH. Omit = 1280x720. If a session is already open with a DIFFERENT resolution, a new one is created instead of silently reusing it.'),
       startUrl: z.string().default('https://www.google.com').describe('URL to open on start'),
       forceNew: z.boolean().default(false).describe('true = always create a new session even if there is already one (default: false reuses the current one, like any single-session client)'),
     }),
@@ -543,9 +654,20 @@ function createServer() {
     // Já tem uma corrente viva: sem pedido explícito de nova, devolve ela.
     if (cachedId && !forceNew) {
       try {
-        await api('GET', `/api/session/${cachedId}`);
-        const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${cachedId}`;
-        return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', reused: true, viewerUrl, message: 'Session already active. Call with forceNew:true to open another one (or use session_use to switch).' }, null, 2));
+        const existing = await api('GET', `/api/session/${cachedId}`);
+        // A sessão existente tem a resolução pedida?
+        //
+        // Medido no QA: 4 de 4 seções pediram resolution:"1440x900" e
+        // receberam 1280x720. A causa era esta: sem forceNew, a sessão já
+        // aberta era devolvida em silêncio e o pedido de resolução era
+        // descartado — o agente passava a medir a tela errada sem nenhum aviso.
+        // Agora a resolução divergente cria a sessão pedida.
+        if (!resolution || sameResolution(existing, resolution)) {
+          const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${cachedId}`;
+          return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', reused: true, resolution: existing.resolution, viewerUrl, message: 'Session already active. Call with forceNew:true to open another one (or use session_use to switch).' }, null, 2));
+        }
+        // Resolução diferente da sessão existente: o pedido é por outra.
+        return startNewSession(tenantId, { resolution, startUrl });
       } catch (e) {
         // Transiente (429/5xx/rede): a sessão pode continuar viva — não descarta
         // o cache, senão um rate limit cascateia em "cria outra sessão".
@@ -554,8 +676,20 @@ function createServer() {
         forgetSessionEverywhere(tenantId, cachedId);
       }
     }
-    return startNewSession(tenantId, { resolution, startUrl });
+    return startNewSession(tenantId, { resolution: resolution || '1280x720', startUrl });
   });
+
+  // A resolução pedida bate com a da sessão existente?
+  //
+  // A sessão existe como {width, height}; o pedido vem como "WxH". Compara as
+  // duas formas sem depender da ordem dos campos.
+  function sameResolution(existing, wanted) {
+    const cur = existing && existing.resolution;
+    if (!cur) return true; // não sei a resolução atual: não recuso o pedido
+    const m = String(wanted).match(/^(\d+)\s*[xX*]\s*(\d+)$/);
+    if (!m) return true; // pedido em formato desconhecido: não recuso
+    return Number(m[1]) === Number(cur.width) && Number(m[2]) === Number(cur.height);
+  }
 
   // Cria a sessão no backend e a torna corrente DESTA conexão.
   async function startNewSession(tenantId, { resolution, startUrl }) {
