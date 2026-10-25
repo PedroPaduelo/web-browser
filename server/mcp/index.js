@@ -1663,6 +1663,13 @@ app.delete('/mcp', requireApiKey, withTenantContext(async (req, res) => {
 }));
 
 // JSON-RPC proxy: intercept SSE and return plain JSON (for orquestrador compatibility)
+
+// Sessões MCP criadas por este proxy. O cliente reenvia o mcp-session-id na
+// chamada seguinte; o proxy repassa esse id ao transporte interno para que a
+// mesma sessão seja reutilizada. Só ids emitidos por aqui são aceitos — um id
+// arbitrário é recusado, não repassado cegamente.
+const proxySessions = new Set();
+
 app.post('/mcp/json', async (req, res) => {
   // Auth: o cliente precisa enviar a própria chave (mesma exigência da rota /mcp).
   // Sem fallback de ambiente ou chave hardcoded: o proxy não pode se autenticar
@@ -1670,6 +1677,14 @@ app.post('/mcp/json', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) {
     return res.status(401).json({ error: 'X-API-Key header required' });
+  }
+
+  // Sessão: id emitido pelo proxy numa chamada anterior (o initialize não traz).
+  const clientSessionId = req.headers['mcp-session-id'];
+  if (clientSessionId && !proxySessions.has(clientSessionId)) {
+    return res.status(404).json({
+      error: 'Unknown mcp-session-id. Send initialize first via POST /mcp/json.',
+    });
   }
 
   try {
@@ -1688,17 +1703,44 @@ app.post('/mcp/json', async (req, res) => {
       'X-API-Key': apiKey,
     };
 
+    // Repassa o id da sessão: sem ele o transporte interno abriria uma sessão
+    // nova a cada chamada e a seguinte seria rejeitada ("Server not initialized").
+    if (clientSessionId) {
+      forwardHeaders['mcp-session-id'] = clientSessionId;
+    }
+
     const resp = await fetch(`http://localhost:${MCP_PORT}/mcp`, {
       method: 'POST',
       headers: forwardHeaders,
       body: JSON.stringify(req.body),
     });
     const text = await resp.text();
+
+    // Devolve ao cliente o mcp-session-id emitido pelo transporte interno: é o
+    // id que ele precisa reenviar para continuar na mesma sessão.
+    const issuedSessionId = resp.headers.get('mcp-session-id') || clientSessionId;
+    if (issuedSessionId) {
+      // Sessão encerrada no servidor interno não pode ser reusada: descarta os
+      // ids mortos para o registro não crescer sem limite. (A entrada do
+      // transporte é criada antes de a resposta chegar, então um id novo nunca
+      // é descartado aqui.)
+      for (const sid of proxySessions) {
+        if (!transports.has(sid)) proxySessions.delete(sid);
+      }
+      proxySessions.add(issuedSessionId);
+      res.setHeader('Mcp-Session-Id', issuedSessionId);
+    }
+
     // Parse SSE: extract data lines
     const lines = text.split('\n').filter(l => l.startsWith('data: ')).map(l => l.slice(6));
     if (lines.length > 0) {
       const parsed = JSON.parse(lines[lines.length - 1]);
       return res.json(parsed);
+    }
+    // Notificação (ex.: notifications/initialized) não tem corpo: o transporte
+    // responde 202. Repassa o status em vez de tentar parsear um JSON vazio.
+    if (!text.trim()) {
+      return res.status(resp.status).end();
     }
     // Try direct JSON parse
     const json = JSON.parse(text);
