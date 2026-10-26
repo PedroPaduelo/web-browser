@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   adminLogin, adminLogout, loadAdminIdentity, changeAdminPassword, clearAdminToken,
   getAdminStats, getAdminKeys, createAdminKey, updateAdminKey, revokeAdminKey, regenerateAdminKey,
-  getAdminSessions, deleteAdminSession, closeAdminSessions, getAdminSessionToken,
+  getAdminSessions, deleteAdminSession, closeAdminSessions, getAdminSessionToken, fetchAdminThumbnail,
   type AdminStats, type AdminKey, type AdminSession, type CreateKeyResponse, type AdminIdentity,
 } from '../lib/admin-client'
 
@@ -24,7 +24,7 @@ function formatDuration(seconds: number) {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}min`
 }
 
-type Tab = 'sessions' | 'keys'
+type Tab = 'sessions' | 'live' | 'keys'
 
 /** Pedido de confirmacao: substitui o window.confirm (feio e bloqueante). */
 interface ConfirmRequest {
@@ -60,6 +60,8 @@ export default function AdminPanel() {
   const [search, setSearch] = useState('')
   const [filterKey, setFilterKey] = useState<string>('')
   const [autoRefresh, setAutoRefresh] = useState(true)
+  // Miniatura ao vivo de cada sessao, para a aba "Ao vivo".
+  const [thumbs, setThumbs] = useState<Record<string, string>>({})
 
   const [showCreate, setShowCreate] = useState(false)
   const [createdKey, setCreatedKey] = useState<CreateKeyResponse | null>(null)
@@ -131,6 +133,39 @@ export default function AdminPanel() {
     const t = setInterval(() => loadData({ silencioso: true }), 5000)
     return () => clearInterval(t)
   }, [authed, autoRefresh, loadData])
+
+  // Miniaturas ao vivo, so na aba "Ao vivo". Cada sessao vira um quadrado
+  // com a tela dela. As imagens vao como blob (o token do admin vai no
+  // header, entao <img src> direto nao serviria).
+  useEffect(() => {
+    if (!authed || tab !== 'live' || sessions.length === 0) return
+    let cancelled = false
+    const urls: string[] = []
+
+    const tick = async () => {
+      const current = sessions
+      for (const s of current) {
+        try {
+          const blob = await fetchAdminThumbnail(s.sessionId, 320)
+          if (cancelled) return
+          if (!blob) continue
+          const url = URL.createObjectURL(blob)
+          urls.push(url)
+          setThumbs((prev) => ({ ...prev, [s.sessionId]: url }))
+        } catch {
+          // Sessao sem CDP vivo: o quadrado fica com o placeholder.
+        }
+      }
+    }
+    void tick()
+    const t = setInterval(tick, 3000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+      // Libera as URLs do blob: sem isso, cada ciclo vaza uma imagem.
+      for (const u of urls) URL.revokeObjectURL(u)
+    }
+  }, [authed, tab, sessions])
 
   const handleLogin = async (e?: React.FormEvent) => {
     e?.preventDefault()
@@ -497,6 +532,9 @@ export default function AdminPanel() {
             <TabButton active={tab === 'sessions'} onClick={() => setTab('sessions')}>
               Sessões ({sessions.length})
             </TabButton>
+            <TabButton active={tab === 'live'} onClick={() => setTab('live')}>
+              Ao vivo
+            </TabButton>
             <TabButton active={tab === 'keys'} onClick={() => setTab('keys')}>
               API Keys ({keys.length})
             </TabButton>
@@ -614,6 +652,30 @@ export default function AdminPanel() {
                   {visibleSessions.length} de {sessions.length} sessão(ões)
                   {filterKey && ` da key ${keys.find(k => k.id === filterKey)?.name || ''}`}
                 </p>
+              )}
+            </>
+          ) : tab === 'live' ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <h2 style={{ fontSize: 15, fontWeight: 500, color: colors.textMuted }}>Sessões ativas</h2>
+                <span style={{ fontSize: 12, color: colors.textDim }}>
+                  {sessions.length === 0 ? 'nenhuma sessão aberta' : `${sessions.length} sessão(ões) · atualiza a cada 3s`}
+                </span>
+              </div>
+              <p style={{ fontSize: 12, color: colors.textDim, marginBottom: 16 }}>
+                Só para olhar. Para agir numa sessão, use a aba Sessões.
+              </p>
+
+              {sessions.length === 0 ? (
+                <div style={{ background: colors.bgCard, borderRadius: 10, border: `1px solid ${colors.border}`, padding: 40, textAlign: 'center', color: colors.textDim, fontSize: 13 }}>
+                  Nenhuma sessão ativa agora
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+                  {sessions.map(s => (
+                    <LiveTile key={s.sessionId} session={s} thumb={thumbs[s.sessionId]} />
+                  ))}
+                </div>
               )}
             </>
           ) : (
@@ -753,6 +815,43 @@ export default function AdminPanel() {
 }
 
 // --- Sub-components ---
+
+/**
+ * Um quadrado por sessao, na aba "Ao vivo": a tela da sessao, a key, a URL
+ * e o tempo de vida. SEM acoes — e a tela de olhar, nao de mexer. Quem quer
+ * agir usa a aba Sessões.
+ */
+function LiveTile({ session, thumb }: { session: AdminSession; thumb?: string }) {
+  return (
+    <div style={{ background: colors.bgCard, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ aspectRatio: '16 / 10', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        {thumb ? (
+          <img
+            src={thumb}
+            alt={`Tela da sessão ${session.sessionId.slice(0, 8)}`}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+          />
+        ) : (
+          <span style={{ color: colors.textDim, fontSize: 12 }}>sem imagem</span>
+        )}
+      </div>
+      <div style={{ padding: '8px 10px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 12, color: colors.text, fontWeight: 500 }}>{session.tenantName}</span>
+          <span style={{ fontSize: 11, color: colors.textDim }}>{formatDuration(session.uptime)}</span>
+        </div>
+        <div style={{ fontSize: 11, color: colors.textDim, marginTop: 2 }}>
+          {session.resolution.width}x{session.resolution.height} · {session.sessionId.slice(0, 8)}
+        </div>
+        {session.url && (
+          <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={session.url}>
+            {session.url}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (

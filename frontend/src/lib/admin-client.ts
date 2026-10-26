@@ -245,3 +245,14 @@ export async function getAdminSessionToken(sessionId: string): Promise<string> {
   const data = await res.json()
   return data.token
 }
+
+/**
+ * Miniatura (JPEG) da tela da sessao, para o painel mostrar varias telas ao
+ * mesmo tempo. O token vai no header, entao o navegador nao consegue usar
+ * <img src> direto: a imagem vem como blob.
+ */
+export async function fetchAdminThumbnail(sessionId: string, width = 320): Promise<Blob | null> {
+  const res = await adminFetch(`/api/admin/sessions/${sessionId}/thumbnail?w=${width}`)
+  if (!res.ok) return null
+  return res.blob()
+}
