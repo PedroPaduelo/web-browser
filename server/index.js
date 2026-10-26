@@ -1624,11 +1624,32 @@ app.get('/api/admin/sessions/:sessionId/token', adminAuth, (req, res) => {
   }
 });
 
+// Miniatura de uma sessao, para o painel mostrar varias telas ao mesmo tempo.
+//
+// A captura e ESCALADA no proprio Chrome (Page.captureScreenshot com clip
+// scale), entao o servidor nao decodifica JPEG nenhum: o Chrome entrega a
+// imagem pequena. O cache e curtinho (1,5 s) porque a grade atualiza a cada
+// poucos segundos e varias sessoes batem no mesmo instante.
+//
+// A chave inclui a largura: pedir 160 e 640 da MESMA sessao sao miniaturas
+// diferentes, e servir uma no lugar da outra mostra a imagem errada.
+//
+// Declarado ANTES de stopSessionFully: o cache e limpo quando a sessao
+// morre, e um `const` usado antes da declaracao cai em TDZ.
+const thumbCache = new Map(); // `${sessionId}@${width}` → { data, mime, at }
+const THUMB_TTL_MS = 1500;
+
 // Derruba uma sessao: para o stream, o input, o gerenciador e o cliente CDP.
 // Extraido para ser reusado pelo DELETE individual e pelo DELETE em lote.
 function stopSessionFully(sessionId) {
   const session = sessionManager.getSession(sessionId);
   if (!session) return false;
+
+  // A miniatura em cache e da sessao que esta morrendo: sai junto. A chave
+  // tem a largura, entao apaga todas as larguras daquela sessao.
+  for (const k of [...thumbCache.keys()]) {
+    if (k.startsWith(`${sessionId}@`)) thumbCache.delete(k);
+  }
 
   const resources = sessionResources.get(sessionId);
   if (resources) {
@@ -1652,6 +1673,49 @@ app.delete('/api/admin/sessions/:sessionId', adminAuth, (req, res) => {
     res.json({ message: 'Session stopped' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Miniatura de uma sessao, para o painel mostrar varias telas ao mesmo tempo.
+// (o cache e as constantes ficam acima de stopSessionFully)
+
+async function captureThumbnail(session, maxWidth) {
+  const target = Math.max(64, Math.min(640, Number(maxWidth) || 320));
+  const sw = session.resolution?.width || 1440;
+  const sh = session.resolution?.height || 900;
+  const scale = target / sw;
+  const result = await cdpRequest(session.cdpPort, 'Page.captureScreenshot', {
+    format: 'jpeg',
+    quality: 45,
+    clip: { x: 0, y: 0, width: sw, height: sh, scale },
+  });
+  if (!result?.data) throw new Error('captura sem dados');
+  return Buffer.from(result.data, 'base64');
+}
+
+app.get('/api/admin/sessions/:sessionId/thumbnail', adminAuth, async (req, res) => {
+  const { sessionId } = req.params;
+  const session = sessionManager.getSession(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  const width = Math.max(64, Math.min(640, Number(req.query.w) || 320));
+  const cacheKey = `${sessionId}@${width}`;
+
+  const cached = thumbCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < THUMB_TTL_MS) {
+    res.set('Content-Type', cached.mime);
+    res.set('Cache-Control', 'no-store');
+    return res.send(cached.data);
+  }
+
+  try {
+    const buf = await captureThumbnail(session, width);
+    thumbCache.set(cacheKey, { data: buf, mime: 'image/jpeg', at: Date.now() });
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'no-store');
+    res.send(buf);
+  } catch (err) {
+    res.status(500).json({ error: 'Thumbnail failed: ' + err.message });
   }
 });
 
