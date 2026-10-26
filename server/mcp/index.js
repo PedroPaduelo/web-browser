@@ -74,6 +74,64 @@ async function ensureAuth(apiKey) {
   return authenticate(apiKey);
 }
 
+// --- Capturas de tela servidas por URL assinada ---
+//
+// Cliente MCP que descarta o bloco `image` do resultado da tool não tem como
+// ver a tela. A alternativa é a imagem virar um RECURSO com URL: o MCP guarda
+// os bytes da captura em memória e entrega uma URL assinada, com prazo, no
+// mesmo host público que o agente já usa. O agente baixa com curl/fetch, sem
+// header nenhum (a credencial está na URL) — e o arquivo é exatamente o que a
+// tool descreveu, então o sha256 do texto confere com o do download.
+//
+// A assinatura usa um segredo ALEATÓRIO por processo: as URLs morrem junto
+// com o processo, como as capturas. É o padrão de URL pré-assinada: quem tem
+// a URL vê a imagem até o prazo; fora do prazo, 410.
+const CAPTURE_TTL_MS = 10 * 60 * 1000; // 10 minutos
+const CAPTURE_MAX = 60;                // capturas guardadas ao mesmo tempo
+const captureSecret = crypto.randomBytes(32);
+const captureStore = new Map(); // captureId → { buf, mime, expiresAt, tenantId, sessionId }
+
+function captureToken(captureId, expiresAt) {
+  return crypto.createHmac('sha256', captureSecret).update(`${captureId}.${expiresAt}`).digest('hex');
+}
+
+function storeCapture(buf, mime, tenantId, sessionId) {
+  const now = Date.now();
+  for (const [id, c] of captureStore) if (c.expiresAt <= now) captureStore.delete(id);
+  while (captureStore.size >= CAPTURE_MAX) {
+    const oldest = captureStore.keys().next().value;
+    captureStore.delete(oldest);
+  }
+  const captureId = crypto.randomBytes(16).toString('hex');
+  const expiresAt = now + CAPTURE_TTL_MS;
+  captureStore.set(captureId, { buf, mime, expiresAt, tenantId, sessionId });
+  return { captureId, expiresAt };
+}
+
+// Host público do MCP, para montar a URL da captura. Vem da requisição que o
+// agente fez (Host / x-forwarded-*): é o host que o agente JÁ alcança, sem
+// configuração e sem adivinhar a porta do backend.
+function publicBaseOf(req) {
+  const fwdHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const host = fwdHost || req.headers.host;
+  if (!host) return null;
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || req.protocol || 'https';
+  return `${proto}://${host}`;
+}
+
+function getPublicBase() {
+  const ctx = tenantContext.getStore();
+  if (ctx?.publicBase) return ctx.publicBase;
+  return SERENDE_PUBLIC_URL || null;
+}
+
+function captureUrl(captureId, expiresAt) {
+  const base = getPublicBase();
+  if (!base) return null;
+  const token = captureToken(captureId, expiresAt);
+  return `${base}/mcp/screenshot/${captureId}?token=${token}&exp=${expiresAt}`;
+}
+
 // --- API helper (uses tenant context) ---
 
 async function api(method, path, body) {
@@ -961,38 +1019,51 @@ function createServer() {
 
   // ========== SCREENSHOT ==========
 
-  // O texto do screenshot carrega a PROVA da captura: dimensões, bytes e um
-  // hash da imagem. Há cliente MCP que descarta o bloco image (o do QA, por
-  // exemplo); com isto o agente ao menos confirma que a captura existe e se
-  // ela mudou entre duas chamadas.
-  function screenshotSummary(data) {
-    const info = data.info || {};
+  // Guarda a captura em memória e devolve a URL assinada com ela. O bloco
+  // `image` continua sendo devolvido para os clientes que o exibem; a URL
+  // assinada cobre os que o descartam: baixar por curl/fetch mostra a tela de
+  // verdade, não só a prova de que ela existe.
+  //
+  // O eco da sessão ([session: id]) é acrescentado pelo echoSession, no
+  // wrapper de todas as tools: aqui não se repete.
+  function screenshotResult(data, sid) {
+    if (!data.screenshot) return ok(JSON.stringify(data));
     const buf = Buffer.from(data.screenshot, 'base64');
     const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
+    const info = data.info || {};
     const dims = info.image && info.image.width ? `${info.image.width}x${info.image.height}` : 'size unknown';
     const vp = info.viewport && info.viewport.width ? ` (viewport ${info.viewport.width}x${info.viewport.height})` : '';
-    return `URL: ${info.url || 'unknown'}\nTitle: ${info.title || 'Unknown'}\nImage: JPEG ${dims}${vp}, ${buf.length} bytes, sha256:${hash}`;
+    const lines = [
+      `URL: ${info.url || 'unknown'}`,
+      `Title: ${info.title || 'Unknown'}`,
+      `Image: JPEG ${dims}${vp}, ${buf.length} bytes, sha256:${hash}`,
+    ];
+    const { captureId, expiresAt } = storeCapture(buf, 'image/jpeg', getCurrentTenantId(), sid);
+    const url = captureUrl(captureId, expiresAt);
+    if (url) {
+      const mins = Math.round((expiresAt - Date.now()) / 60000);
+      lines.push(`Image link (valid ~${mins} min, no API key needed): ${url}`);
+      lines.push(`If this link is expired or the MCP restarted, take a new screenshot. The downloaded file must match the sha256 above.`);
+    }
+    return {
+      content: [
+        { type: 'text', text: lines.join('\n') },
+        {
+          type: 'image',
+          data: data.screenshot,
+          mimeType: 'image/jpeg',
+        },
+      ],
+    };
   }
 
   registerTool('screenshot', {
-    description: 'Take a screenshot of the current browser screen. Returns JPEG image with URL and title info overlay. The text block also reports the image size, byte count and a sha256 prefix, so a client that drops image blocks can still confirm the capture exists and whether it changed. Use this to see what is on screen before interacting.',
+    description: 'Take a screenshot of the current browser screen. Returns the JPEG image, plus a text block with the image size, byte count, sha256 prefix and an image link (valid ~10 minutes, no API key needed) for downloading the capture with curl or fetch. If your client drops image blocks, download the link: the file bytes must match the sha256 in the text. Use this to see what is on screen before interacting.',
     inputSchema: z.object({}),
   }, async () => {
     const sid = await requireSession();
     const data = await api('GET', `/api/screenshotWithInfo/${sid}`);
-    if (data.screenshot) {
-      return {
-        content: [
-          { type: 'text', text: screenshotSummary(data) },
-          {
-            type: 'image',
-            data: data.screenshot,
-            mimeType: 'image/jpeg',
-          },
-        ],
-      };
-    }
-    return ok(JSON.stringify(data));
+    return screenshotResult(data, sid);
   });
 
   // ========== MOUSE TOOLS ==========
@@ -2286,7 +2357,7 @@ function createServer() {
   // ========== NEW: SCREENSHOT WITH DELAY ==========
 
   registerTool('screenshot_after', {
-    description: 'Take a screenshot after waiting a specified delay. Useful for capturing after animations, transitions, or async renders. Returns image with URL and title info; the text block also reports the image size, byte count and a sha256 prefix (same as screenshot).',
+    description: 'Take a screenshot after waiting a specified delay. Useful for capturing after animations, transitions, or async renders. Returns the JPEG image plus a text block with the image size, byte count, sha256 prefix and an image link (valid ~10 minutes, no API key needed) — same as screenshot.',
     inputSchema: z.object({
       delayMs: z.number().default(1000).describe('Delay before screenshot (ms)'),
     }),
@@ -2294,19 +2365,7 @@ function createServer() {
     const sid = await requireSession();
     await new Promise(r => setTimeout(r, delayMs));
     const data = await api('GET', `/api/screenshotWithInfo/${sid}`);
-    if (data.screenshot) {
-      return {
-        content: [
-          { type: 'text', text: screenshotSummary(data) },
-          {
-            type: 'image',
-            data: data.screenshot,
-            mimeType: 'image/jpeg',
-          },
-        ],
-      };
-    }
-    return ok(JSON.stringify(data));
+    return screenshotResult(data, sid);
   });
 
   // ========== UTILITY TOOLS ==========
@@ -2380,7 +2439,10 @@ function withTenantContext(handler) {
     // separadas — e por isso não se cruzam. No initialize o header ainda não
     // existe, e o fallback é 'no-session' (a corrente por tenant).
     const connId = req.headers['mcp-session-id'] || null;
-    tenantContext.run({ apiKey: req.apiKey, tenantId: req.tenantId, connId }, () => handler(req, res));
+    // publicBase: host público pelo qual o agente chegou (Host / x-forwarded-*).
+    // É com ele que a URL da captura de tela é montada.
+    const publicBase = publicBaseOf(req);
+    tenantContext.run({ apiKey: req.apiKey, tenantId: req.tenantId, connId, publicBase }, () => handler(req, res));
   };
 }
 
@@ -2567,6 +2629,54 @@ app.post('/mcp/json', async (req, res) => {
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+// GET /mcp/screenshot/:captureId?token=...&exp=...
+//
+// Serve a captura que a tool `screenshot` criou. A URL é a credencial (padrão
+// de URL pré-assinada): quem tiver o token válido vê a imagem até o prazo,
+// sem header e sem chave de API — é o que permite ao agente baixar a tela
+// quando o cliente dele descarta o bloco `image` do resultado da tool.
+//
+// Fora do prazo: 410 com instrução de tirar um novo screenshot.
+app.get('/mcp/screenshot/:captureId', (req, res) => {
+  const { captureId } = req.params;
+  const token = String(req.query.token || '');
+  const exp = Number(req.query.exp);
+
+  if (!/^[0-9a-f]{32}$/.test(String(captureId)) || !token || !Number.isFinite(exp)) {
+    return res.status(400).json({ error: 'Invalid image link' });
+  }
+  if (exp <= Date.now()) {
+    return res.status(410).json({ error: 'This image link has expired. Take a new screenshot.' });
+  }
+
+  // Comparação em tempo constante: o token é a credencial.
+  const expected = Buffer.from(captureToken(captureId, exp));
+  const given = Buffer.from(token);
+  if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) {
+    return res.status(403).json({ error: 'Invalid image token' });
+  }
+
+  const cap = captureStore.get(captureId);
+  if (!cap) {
+    return res.status(410).json({ error: 'Image no longer available (expired, or the MCP restarted). Take a new screenshot.' });
+  }
+  if (cap.expiresAt <= Date.now()) {
+    captureStore.delete(captureId);
+    return res.status(410).json({ error: 'Image expired. Take a new screenshot.' });
+  }
+
+  // Se o cliente mandar a chave de API junto, ela tem que ser a MESMA que
+  // criou a captura. Sem header, basta o token (padrão de URL pré-assinada).
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey && deriveTenantId(apiKey) !== cap.tenantId) {
+    return res.status(403).json({ error: 'Image belongs to another tenant' });
+  }
+
+  res.set('Content-Type', cap.mime || 'image/jpeg');
+  res.set('Cache-Control', 'no-store');
+  res.send(cap.buf);
 });
 
 app.get('/health', (req, res) => {

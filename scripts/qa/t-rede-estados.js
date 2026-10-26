@@ -14,6 +14,7 @@
 // Sai com código 1 se algum caso falhar.
 'use strict';
 const fs = require('fs');
+const crypto = require('crypto');
 
 const KEY = (process.env.KEY || fs.readFileSync(process.env.KEY_FILE || '/tmp/ef.key', 'utf8')).trim();
 const ENDPOINT = process.env.MCP_URL || 'http://127.0.0.1:4202/mcp';
@@ -84,6 +85,24 @@ function entriesOf(r) {
     check('screenshot: bloco image JPEG presente',
       !!shot.image && shot.image.mimeType === 'image/jpeg' && shot.image.data.length > 1000,
       shot.image ? `mime=${shot.image.mimeType} len=${shot.image.data.length}` : 'sem bloco image');
+
+    // 1b. Link da imagem: baixa sem header (o token esta na URL) e o arquivo
+    // tem que ser o MESMO JPEG que a tool descreveu (sha256 igual).
+    const linkMatch = shot.text.match(/Image link[^\n]*?(https?:\/\/\S+)/);
+    check('screenshot: o texto traz um link de imagem', !!linkMatch, shot.text);
+    if (linkMatch) {
+      const link = linkMatch[1];
+      const esperado = shot.text.match(/sha256:([0-9a-f]{16})/)[1];
+      const res = await fetch(link);
+      const buf = Buffer.from(await res.arrayBuffer());
+      const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
+      check('link: baixa JPEG sem header (curl/fetch) e o sha256 bate com o do texto',
+        res.status === 200 && res.headers.get('content-type') === 'image/jpeg' && hash === esperado,
+        `status=${res.status} type=${res.headers.get('content-type')} hash=${hash} esperado=${esperado}`);
+      // Token adulterado tem de ser recusado.
+      const bad = await fetch(link.replace(/token=[0-9a-f]+/, 'token=' + 'a'.repeat(64)));
+      check('link: token adulterado e recusado (403)', bad.status === 403, `status=${bad.status}`);
+    }
 
     // 2. Rede: estados. Um POST cujo corpo a página nunca lê não recebe loadingFinished.
     await T('get_network_activity', { action: 'start' });

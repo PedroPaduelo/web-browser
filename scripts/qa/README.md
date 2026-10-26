@@ -46,6 +46,9 @@ Mede o que a rede e o screenshot afirmam, com uma sessão. Sai com código 1 se 
 |---|---|
 | `screenshot` traz no texto dimensões, bytes e sha256 | PASS / PASS |
 | `screenshot` traz o bloco `image` JPEG (o host público devolve o bloco) | PASS / PASS |
+| `screenshot` traz um link de imagem assinado, com prazo | PASS / PASS |
+| o link baixa o JPEG sem nenhum header, e o sha256 do arquivo bate com o do texto | PASS / PASS |
+| link com token adulterado é recusado (403) | PASS / PASS |
 | POST cujo corpo a página não lê fica `receiving`, com `headersMs` e sem `durationMs` | PASS / PASS |
 | POST com corpo lido fecha como `finished`, com `durationMs` e `size` | PASS / PASS |
 | GET fecha como `finished` | PASS / PASS |
@@ -55,3 +58,20 @@ Mede o que a rede e o screenshot afirmam, com uma sessão. Sai com código 1 se 
 
     KEY_FILE=/tmp/ef.key MCP_URL=http://127.0.0.1:4202/mcp node scripts/qa/t-rede-estados.js
     KEY_FILE=/tmp/ef.key MCP_URL=https://sb-serende-p4202.mp.serendiped.com/mcp node scripts/qa/t-rede-estados.js
+
+## Link da imagem (`screenshot`)
+
+Cliente MCP que descarta o bloco `image` do resultado da tool não via a tela. Para
+isso o MCP guarda a captura em memória e devolve, no texto, uma URL assinada com
+prazo de ~10 minutos:
+
+    Image: JPEG 1920x1080 (viewport 1920x1080), 66417 bytes, sha256:b50f107fed845da3
+    Image link (valid ~10 min, no API key needed): https://<host>/mcp/screenshot/<id>?token=<hmac>&exp=<ms>
+
+O agente baixa com `curl` ou `fetch`, sem header nenhum (a credencial está na URL) e
+o arquivo é exatamente o JPEG que a tool descreveu — o sha256 confere. A URL usa o
+host pelo qual o agente falou com o MCP, então é sempre alcançável por ele.
+
+Fora do prazo: `410`. Token adulterado: `403`. Se o download mandar `X-API-Key`, ela
+tem que ser a mesma que criou a captura, senão `403`. O segredo da assinatura é
+aleatório por processo: as URLs morrem quando o MCP reinicia, junto com as capturas.
