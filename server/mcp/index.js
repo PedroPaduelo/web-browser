@@ -623,12 +623,12 @@ function createServer() {
       if (parsed.sessionId) return result;
       const pretty = first.text.includes('\n');
       const text = JSON.stringify({ ...parsed, sessionId }, null, pretty ? 2 : 0);
-      return { ...result, content: [{ ...first, text }] };
+      return { ...result, content: [{ ...first, text }, ...result.content.slice(1)] };
     }
     if (isJson) return result; // JSON que não é objeto (array/numero): não mexe
     if (first.text.includes(`[session: ${sessionId}]`)) return result;
     const text = `${first.text}\n[session: ${sessionId}]`;
-    return { ...result, content: [{ ...first, text }] };
+    return { ...result, content: [{ ...first, text }, ...result.content.slice(1)] };
   }
 
   // ========== SESSION TOOLS ==========
