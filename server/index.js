@@ -1572,17 +1572,39 @@ app.delete('/api/admin/keys/:id', adminAuth, (req, res) => {
   }
 });
 
-app.get('/api/admin/sessions', adminAuth, (req, res) => {
+app.get('/api/admin/sessions', adminAuth, async (req, res) => {
   try {
     const allSessions = sessionManager.getAllSessions();
     const keys = keyStore.listKeys();
     const keyMap = {};
     for (const k of keys) keyMap[k.id] = k.name;
 
-    const sessions = allSessions.map(s => ({
-      ...s,
-      tenantName: keyMap[s.tenantId] || 'Unknown',
-      timeout: sessionManager.getSessionTimeout(s.sessionId),
+    // URL e titulo de cada sessao: o painel precisa mostrar O QUE a pessoa
+    // esta vendo, nao so que existe uma sessao. A leitura vai ao CDP, que
+    // pode estar ocupado: uma sessao morta nao pode derrubar a lista toda,
+    // entao a falha fica em null e a sessao continua na lista.
+    const sessions = await Promise.all(allSessions.map(async (s) => {
+      const sess = sessionManager.getSession(s.sessionId);
+      let url = null;
+      let title = null;
+      try {
+        if (sess) {
+          url = await getCurrentPageUrl(sess.cdpPort);
+          const t = await cdpRequest(sess.cdpPort, 'Runtime.evaluate', {
+            expression: 'document.title', returnByValue: true,
+          });
+          title = t?.result?.value || null;
+        }
+      } catch {
+        // Sessao sem CDP vivo: segue sem url/titulo.
+      }
+      return {
+        ...s,
+        tenantName: keyMap[s.tenantId] || 'Unknown',
+        url,
+        title,
+        timeout: sessionManager.getSessionTimeout(s.sessionId),
+      };
     }));
     res.json({ sessions });
   } catch (err) {
@@ -1602,23 +1624,60 @@ app.get('/api/admin/sessions/:sessionId/token', adminAuth, (req, res) => {
   }
 });
 
+// Derruba uma sessao: para o stream, o input, o gerenciador e o cliente CDP.
+// Extraido para ser reusado pelo DELETE individual e pelo DELETE em lote.
+function stopSessionFully(sessionId) {
+  const session = sessionManager.getSession(sessionId);
+  if (!session) return false;
+
+  const resources = sessionResources.get(sessionId);
+  if (resources) {
+    resources.screencast.stop();
+    resources.streamManager.stop();
+    resources.inputHandler.stop();
+    sessionResources.delete(sessionId);
+  }
+
+  sessionManager.stopSession(sessionId);
+  closeCdpClient(session.cdpPort);
+  return true;
+}
+
 app.delete('/api/admin/sessions/:sessionId', adminAuth, (req, res) => {
   try {
     const { sessionId } = req.params;
-    const session = sessionManager.getSession(sessionId);
-    if (!session) return res.status(404).json({ error: 'Session not found' });
-
-    const resources = sessionResources.get(sessionId);
-    if (resources) {
-      resources.screencast.stop();
-      resources.streamManager.stop();
-      resources.inputHandler.stop();
-      sessionResources.delete(sessionId);
+    if (!stopSessionFully(sessionId)) {
+      return res.status(404).json({ error: 'Session not found' });
     }
-
-    sessionManager.stopSession(sessionId);
-    closeCdpClient(session.cdpPort);
     res.json({ message: 'Session stopped' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE em lote: fecha todas as sessoes de uma key (ou todas, sem tenantId).
+// O painel precisa disso para limpar o servidor sem abrir sessao por sessao.
+app.delete('/api/admin/sessions', adminAuth, (req, res) => {
+  try {
+    const tenantId = req.query.tenantId ? String(req.query.tenantId) : null;
+    const all = sessionManager.getAllSessions();
+    const targets = tenantId ? all.filter((s) => s.tenantId === tenantId) : all;
+    const closed = [];
+    const failed = [];
+    for (const s of targets) {
+      try {
+        if (stopSessionFully(s.sessionId)) closed.push(s.sessionId);
+        else failed.push(s.sessionId);
+      } catch (e) {
+        failed.push(s.sessionId);
+      }
+    }
+    res.json({
+      message: `${closed.length} session(s) closed`,
+      closed: closed.length,
+      failed: failed.length,
+      sessionIds: closed,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

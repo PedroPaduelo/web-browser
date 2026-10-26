@@ -862,7 +862,7 @@ function createServer() {
         forgetSessionEverywhere(tenantId, cachedId);
       }
     }
-    return startNewSession(tenantId, { resolution: resolution || '1920x1080', startUrl });
+    return startNewSession(tenantId, { resolution: resolution || '1440x900', startUrl });
   });
 
   // A resolução pedida bate com a da sessão existente?

@@ -339,7 +339,10 @@ async function startSession(sessionId, tenantId, options = {}) {
   }
 
   const {
-    resolution = '1920x1080',
+    // 1440x900 (16:10) é o painel de 19" mais comum e barato: cabe inteiro
+    // numa tela de 1920x1080 sem rolagem na página e sobra largura útil para
+    // o agente ver a página inteira.
+    resolution = '1440x900',
     startUrl = 'https://www.google.com',
     extensionPath = null,
   } = options;
