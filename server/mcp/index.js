@@ -648,7 +648,7 @@ function createServer() {
   registerTool('session_start', {
     description: 'Start a remote browser session and return its sessionId. Must be called before any other tool. Keep the sessionId and pass it to EVERY other call: with more than one session open, a call without sessionId is refused (ambiguous_session). If several agents share this API key, each one must call session_start with forceNew:true. Without it, the call can return a session that is already open (status already_active), possibly one opened by another agent.',
     inputSchema: z.object({
-      resolution: z.string().optional().describe('Screen resolution WxH. Omit = 1280x720. If a session is already open with a DIFFERENT resolution, a new one is created instead of silently reusing it.'),
+      resolution: z.string().optional().describe('Screen resolution WxH. Omit = 1920x1080. If a session is already open with a DIFFERENT resolution, a new one is created instead of silently reusing it.'),
       startUrl: z.string().default('https://www.google.com').describe('URL to open on start'),
       forceNew: z.boolean().default(false).describe('true = always create a new session (required when several agents share this key). false (default) = reuse the session already open for this connection when its resolution matches, like a single-session client.'),
     }),
@@ -680,7 +680,7 @@ function createServer() {
         forgetSessionEverywhere(tenantId, cachedId);
       }
     }
-    return startNewSession(tenantId, { resolution: resolution || '1280x720', startUrl });
+    return startNewSession(tenantId, { resolution: resolution || '1920x1080', startUrl });
   });
 
   // A resolução pedida bate com a da sessão existente?

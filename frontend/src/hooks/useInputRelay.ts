@@ -18,7 +18,7 @@ export function useInputRelay(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   containerRef: React.RefObject<HTMLElement | null>,
   active: boolean,
-  resolution: Resolution = { width: 1280, height: 720 },
+  resolution: Resolution = { width: 1920, height: 1080 },
   sessionId: string | null = null
 ) {
   const pendingMovesRef = useRef<Array<{ x: number; y: number }>>([])

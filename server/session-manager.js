@@ -339,14 +339,14 @@ async function startSession(sessionId, tenantId, options = {}) {
   }
 
   const {
-    resolution = '1280x720',
+    resolution = '1920x1080',
     startUrl = 'https://www.google.com',
     extensionPath = null,
   } = options;
 
   const [width, height] = String(resolution).split('x').map(Number);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width < 320 || height < 200) {
-    throw stageError('validate', 'bad_resolution', `Resolução inválida "${resolution}" — use LARGURAxALTURA, ex.: 1280x720`, 400);
+    throw stageError('validate', 'bad_resolution', `Resolução inválida "${resolution}" — use LARGURAxALTURA, ex.: 1920x1080`, 400);
   }
 
   const displayNum = allocateDisplay();

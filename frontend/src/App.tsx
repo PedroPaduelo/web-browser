@@ -18,7 +18,7 @@ export default function App() {
   const { isConnected, fps, connectionState, setCanvas } = useStream(isActive, sessionId)
   const { pageInfo, refetch: refetchPageInfo } = usePageInfo(sessionId)
 
-  const resolution = sessionInfo?.resolution || { width: 1280, height: 720 }
+  const resolution = sessionInfo?.resolution || { width: 1920, height: 1080 }
 
   const handleNavigate = useCallback(async (url: string) => {
     if (!sessionId || !token) return

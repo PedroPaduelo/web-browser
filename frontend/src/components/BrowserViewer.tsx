@@ -30,7 +30,7 @@ interface RectCache {
   containerTop: number
 }
 
-const DEFAULT_RESOLUTION = { width: 1280, height: 720 }
+const DEFAULT_RESOLUTION = { width: 1920, height: 1080 }
 
 function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)

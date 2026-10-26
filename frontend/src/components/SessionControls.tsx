@@ -19,7 +19,7 @@ const RESOLUTIONS = [
 ]
 
 export default function SessionControls({ status, onStart, onStop, error, sessionId, sessionInfo, onTimeoutUpdate }: Props) {
-  const [resolution, setResolution] = useState('1280x720')
+  const [resolution, setResolution] = useState('1920x1080')
   const [startUrl, setStartUrl] = useState('https://www.google.com')
   const [hasProfile, setHasProfile] = useState(false)
   const [timeoutRemaining, setTimeoutRemaining] = useState<number>(0)
