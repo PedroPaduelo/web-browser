@@ -1117,7 +1117,24 @@ function pushCapped(arr, entry) {
 }
 
 // Monta o handler de eventos de rede de uma sessão.
+//
+// `state` diz em que ponto cada requisição está, porque nem toda requisição
+// termina: o Chrome NÃO emite Network.loadingFinished para um fetch POST cujo
+// corpo a página nunca lê (medido no CDP cru: chegam responseReceived e
+// dataReceived, o fim nunca, nem após GC). Aí a entrada fica `receiving`,
+// com o que já se sabe (status, headersMs, bytesReceived), em vez de
+// durationMs/size vazios sem explicação.
+//   sent → receiving → finished | failed;  redirected = salto de um redirect.
 function networkEventHandler(sid) {
+  // Tempo desde o envio da requisição, pelos relógios do PRÓPRIO Chrome
+  // (timestamps monotônicos do CDP, em segundos). Date.now() media a chegada
+  // dos eventos no backend, não a requisição.
+  const elapsedMs = (entry, cdpTs, now) => {
+    const start = typeof entry.cdpTimestamp === 'number' ? entry.cdpTimestamp : entry.responseCdpTimestamp;
+    if (typeof start === 'number' && typeof cdpTs === 'number') return Math.max(0, Math.round((cdpTs - start) * 1000));
+    return now - entry.timestamp;
+  };
+
   return (msg) => {
     const ev = networkEvents.get(sid);
     if (!ev || !ev.enabled) return;
@@ -1128,7 +1145,7 @@ function networkEventHandler(sid) {
     // vez. Duas conexões à mesma página entregavam cada evento duas vezes.
     if (p.requestId) {
       if (!ev.seen) ev.seen = new Set();
-      const k = `${msg.method}|${p.requestId}|${p.timestamp}`;
+      const k = `${msg.method}|${p.requestId}|${p.timestamp}|${p.dataLength ?? ''}`;
       if (ev.seen.has(k)) return;
       ev.seen.add(k);
       if (ev.seen.size > 5000) ev.seen = new Set();
@@ -1136,6 +1153,17 @@ function networkEventHandler(sid) {
 
     if (msg.method === 'Network.requestWillBeSent') {
       const req = p.request || {};
+      // Redirect: o Chrome reusa o requestId. A entrada anterior é o salto que
+      // redirecionou: fecha ela com o status do redirect, senão ficaria "sem
+      // resposta" para sempre.
+      const prev = p.redirectResponse ? ev.byRequestId.get(p.requestId) : null;
+      if (prev) {
+        prev.status = p.redirectResponse.status || 0;
+        prev.statusText = p.redirectResponse.statusText || '';
+        prev.redirectedTo = req.url || '';
+        prev.state = 'redirected';
+        prev.durationMs = elapsedMs(prev, p.timestamp, now);
+      }
       const entry = {
         requestId: p.requestId,
         url: req.url || '',
@@ -1143,6 +1171,7 @@ function networkEventHandler(sid) {
         type: p.type || '',
         timestamp: now,
         cdpTimestamp: p.timestamp,
+        state: 'sent',
         postData: typeof req.postData === 'string' ? req.postData.slice(0, 2000) : undefined,
       };
       ev.byRequestId.set(p.requestId, entry);
@@ -1170,9 +1199,19 @@ function networkEventHandler(sid) {
       entry.mimeType = resp.mimeType || '';
       entry.fromCache = !!resp.fromDiskCache;
       entry.responseTimestamp = now;
+      entry.responseCdpTimestamp = p.timestamp;
+      if (typeof entry.cdpTimestamp === 'number') entry.headersMs = elapsedMs(entry, p.timestamp, now);
+      if (entry.state !== 'finished' && entry.state !== 'failed') entry.state = 'receiving';
       const contentLength = resp.headers && (resp.headers['content-length'] || resp.headers['Content-Length']);
       if (contentLength !== undefined) entry.contentLength = Number(contentLength) || 0;
       pushCapped(ev.responses, entry);
+      return;
+    }
+
+    if (msg.method === 'Network.dataReceived') {
+      const entry = ev.byRequestId.get(p.requestId);
+      if (!entry) return;
+      entry.bytesReceived = (entry.bytesReceived || 0) + (Number(p.dataLength) || 0);
       return;
     }
 
@@ -1180,8 +1219,9 @@ function networkEventHandler(sid) {
       const entry = ev.byRequestId.get(p.requestId);
       if (!entry) return;
       entry.size = Number(p.encodedDataLength) || 0;
-      entry.durationMs = entry.responseTimestamp ? now - entry.responseTimestamp : undefined;
+      entry.durationMs = elapsedMs(entry, p.timestamp, now);
       entry.finished = true;
+      entry.state = 'finished';
       return;
     }
 
@@ -1189,8 +1229,9 @@ function networkEventHandler(sid) {
       const entry = ev.byRequestId.get(p.requestId);
       if (!entry) return;
       entry.failed = true;
+      entry.state = 'failed';
       entry.errorText = p.errorText || 'request failed';
-      entry.durationMs = entry.responseTimestamp ? now - entry.responseTimestamp : undefined;
+      entry.durationMs = elapsedMs(entry, p.timestamp, now);
     }
   };
 }
@@ -1252,6 +1293,29 @@ app.post('/api/network/:sessionId/stop', authMiddleware, trackActivity, async (r
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Esvazia o buffer e CONTINUA capturando. Antes, o "clear" do MCP chamava o
+// /stop: desligava a captura, não esvaziava nada e respondia "buffer cleared".
+app.post('/api/network/:sessionId/clear', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+
+  const events = networkEvents.get(session.sessionId);
+  if (events) {
+    events.requests = [];
+    events.responses = [];
+    events.byRequestId = new Map();
+    events.seen = new Set();
+  }
+  const capturing = !!(events && events.enabled);
+  res.json({
+    status: 'cleared',
+    enabled: capturing,
+    message: capturing
+      ? 'Network buffer cleared; capture is still running'
+      : 'Network buffer cleared; capture is NOT running (use action="start")',
+  });
 });
 
 app.get('/api/network/:sessionId', authMiddleware, trackActivity, async (req, res) => {
