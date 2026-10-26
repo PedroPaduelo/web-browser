@@ -75,3 +75,47 @@ host pelo qual o agente falou com o MCP, então é sempre alcançável por ele.
 Fora do prazo: `410`. Token adulterado: `403`. Se o download mandar `X-API-Key`, ela
 tem que ser a mesma que criou a captura, senão `403`. O segredo da assinatura é
 aleatório por processo: as URLs morrem quando o MCP reinicia, junto com as capturas.
+
+## t-viewer-fit.js — a tela do watcher (26/10)
+
+Mede o layout da tela que a pessoa assiste e age, no browser de teste.
+
+| Caso | Resultado 26/10 (local e host público) |
+|---|---|
+| a resolução padrão do browser interno é 1440x900 | PASS / PASS |
+| a PÁGINA não rola (zero overflow) | PASS / PASS |
+| a raiz trava a rolagem da página | PASS / PASS |
+| existe só UMA barra no topo | PASS / PASS |
+| o canvas cabe no container | PASS / PASS |
+| a proporção do frame é preservada (não estica) | PASS / PASS |
+
+    KEY_FILE=/tmp/ef.key MCP_URL=http://127.0.0.1:4202/mcp node scripts/qa/t-viewer-fit.js
+    KEY_FILE=/tmp/ef.key MCP_URL=https://sb-serende-p4202.mp.serendiped.com/mcp node scripts/qa/t-viewer-fit.js
+
+## t-admin-ui.js — o painel /admin (26/10)
+
+O browser de teste carrega o painel real, loga e mede o que a pessoa vê.
+
+Precisa de **duas** chaves: a do tenant principal (`KEY_FILE`) e uma de um tenant
+separado (`LOTE_KEY_FILE`), cujas sessões são o alvo da ação em lote — o lote não
+pode fechar a sessão do próprio painel.
+
+| Caso | Resultado 26/10 (host público) |
+|---|---|
+| a lista mostra as 3 sessões | PASS |
+| a tabela tem a coluna "o que está vendo" | PASS |
+| mostra a URL que a pessoa está vendo | PASS |
+| a PÁGINA não rola (o painel rola por dentro) | PASS |
+| a busca filtra a lista | PASS |
+| o filtro por key lista as chaves | PASS |
+| a aba de keys tem "Fechar sessões" por key | PASS |
+| o modal de lote nomeia a key | PASS |
+| o toast diz quantas foram fechadas | PASS |
+| as 2 sessões do lote sumiram da lista | PASS |
+| a sessão do próprio painel sobreviveu ao lote | PASS |
+
+O login usa o `ADMIN_SECRET` (legado) em vez do e-mail: o login por e-mail tem
+rate limit de 5 tentativas em 5 min, e uma bateria de testes trava o admin.
+
+    KEY_FILE=/tmp/ef.key LOTE_KEY_FILE=/tmp/lote.key node scripts/qa/t-admin-ui.js
+
