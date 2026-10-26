@@ -15,11 +15,14 @@ interface Props {
 const RESOLUTIONS = [
   { label: '480p', value: '854x480' },
   { label: '720p', value: '1280x720' },
+  // 1440x900 (16:10) e o painel de 19" mais comum: cabe numa tela de 1920x1080
+  // sem rolagem e sobra largura util para ver a pagina inteira.
+  { label: '1440x900 (19")', value: '1440x900' },
   { label: '1080p', value: '1920x1080' },
 ]
 
 export default function SessionControls({ status, onStart, onStop, error, sessionId, sessionInfo, onTimeoutUpdate }: Props) {
-  const [resolution, setResolution] = useState('1920x1080')
+  const [resolution, setResolution] = useState('1440x900')
   const [startUrl, setStartUrl] = useState('https://www.google.com')
   const [hasProfile, setHasProfile] = useState(false)
   const [timeoutRemaining, setTimeoutRemaining] = useState<number>(0)
@@ -75,14 +78,14 @@ export default function SessionControls({ status, onStart, onStop, error, sessio
   }
 
   return (
+    // Vive dentro da barra unica do topo: sem fundo/borda propria e sem
+    // quebra de linha (wrap empurraria a barra para duas alturas).
     <div style={{
       display: 'flex',
       alignItems: 'center',
       gap: '12px',
-      padding: '10px 16px',
-      background: 'rgba(20, 20, 20, 0.95)',
-      borderBottom: '1px solid rgba(255,255,255,0.1)',
-      flexWrap: 'wrap',
+      flexShrink: 0,
+      whiteSpace: 'nowrap',
     }}>
       {status === 'idle' || status === 'error' ? (
         <>

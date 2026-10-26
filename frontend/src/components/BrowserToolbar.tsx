@@ -94,13 +94,15 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
   }, [refocusViewer])
 
   return (
+    // Embutido na barra unica do topo: nao tem fundo nem borda propria, o
+    // espaco vertical e o mais precious da tela do browser.
     <div style={{
       display: 'flex',
       alignItems: 'center',
-      gap: '8px',
-      padding: '8px 12px',
-      background: '#1e1e1e',
-      borderBottom: '1px solid #333',
+      gap: '6px',
+      flex: 1,
+      minWidth: 0,
+      padding: '6px 8px',
     }}>
       {/* Navigation buttons */}
       <button type="button" onClick={handleBack} disabled={!sessionId} title="Voltar" style={btnStyle}>
@@ -114,7 +116,7 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
       </button>
 
       {/* URL bar */}
-      <form onSubmit={handleSubmit} style={{ flex: 1, display: 'flex' }}>
+      <form onSubmit={handleSubmit} style={{ flex: 1, display: 'flex', minWidth: 0 }}>
         <input
           type="text"
           value={url}
@@ -124,7 +126,7 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
           disabled={!sessionId || navigating}
           style={{
             width: '100%',
-            padding: '8px 12px',
+            padding: '6px 12px',
             background: '#2a2a2a',
             border: '1px solid #444',
             borderRadius: '6px',

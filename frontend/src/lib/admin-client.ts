@@ -142,6 +142,10 @@ export interface AdminSession {
   resolution: { width: number; height: number }
   createdAt: string
   uptime: number
+  /** URL que a pessoa esta vendo agora (null se nao deu para ler). */
+  url?: string | null
+  /** Titulo da pagina (null se nao deu para ler). */
+  title?: string | null
   timeout: {
     inactive: number
     remaining: number
@@ -215,6 +219,24 @@ export async function getAdminSessions(): Promise<AdminSession[]> {
 export async function deleteAdminSession(sessionId: string): Promise<void> {
   const res = await adminFetch(`/api/admin/sessions/${sessionId}`, { method: 'DELETE' })
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed')
+}
+
+export interface BatchCloseResult {
+  message: string
+  closed: number
+  failed: number
+  sessionIds: string[]
+}
+
+/**
+ * Fecha varias sessoes de uma vez. Sem tenantId, fecha todas.
+ * O backend responde quantas foram fechadas, para o painel dizer o numero.
+ */
+export async function closeAdminSessions(tenantId?: string): Promise<BatchCloseResult> {
+  const q = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''
+  const res = await adminFetch(`/api/admin/sessions${q}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed')
+  return res.json()
 }
 
 export async function getAdminSessionToken(sessionId: string): Promise<string> {

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo, memo } from 'react'
+import { useRef, useEffect, useCallback, useMemo, useState, memo } from 'react'
 import { useInputRelay } from '../hooks/useInputRelay'
 import { getRenderedRect } from '../lib/input-mapper'
 
@@ -30,7 +30,9 @@ interface RectCache {
   containerTop: number
 }
 
-const DEFAULT_RESOLUTION = { width: 1920, height: 1080 }
+// 1440x900 (16:10): o painel de 19" mais comum e barato. Cabe inteiro numa
+// tela de 1920x1080 sem rolagem, e sobra largura util para ver a pagina.
+const DEFAULT_RESOLUTION = { width: 1440, height: 900 }
 
 function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -39,6 +41,10 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }
   const cursorRef = useRef<SVGSVGElement>(null)
   const rectsRef = useRef<RectCache | null>(null)
   const rectsDirtyRef = useRef(true)
+  // Retângulo do frame dentro do container, calculado no ResizeObserver. O
+  // canvas é POSICIONADO por esse retângulo, então a imagem nunca é esticada:
+  // ela entra inteira (contain) e o resto fica preto, como um monitor.
+  const [fit, setFit] = useState({ width: 0, height: 0 })
   // Referência estável de resolution: o App cria um objeto novo a cada
   // render, o que quebraria o memo e reconectaria o WS de input.
   const stableResolution = useMemo(
@@ -77,6 +83,39 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }
     rectsDirtyRef.current = false
   }, [])
 
+  // Recalcula o retângulo do frame dentro do container. O canvas é
+  // POSICIONADO nesse retângulo (e não esticado para 100% da caixa): assim a
+  // imagem entra inteira, com a proporção do frame, e sobra preto ao redor
+  // — como um monitor. Sem isso, um frame 16:10 numa caixa 16:9 era esticado
+  // na vertical.
+  const recomputeFit = useCallback(() => {
+    const container = containerRef.current
+    const canvas = canvasRef.current
+    if (!container || !canvas) return
+    const box = container.getBoundingClientRect()
+    if (box.width <= 0 || box.height <= 0) return
+    // Proporção do frame REAL pintado (canvas.width/height já incluem o DPR).
+    const fw = canvas.width
+    const fh = canvas.height
+    let w: number
+    let h: number
+    if (!fw || !fh) {
+      // Ainda não chegou frame: usa a resolução nominal da sessão.
+      const r = resolution.width && resolution.height ? resolution : DEFAULT_RESOLUTION
+      const scale = Math.min(box.width / r.width, box.height / r.height)
+      w = Math.floor(r.width * scale)
+      h = Math.floor(r.height * scale)
+    } else {
+      const scale = Math.min(box.width / fw, box.height / fh)
+      w = Math.floor(fw * scale)
+      h = Math.floor(fh * scale)
+    }
+    // Só muda o estado quando o valor muda: senão o ResizeObserver (que
+    // observa o canvas) realimenta o setState e o componente repinta sem
+    // parar.
+    setFit((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }))
+  }, [resolution.width, resolution.height])
+
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -84,15 +123,27 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }
     window.addEventListener('resize', invalidate)
     // capture: true pega scroll de qualquer ancestral, não só da janela.
     window.addEventListener('scroll', invalidate, true)
-    const ro = new ResizeObserver(invalidate)
+    const ro = new ResizeObserver(() => { invalidate(); recomputeFit() })
     ro.observe(container)
     if (canvasRef.current) ro.observe(canvasRef.current)
+    recomputeFit()
     return () => {
       window.removeEventListener('resize', invalidate)
       window.removeEventListener('scroll', invalidate, true)
       ro.disconnect()
     }
-  }, [sessionId])
+  }, [sessionId, recomputeFit])
+
+  // O frame chega pelo canvas (o useStream troca canvas.width/height). O
+  // MutationObserver pega essa troca: sem ele, o retângulo ficaria com a
+  // proporção da resolução anterior.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const mo = new MutationObserver(() => recomputeFit())
+    mo.observe(canvas, { attributes: true, attributeFilter: ['width', 'height'] })
+    return () => mo.disconnect()
+  }, [sessionId, recomputeFit])
 
   // Posiciona o cursor sem re-render do React: transform (compositor) em vez
   // de left/top, e visibility em vez de montar/desmontar o SVG.
@@ -172,6 +223,10 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }
         position: 'relative',
         width: '100%',
         height: '100%',
+        // min-height:0: sem isso, como flex child, o container nao pode
+        // encolher abaixo do conteudo e o app cresce alem da viewport.
+        minHeight: 0,
+        minWidth: 0,
         cursor: 'none',
         outline: 'none',
         background: '#000',
@@ -179,14 +234,17 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }
         alignItems: 'center',
         justifyContent: 'center',
         userSelect: 'none',
+        overflow: 'hidden',
       }}
     >
-      {/* MJPEG canvas */}
+      {/* Canvas do frame. O tamanho e o retangulo CALCULADO (contain dentro
+          do container): a imagem entra inteira, com a proporcao do frame, sem
+          esticar. O resto da caixa fica preto. */}
       <canvas
         ref={canvasRef}
         style={{
-          width: '100%',
-          height: '100%',
+          width: fit.width ? `${fit.width}px` : '100%',
+          height: fit.height ? `${fit.height}px` : '100%',
           objectFit: 'contain',
           display: 'block',
         }}

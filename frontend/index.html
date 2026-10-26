@@ -6,7 +6,13 @@
     <title>Serende — Remote Browser</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body, #root { width: 100%; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+      /* height (e nao min-height): o App usa height:100% e precisa resolver
+         contra a ALTURA DA VIEWPORT. Com min-height, o 100% resolve contra a
+         altura do conteudo, o app cresce e a pagina ganha rolagem — era o que
+         acontecia na tela do viewer (91 px de overflow). Quem precisa rolar
+         (o /admin) tem o proprio container com overflow, entao a pagina
+         nunca rola. */
+      html, body, #root { width: 100%; height: 100%; overflow: hidden; }
       body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e0e0e0; }
     </style>
   </head>

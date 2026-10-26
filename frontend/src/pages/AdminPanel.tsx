@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   adminLogin, adminLogout, loadAdminIdentity, changeAdminPassword, clearAdminToken,
   getAdminStats, getAdminKeys, createAdminKey, updateAdminKey, revokeAdminKey, regenerateAdminKey,
-  getAdminSessions, deleteAdminSession, getAdminSessionToken,
+  getAdminSessions, deleteAdminSession, closeAdminSessions, getAdminSessionToken,
   type AdminStats, type AdminKey, type AdminSession, type CreateKeyResponse, type AdminIdentity,
 } from '../lib/admin-client'
 
@@ -22,6 +22,17 @@ function formatDuration(seconds: number) {
   if (seconds < 60) return `${seconds}s`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}min`
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}min`
+}
+
+type Tab = 'sessions' | 'keys'
+
+/** Pedido de confirmacao: substitui o window.confirm (feio e bloqueante). */
+interface ConfirmRequest {
+  title: string
+  body: string
+  confirmLabel: string
+  danger?: boolean
+  onConfirm: () => void | Promise<void>
 }
 
 export default function AdminPanel() {
@@ -44,12 +55,17 @@ export default function AdminPanel() {
   const [openedUrl, setOpenedUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
+  // Aba padrao: Sessoes. E o que se gerencia no dia a dia.
+  const [tab, setTab] = useState<Tab>('sessions')
+  const [search, setSearch] = useState('')
+  const [filterKey, setFilterKey] = useState<string>('')
+  const [autoRefresh, setAutoRefresh] = useState(true)
+
   const [showCreate, setShowCreate] = useState(false)
   const [createdKey, setCreatedKey] = useState<CreateKeyResponse | null>(null)
   const [copied, setCopied] = useState(false)
 
   const [editKey, setEditKey] = useState<AdminKey | null>(null)
-  const [expandedTenant, setExpandedTenant] = useState<string | null>(null)
 
   const [showPassword, setShowPassword] = useState(false)
   const [pwdForm, setPwdForm] = useState({ current: '', next: '', confirm: '' })
@@ -59,27 +75,35 @@ export default function AdminPanel() {
   const [createForm, setCreateForm] = useState({ name: '', maxSessions: 100, maxSessionDuration: 3600, maxIdleTimeout: 300 })
   const [editForm, setEditForm] = useState({ name: '', maxSessions: 100, maxSessionDuration: 3600, maxIdleTimeout: 300 })
   const [actionLoading, setActionLoading] = useState(false)
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null)
+  const [toast, setToast] = useState<{ text: string; kind: 'ok' | 'erro' } | null>(null)
 
-  const loadData = useCallback(async () => {
-    setLoading(true)
+  const loadData = useCallback(async (opts?: { silencioso?: boolean }) => {
+    if (!opts?.silencioso) setLoading(true)
     try {
       const [s, k, sess] = await Promise.all([getAdminStats(), getAdminKeys(), getAdminSessions()])
       setStats(s)
       setKeys(k)
       setSessions(sess)
-      // Pré-carrega tokens de todas as sessões em background
-      const tokens: Record<string, string> = {}
-      await Promise.all(sess.map(async (session) => {
-        try {
-          tokens[session.sessionId] = await getAdminSessionToken(session.sessionId)
-        } catch { /* ignore */ }
-      }))
-      setSessionTokens(tokens)
+      // Token de sessao: só quando a pessoa vai ABRIR a sessao. Antes era
+      // pré-carregado para todas, o que fazia N chamadas ao carregar o painel.
+      setSessionTokens((prev) => {
+        const next = { ...prev }
+        for (const id of Object.keys(next)) {
+          if (!sess.some((x) => x.sessionId === id)) delete next[id]
+        }
+        return next
+      })
     } catch {
       // ignore
     } finally {
-      setLoading(false)
+      if (!opts?.silencioso) setLoading(false)
     }
+  }, [])
+
+  const showToast = useCallback((text: string, kind: 'ok' | 'erro' = 'ok') => {
+    setToast({ text, kind })
+    setTimeout(() => setToast((t) => (t && t.text === text ? null : t)), 4000)
   }, [])
 
   useEffect(() => {
@@ -99,6 +123,14 @@ export default function AdminPanel() {
   useEffect(() => {
     if (authed) loadData()
   }, [authed, loadData])
+
+  // Auto-refresh: a tela do watcher e ao vivo, e o painel tambem tem que ser.
+  // Silencioso: nao pisca o botao "Atualizar" a cada 5 s.
+  useEffect(() => {
+    if (!authed || !autoRefresh) return
+    const t = setInterval(() => loadData({ silencioso: true }), 5000)
+    return () => clearInterval(t)
+  }, [authed, autoRefresh, loadData])
 
   const handleLogin = async (e?: React.FormEvent) => {
     e?.preventDefault()
@@ -136,8 +168,8 @@ export default function AdminPanel() {
       setShowCreate(false)
       setCreateForm({ name: '', maxSessions: 100, maxSessionDuration: 3600, maxIdleTimeout: 300 })
       await loadData()
-    } catch {
-      // ignore
+    } catch (err: any) {
+      showToast(err?.message || 'Falha ao criar a key', 'erro')
     } finally {
       setActionLoading(false)
     }
@@ -150,8 +182,9 @@ export default function AdminPanel() {
       await updateAdminKey(editKey.id, editForm)
       setEditKey(null)
       await loadData()
-    } catch {
-      // ignore
+      showToast('Key atualizada')
+    } catch (err: any) {
+      showToast(err?.message || 'Falha ao atualizar', 'erro')
     } finally {
       setActionLoading(false)
     }
@@ -162,38 +195,54 @@ export default function AdminPanel() {
     try {
       await updateAdminKey(key.id, { enabled: !key.enabled })
       await loadData()
-    } catch {
-      // ignore
+      showToast(key.enabled ? 'Key desativada' : 'Key ativada')
+    } catch (err: any) {
+      showToast(err?.message || 'Falha', 'erro')
     } finally {
       setActionLoading(false)
     }
   }
 
-  const handleRevoke = async (key: AdminKey) => {
-    if (!confirm(`Revogar a key "${key.name}" (${key.keyPrefix}...)? Esta acao nao pode ser desfeita.`)) return
-    setActionLoading(true)
-    try {
-      await revokeAdminKey(key.id)
-      await loadData()
-    } catch {
-      // ignore
-    } finally {
-      setActionLoading(false)
-    }
+  const handleRevoke = (key: AdminKey) => {
+    setConfirmReq({
+      title: 'Revogar a key?',
+      body: `A key "${key.name}" (${key.keyPrefix}...) sera invalidada na hora. Quem usa essa chave para de funcionar imediatamente. Nao da para desfazer.`,
+      confirmLabel: 'Revogar',
+      danger: true,
+      onConfirm: async () => {
+        setActionLoading(true)
+        try {
+          await revokeAdminKey(key.id)
+          await loadData()
+          showToast('Key revogada')
+        } catch (err: any) {
+          showToast(err?.message || 'Falha ao revogar', 'erro')
+        } finally {
+          setActionLoading(false)
+        }
+      },
+    })
   }
 
-  const handleRegenerate = async (key: AdminKey) => {
-    if (!confirm(`Regenerar a key "${key.name}"? A key anterior será invalidada.`)) return
-    setActionLoading(true)
-    try {
-      const result = await regenerateAdminKey(key.id)
-      setCreatedKey(result)
-      await loadData()
-    } catch {
-      // ignore
-    } finally {
-      setActionLoading(false)
-    }
+  const handleRegenerate = (key: AdminKey) => {
+    setConfirmReq({
+      title: 'Regenerar a key?',
+      body: `A key "${key.name}" sera trocada por uma nova. Quem usa a antiga perde o acesso na hora.`,
+      confirmLabel: 'Regenerar',
+      danger: true,
+      onConfirm: async () => {
+        setActionLoading(true)
+        try {
+          const result = await regenerateAdminKey(key.id)
+          setCreatedKey(result)
+          await loadData()
+        } catch (err: any) {
+          showToast(err?.message || 'Falha ao regenerar', 'erro')
+        } finally {
+          setActionLoading(false)
+        }
+      },
+    })
   }
 
   const handleChangePassword = async () => {
@@ -224,16 +273,65 @@ export default function AdminPanel() {
     }
   }
 
-  const handleCloseSession = async (sessionId: string) => {
-    if (!confirm('Fechar esta sessão? O usuário será desconectado.')) return
-    setActionLoading(true)
+  const handleCloseSession = (session: AdminSession) => {
+    setConfirmReq({
+      title: 'Fechar a sessão?',
+      body: `A sessao ${session.sessionId.slice(0, 8)} (${session.tenantName}) sera encerrada. Quem esta usando ela perde a conexao.`,
+      confirmLabel: 'Fechar sessão',
+      danger: true,
+      onConfirm: async () => {
+        setActionLoading(true)
+        try {
+          await deleteAdminSession(session.sessionId)
+          await loadData()
+          showToast('Sessão fechada')
+        } catch (err: any) {
+          showToast(err?.message || 'Falha ao fechar a sessão', 'erro')
+        } finally {
+          setActionLoading(false)
+        }
+      },
+    })
+  }
+
+  // Fecha todas as sessoes de uma key (ou todas). O backend responde quantas
+  // foram, e o painel mostra o numero.
+  const handleCloseBatch = (tenantId?: string, label?: string) => {
+    setConfirmReq({
+      title: tenantId ? `Fechar todas as sessões de "${label}"?` : 'Fechar todas as sessões?',
+      body: tenantId
+        ? 'Todas as sessões abertas dessa key serão encerradas. Quem está usando qualquer delas perde a conexão.'
+        : `Todas as ${sessions.length} sessões abertas serão encerradas.`,
+      confirmLabel: 'Fechar todas',
+      danger: true,
+      onConfirm: async () => {
+        setActionLoading(true)
+        try {
+          const r = await closeAdminSessions(tenantId)
+          await loadData()
+          showToast(`${r.closed} sessão(ões) fechada(s)`)
+        } catch (err: any) {
+          showToast(err?.message || 'Falha ao fechar as sessões', 'erro')
+        } finally {
+          setActionLoading(false)
+        }
+      },
+    })
+  }
+
+  // "Abrir" precisa do token da sessao: ele e buscado na hora e a URL so e
+  // montada depois. Sem isso, o link aberto nao autentica.
+  const handleOpenSession = async (session: AdminSession) => {
+    const base = `${window.location.origin}?session=${session.sessionId}`
     try {
-      await deleteAdminSession(sessionId)
-      await loadData()
-    } catch {
-      // ignore
-    } finally {
-      setActionLoading(false)
+      let token = sessionTokens[session.sessionId]
+      if (!token) {
+        token = await getAdminSessionToken(session.sessionId)
+        setSessionTokens((prev) => ({ ...prev, [session.sessionId]: token! }))
+      }
+      setOpenedUrl(`${base}&token=${encodeURIComponent(token)}`)
+    } catch (err: any) {
+      showToast(err?.message || 'Não foi possível obter o acesso à sessão', 'erro')
     }
   }
 
@@ -247,27 +345,32 @@ export default function AdminPanel() {
 
   const tenantSessions = (tenantId: string) => sessions.filter(s => s.tenantId === tenantId)
 
-  // Lista expandida (por tenant) e lista global dividem a mesma paginacao: o
-  // endpoint /api/admin/sessions devolve tudo de uma vez, sem page/limit, entao
-  // fatiar no cliente é o que dá para fazer sem tocar no backend.
-  const expandedSessions = useMemo(
-    () => (expandedTenant ? sessions.filter(s => s.tenantId === expandedTenant) : []),
-    [sessions, expandedTenant]
-  )
-  const tenantPagination = usePagination(expandedSessions, expandedTenant ?? 'none')
-  const allPagination = usePagination(sessions)
+  // Sessoes visiveis: busca (id, key, url, titulo) + filtro por key.
+  const visibleSessions = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return sessions.filter((s) => {
+      if (filterKey && s.tenantId !== filterKey) return false
+      if (!q) return true
+      return (
+        s.sessionId.toLowerCase().includes(q) ||
+        s.tenantName.toLowerCase().includes(q) ||
+        (s.url || '').toLowerCase().includes(q) ||
+        (s.title || '').toLowerCase().includes(q)
+      )
+    })
+  }, [sessions, search, filterKey])
 
   // --- LOGIN ---
   if (!authed) {
     if (booting) {
       return (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100vh', background: colors.bg, color: colors.textMuted, fontSize: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', background: colors.bg, color: colors.textMuted, fontSize: 14 }}>
           Carregando...
         </div>
       )
     }
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100vh', background: colors.bg }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', background: colors.bg }}>
         <form onSubmit={handleLogin} style={{ background: colors.bgCard, padding: 32, borderRadius: 12, border: `1px solid ${colors.border}`, width: 360 }}>
           <h1 style={{ color: colors.text, fontSize: 20, marginBottom: 8, fontWeight: 600 }}>Serende Admin</h1>
           <p style={{ color: colors.textMuted, fontSize: 13, marginBottom: 20 }}>Entre com seu email e senha</p>
@@ -311,7 +414,9 @@ export default function AdminPanel() {
 
   // --- DASHBOARD ---
   return (
-    <div style={{ width: '100%', minHeight: '100vh', background: colors.bg, color: colors.text, padding: 24, boxSizing: 'border-box' }}>
+    // O painel rola por DENTRO (a pagina nunca rola): com a base de altura
+    // trocada para 100%, a rolagem da pagina inteira tiraria o cabecalho.
+    <div style={{ width: '100%', height: '100%', background: colors.bg, color: colors.text, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* Modal URL da sessão */}
       {openedUrl && (
@@ -320,12 +425,14 @@ export default function AdminPanel() {
           <div style={{ background: colors.bgCard, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24, maxWidth: 560, width: '90%' }}
             onClick={e => e.stopPropagation()}>
             <h3 style={{ fontSize: 15, marginBottom: 12, color: colors.text }}>Abrir sessão</h3>
-            <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>Copie o link abaixo e abra no seu browser:</p>
+            <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>
+              O link abaixo leva direto para a tela dessa sessao, com acesso liberado.
+            </p>
             <div style={{ background: colors.bgInput, borderRadius: 8, padding: 10, wordBreak: 'break-all', fontSize: 12, color: colors.accent, marginBottom: 16 }}>
               {openedUrl}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => { navigator.clipboard.writeText(openedUrl).catch(() => {}); }} style={btnStyle(colors.bgInput, colors.border)}>Copiar Link</button>
+              <button onClick={() => { navigator.clipboard.writeText(openedUrl).catch(() => {}); showToast('Link copiado'); }} style={btnStyle(colors.bgInput, colors.border)}>Copiar Link</button>
               <a href={openedUrl} target="_blank" rel="noopener" style={{ ...btnStyle(colors.accent, 'transparent'), color: '#fff', textDecoration: 'none', padding: '6px 16px', borderRadius: 8, fontSize: 13, display: 'inline-block' }}>Abrir ↗</a>
               <button onClick={() => setOpenedUrl(null)} style={btnStyle(colors.bgInput, colors.border)}>Fechar</button>
             </div>
@@ -333,379 +440,342 @@ export default function AdminPanel() {
         </div>
       )}
 
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 600 }}>Serende Admin</h1>
-            {identity?.email && (
-              <p style={{ fontSize: 12, color: colors.textDim, marginTop: 2 }}>{identity.email}</p>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setShowPassword(true)} style={btnStyle(colors.bgCard, colors.border)}>Trocar senha</button>
-            <button onClick={loadData} disabled={loading} style={btnStyle(colors.bgCard, colors.border)}>
-              {loading ? '...' : '↻ Atualizar'}
-            </button>
-            <button onClick={handleLogout} style={btnStyle(colors.bgCard, colors.border)}>Sair</button>
-          </div>
-        </div>
-
-        {/* Stats Cards */}
-        {stats && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
-            <StatCard label="Total Keys" value={stats.totalKeys} />
-            <StatCard label="Keys Ativas" value={stats.activeKeys} color={colors.success} />
-            <StatCard label="Sessoes Ativas" value={stats.totalActiveSessions} color={colors.accent} />
-            <StatCard label="Limite Global" value={stats.maxSessionsGlobal} color={colors.warning} />
-          </div>
-        )}
-
-        {/* Actions */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 500 }}>API Keys</h2>
-          <button onClick={() => setShowCreate(true)} style={{ ...btnStyle(colors.accent, colors.accent), color: '#fff', fontWeight: 500 }}>+ Criar Key</button>
-        </div>
-
-        {/* Keys Table */}
-        <div style={{ background: colors.bgCard, borderRadius: 10, border: `1px solid ${colors.border}`, overflow: 'hidden', marginBottom: 24 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
-                {['Nome', 'Prefix', 'Status', 'Sessoes', 'Max Sessoes', 'Ultimo Uso', 'Criada', 'Acoes'].map(h => (
-                  <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: colors.textMuted, fontWeight: 500, fontSize: 12 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {keys.map(k => {
-                const activeSessions = tenantSessions(k.id).length
-                const expanded = expandedTenant === k.id
-                return (
-                  <tr key={k.id}>
-                    <td style={tdStyle}>{k.name}</td>
-                    <td style={tdStyle}><code style={{ fontSize: 12, color: colors.textMuted }}>{k.keyPrefix}...</code></td>
-                    <td style={tdStyle}>
-                      <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500, background: k.enabled ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: k.enabled ? colors.success : colors.danger }}>
-                        {k.enabled ? 'Ativo' : 'Revogado'}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>
-                      <span
-                        onClick={() => setExpandedTenant(expanded ? null : k.id)}
-                        style={{ cursor: 'pointer', textDecoration: 'underline', color: colors.accent }}
-                      >
-                        {activeSessions}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>{k.maxSessions}</td>
-                    <td style={tdStyle}>{formatDate(k.lastUsedAt)}</td>
-                    <td style={tdStyle}>{formatDate(k.createdAt)}</td>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button onClick={() => { setEditKey(k); setEditForm({ name: k.name, maxSessions: k.maxSessions, maxSessionDuration: k.maxSessionDuration, maxIdleTimeout: k.maxIdleTimeout }) }} style={smallBtnStyle}>Editar</button>
-                        <button onClick={() => handleRegenerate(k)} disabled={actionLoading} style={{ ...smallBtnStyle, color: colors.warning }}>Regenerar Key</button>
-                        <button onClick={() => handleToggle(k)} disabled={actionLoading} style={smallBtnStyle}>{k.enabled ? 'Desativar' : 'Ativar'}</button>
-                        {k.enabled && <button onClick={() => handleRevoke(k)} disabled={actionLoading} style={{ ...smallBtnStyle, color: colors.danger }}>Revogar</button>}
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-              {keys.length === 0 && (
-                <tr><td colSpan={8} style={{ ...tdStyle, textAlign: 'center', color: colors.textDim }}>Nenhuma key cadastrada</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Expanded Sessions */}
-        {expandedTenant && (
-          <div style={{ background: colors.bgCard, borderRadius: 10, border: `1px solid ${colors.border}`, padding: 16, marginBottom: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ fontSize: 14, color: colors.textMuted }}>
-                Sessoes ativas — {keys.find(k => k.id === expandedTenant)?.name || expandedTenant}
-              </h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 12, color: colors.textDim }}>
-                  {expandedSessions.length === 0
-                    ? '0 de 0'
-                    : `${tenantPagination.from}-${tenantPagination.to} de ${expandedSessions.length}`}
-                </span>
-                <button onClick={() => setExpandedTenant(null)} style={{ background: 'none', border: 'none', color: colors.textDim, cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>✕</button>
-              </div>
-            </div>
-            {expandedSessions.length === 0 ? (
-              <p style={{ color: colors.textDim, fontSize: 13 }}>Nenhuma sessao ativa</p>
-            ) : (
-              <>
-                <div style={{ display: 'grid', gap: 8, maxHeight: 400, overflowY: 'auto', paddingRight: 4 }}>
-                  {tenantPagination.page.map(s => {
-                    const token = sessionTokens[s.sessionId]
-                    const sessionUrl = `${window.location.origin}?session=${s.sessionId}`
-                    const openUrl = token
-                      ? `${window.location.origin}?session=${s.sessionId}&token=${encodeURIComponent(token)}`
-                      : sessionUrl
-                    const pct = Math.min(100, (expandedSessions.length / kMaxSessions(keys, expandedTenant)) * 100)
-                    return (
-                      <div key={s.sessionId} style={{ background: colors.bgInput, padding: 12, borderRadius: 8, fontSize: 13 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                          <span><code>{s.sessionId.slice(0, 8)}...</code></span>
-                          <span style={{ color: colors.textMuted }}>{s.resolution.width}x{s.resolution.height}</span>
-                          <span style={{ color: colors.textMuted }}>Uptime: {formatDuration(s.uptime)}</span>
-                          {s.timeout && <span style={{ color: s.timeout.warningSoon ? colors.warning : colors.textMuted }}>
-                            Idle: {formatDuration(Math.floor(s.timeout.inactive / 1000))}
-                          </span>}
-                        </div>
-                        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <code style={{ flex: 1, fontSize: 11, color: colors.accent, wordBreak: 'break-all' }}>{sessionUrl}</code>
-                          <button
-                            onClick={() => navigator.clipboard.writeText(sessionUrl)}
-                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
-                          >Copiar</button>
-                          <button
-                            onClick={() => { navigator.clipboard.writeText(openUrl).catch(() => {}); setOpenedUrl(openUrl) }}
-                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap' }}
-                          >Abrir</button>
-                          <button
-                            onClick={() => handleCloseSession(s.sessionId)}
-                            disabled={actionLoading}
-                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.danger, whiteSpace: 'nowrap' }}
-                          >Fechar</button>
-                        </div>
-                        {pct >= 0 && (
-                          <div style={{ marginTop: 8, background: '#333', borderRadius: 4, height: 4 }}>
-                            <div style={{ width: `${pct}%`, background: pct > 80 ? colors.danger : colors.accent, borderRadius: 4, height: 4 }} />
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-                <Pagination {...tenantPagination} total={expandedSessions.length} />
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Todas as sessoes */}
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 500 }}>Todas as sessoes</h2>
-            <span style={{ fontSize: 12, color: colors.textDim }}>
-              {sessions.length === 0 ? '0 de 0' : `${allPagination.from}-${allPagination.to} de ${sessions.length}`}
-            </span>
-          </div>
-          <div style={{ background: colors.bgCard, borderRadius: 10, border: `1px solid ${colors.border}`, padding: 16 }}>
-            {sessions.length === 0 ? (
-              <p style={{ color: colors.textDim, fontSize: 13 }}>Nenhuma sessao ativa</p>
-            ) : (
-              <>
-                <div style={{ display: 'grid', gap: 8, maxHeight: 520, overflowY: 'auto', paddingRight: 4 }}>
-                  {allPagination.page.map(s => {
-                    const token = sessionTokens[s.sessionId]
-                    const sessionUrl = `${window.location.origin}?session=${s.sessionId}`
-                    const openUrl = token
-                      ? `${window.location.origin}?session=${s.sessionId}&token=${encodeURIComponent(token)}`
-                      : sessionUrl
-                    return (
-                      <div key={s.sessionId} style={{ background: colors.bgInput, padding: 12, borderRadius: 8, fontSize: 13 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
-                          <span style={{ color: colors.textMuted }}>{s.tenantName}</span>
-                          <span><code>{s.sessionId.slice(0, 8)}...</code></span>
-                          <span style={{ color: colors.textMuted }}>{s.resolution.width}x{s.resolution.height}</span>
-                          <span style={{ color: colors.textMuted }}>Uptime: {formatDuration(s.uptime)}</span>
-                          {s.timeout && <span style={{ color: s.timeout.warningSoon ? colors.warning : colors.textMuted }}>
-                            Idle: {formatDuration(Math.floor(s.timeout.inactive / 1000))}
-                          </span>}
-                        </div>
-                        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <code style={{ flex: 1, fontSize: 11, color: colors.accent, wordBreak: 'break-all' }}>{sessionUrl}</code>
-                          <button
-                            onClick={() => navigator.clipboard.writeText(sessionUrl)}
-                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, whiteSpace: 'nowrap' }}
-                          >Copiar</button>
-                          <button
-                            onClick={() => { navigator.clipboard.writeText(openUrl).catch(() => {}); setOpenedUrl(openUrl) }}
-                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.accent, whiteSpace: 'nowrap' }}
-                          >Abrir</button>
-                          <button
-                            onClick={() => handleCloseSession(s.sessionId)}
-                            disabled={actionLoading}
-                            style={{ ...smallBtnStyle, padding: '3px 10px', fontSize: 11, color: colors.danger, whiteSpace: 'nowrap' }}
-                          >Fechar</button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-                <Pagination {...allPagination} total={sessions.length} />
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Create Modal */}
-        {showCreate && (
-          <Modal title="Criar API Key" onClose={() => setShowCreate(false)}>
-            <FormField label="Nome" value={createForm.name} onChange={v => setCreateForm(f => ({ ...f, name: v }))} />
-            <FormField label="Max Sessoes" type="number" value={String(createForm.maxSessions)} onChange={v => setCreateForm(f => ({ ...f, maxSessions: parseInt(v) || 100 }))} />
-            <FormField label="Max Duracao (s)" type="number" value={String(createForm.maxSessionDuration)} onChange={v => setCreateForm(f => ({ ...f, maxSessionDuration: parseInt(v) || 3600 }))} />
-            <FormField label="Max Idle Timeout (s)" type="number" value={String(createForm.maxIdleTimeout)} onChange={v => setCreateForm(f => ({ ...f, maxIdleTimeout: parseInt(v) || 300 }))} />
-            <button onClick={handleCreate} disabled={actionLoading || !createForm.name.trim()} style={{ ...btnStyle(colors.accent, colors.accent), color: '#fff', width: '100%', marginTop: 8, fontWeight: 500 }}>
-              {actionLoading ? 'Criando...' : 'Criar Key'}
-            </button>
-          </Modal>
-        )}
-
-        {/* Created Key Dialog */}
-        {createdKey && (
-          <Modal title="Key Criada!" onClose={() => setCreatedKey(null)}>
-            <p style={{ color: colors.warning, fontSize: 13, marginBottom: 12 }}>
-              Copie a key abaixo. Ela NAO sera exibida novamente.
-            </p>
-            <div style={{ background: colors.bgInput, padding: 12, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <code style={{ flex: 1, fontSize: 13, wordBreak: 'break-all', color: colors.text }}>{createdKey.key}</code>
-              <button onClick={() => copyKey(createdKey.key)} style={{ ...smallBtnStyle, background: copied ? colors.success : colors.accent, color: '#fff', padding: '4px 12px' }}>
-                {copied ? '✓' : 'Copiar'}
+      {/* Confirmacao propria (no lugar do window.confirm) */}
+      {confirmReq && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}
+          onClick={() => setConfirmReq(null)}>
+          <div style={{ background: colors.bgCard, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24, maxWidth: 460, width: '90%' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontSize: 15, marginBottom: 10, color: colors.text }}>{confirmReq.title}</h3>
+            <p style={{ fontSize: 13, color: colors.textMuted, lineHeight: 1.6, marginBottom: 20 }}>{confirmReq.body}</p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmReq(null)} style={btnStyle(colors.bgInput, colors.border)}>Cancelar</button>
+              <button
+                onClick={async () => { const c = confirmReq; setConfirmReq(null); await c.onConfirm() }}
+                disabled={actionLoading}
+                style={{ ...btnStyle(confirmReq.danger ? colors.danger : colors.accent, 'transparent'), color: '#fff', opacity: actionLoading ? 0.6 : 1 }}
+              >
+                {actionLoading ? 'Fechando...' : confirmReq.confirmLabel}
               </button>
             </div>
-            <p style={{ fontSize: 12, color: colors.textDim }}>Nome: {createdKey.name} | ID: {createdKey.id}</p>
-          </Modal>
-        )}
+          </div>
+        </div>
+      )}
 
-        {/* Password Modal */}
-        {showPassword && (
-          <Modal title="Trocar senha" onClose={() => { setShowPassword(false); setPwdError('') }}>
-            <FormField
-              label="Senha atual"
-              type="password"
-              value={pwdForm.current}
-              onChange={v => setPwdForm(f => ({ ...f, current: v }))}
-            />
-            <FormField
-              label="Nova senha"
-              type="password"
-              value={pwdForm.next}
-              onChange={v => setPwdForm(f => ({ ...f, next: v }))}
-            />
-            <FormField
-              label="Confirmar nova senha"
-              type="password"
-              value={pwdForm.confirm}
-              onChange={v => setPwdForm(f => ({ ...f, confirm: v }))}
-            />
-            {pwdError && <p style={{ color: colors.danger, fontSize: 13, marginBottom: 8 }}>{pwdError}</p>}
-            <button
-              onClick={handleChangePassword}
-              disabled={actionLoading || !pwdForm.current || !pwdForm.next}
-              style={{ ...btnStyle(colors.accent, colors.accent), color: '#fff', width: '100%', marginTop: 8, fontWeight: 500 }}
-            >
-              {actionLoading ? 'Salvando...' : 'Salvar'}
-            </button>
-          </Modal>
-        )}
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 10001, background: toast.kind === 'ok' ? 'rgba(34,197,94,0.95)' : 'rgba(239,68,68,0.95)', color: '#fff', padding: '10px 18px', borderRadius: 8, fontSize: 13, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>
+          {toast.text}
+        </div>
+      )}
 
-        {/* Edit Modal */}
-        {editKey && (
-          <Modal title={`Editar — ${editKey.name}`} onClose={() => setEditKey(null)}>
-            <FormField label="Nome" value={editForm.name} onChange={v => setEditForm(f => ({ ...f, name: v }))} />
-            <FormField label="Max Sessoes" type="number" value={String(editForm.maxSessions)} onChange={v => setEditForm(f => ({ ...f, maxSessions: parseInt(v) || 100 }))} />
-            <FormField label="Max Duracao (s)" type="number" value={String(editForm.maxSessionDuration)} onChange={v => setEditForm(f => ({ ...f, maxSessionDuration: parseInt(v) || 3600 }))} />
-            <FormField label="Max Idle Timeout (s)" type="number" value={String(editForm.maxIdleTimeout)} onChange={v => setEditForm(f => ({ ...f, maxIdleTimeout: parseInt(v) || 300 }))} />
-            <button onClick={handleUpdate} disabled={actionLoading} style={{ ...btnStyle(colors.accent, colors.accent), color: '#fff', width: '100%', marginTop: 8, fontWeight: 500 }}>
-              {actionLoading ? 'Salvando...' : 'Salvar'}
-            </button>
-          </Modal>
-        )}
+      {/* Cabecalho fixo */}
+      <div style={{ flexShrink: 0, background: colors.bgCard, borderBottom: `1px solid ${colors.border}` }}>
+        <div style={{ maxWidth: 1280, margin: '0 auto', padding: '14px 24px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h1 style={{ fontSize: 20, fontWeight: 600 }}>Serende Admin</h1>
+              {identity?.email && (
+                <p style={{ fontSize: 12, color: colors.textDim, marginTop: 2 }}>{identity.email}</p>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: colors.textMuted, cursor: 'pointer' }}>
+                <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} />
+                Atualizar sozinho
+              </label>
+              <button onClick={() => setShowPassword(true)} style={btnStyle(colors.bgCard, colors.border)}>Trocar senha</button>
+              <button onClick={() => loadData()} disabled={loading} style={btnStyle(colors.bgCard, colors.border)}>
+                {loading ? '...' : '↻ Atualizar'}
+              </button>
+              <button onClick={handleLogout} style={btnStyle(colors.bgCard, colors.border)}>Sair</button>
+            </div>
+          </div>
+
+          {/* Abas */}
+          <div style={{ display: 'flex', gap: 4, marginTop: 14 }}>
+            <TabButton active={tab === 'sessions'} onClick={() => setTab('sessions')}>
+              Sessões ({sessions.length})
+            </TabButton>
+            <TabButton active={tab === 'keys'} onClick={() => setTab('keys')}>
+              API Keys ({keys.length})
+            </TabButton>
+          </div>
+        </div>
       </div>
+
+      {/* Conteudo: rola aqui dentro */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <div style={{ maxWidth: 1280, margin: '0 auto', padding: 20, boxSizing: 'border-box' }}>
+
+          {tab === 'sessions' ? (
+            <>
+              {/* Cards de resumo */}
+              {stats && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
+                  <StatCard label="Sessões ativas" value={stats.totalActiveSessions} color={colors.accent} />
+                  <StatCard label="Chaves ativas" value={stats.activeKeys} color={colors.success} />
+                  <StatCard label="Limite global" value={stats.maxSessionsGlobal} color={colors.warning} />
+                  <StatCard label="Uptime" value={`${Math.floor(stats.uptime / 60)}min`} />
+                </div>
+              )}
+
+              {/* Barra de acoes */}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+                <input
+                  type="search"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Buscar por sessão, key, URL ou título…"
+                  style={{ flex: '1 1 260px', minWidth: 200, padding: '8px 12px', borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.bgInput, color: colors.text, fontSize: 13 }}
+                />
+                <select
+                  value={filterKey}
+                  onChange={e => setFilterKey(e.target.value)}
+                  style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${colors.border}`, background: colors.bgInput, color: colors.text, fontSize: 13 }}
+                >
+                  <option value="">Todas as chaves</option>
+                  {keys.map(k => (
+                    <option key={k.id} value={k.id}>{k.name} ({tenantSessions(k.id).length})</option>
+                  ))}
+                </select>
+                {sessions.length > 0 && (
+                  <button onClick={() => handleCloseBatch(undefined)} disabled={actionLoading} style={{ ...btnStyle(colors.bgInput, colors.danger), color: colors.danger }}>
+                    Fechar todas
+                  </button>
+                )}
+              </div>
+
+              {/* Tabela de sessoes */}
+              <div style={{ background: colors.bgCard, borderRadius: 10, border: `1px solid ${colors.border}`, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      {['Sessão', 'Chave', 'O que está vendo', 'Resolução', 'Uptime', 'Idle', 'Ações'].map(h => (
+                        <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: colors.textMuted, fontWeight: 500, fontSize: 12, whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleSessions.map(s => (
+                      <tr key={s.sessionId} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                        <td style={tdStyle}>
+                          <code style={{ fontSize: 12 }}>{s.sessionId.slice(0, 8)}</code>
+                          <div style={{ fontSize: 11, color: colors.textDim }}>{formatDate(s.createdAt)}</div>
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ color: colors.text }}>{s.tenantName}</div>
+                          <div style={{ fontSize: 11, color: colors.textDim }}>{s.tenantId.slice(0, 8)}</div>
+                        </td>
+                        <td style={{ ...tdStyle, maxWidth: 320 }}>
+                          {s.url ? (
+                            <>
+                              <div style={{ color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.url}>{s.url}</div>
+                              {s.title && <div style={{ fontSize: 11, color: colors.textDim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.title}>{s.title}</div>}
+                            </>
+                          ) : (
+                            <span style={{ color: colors.textDim, fontSize: 12 }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{s.resolution.width}x{s.resolution.height}</td>
+                        <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{formatDuration(s.uptime)}</td>
+                        <td style={{ ...tdStyle, whiteSpace: 'nowrap', color: s.timeout?.warningSoon ? colors.warning : colors.textMuted }}>
+                          {s.timeout ? formatDuration(Math.floor(s.timeout.inactive / 1000)) : '—'}
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            <button onClick={() => handleOpenSession(s)} disabled={actionLoading} style={{ ...smallBtnStyle, color: colors.accent }}>Abrir</button>
+                            <button
+                              onClick={() => { navigator.clipboard.writeText(`${window.location.origin}?session=${s.sessionId}`).catch(() => {}); showToast('Link copiado') }}
+                              style={smallBtnStyle}
+                            >
+                              Copiar
+                            </button>
+                            <button onClick={() => handleCloseSession(s)} disabled={actionLoading} style={{ ...smallBtnStyle, color: colors.danger }}>Fechar</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {visibleSessions.length === 0 && (
+                      <tr>
+                        <td colSpan={7} style={{ ...tdStyle, textAlign: 'center', color: colors.textDim, padding: 28 }}>
+                          {sessions.length === 0
+                            ? 'Nenhuma sessão ativa agora'
+                            : 'Nenhuma sessão corresponde ao filtro'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {visibleSessions.length > 0 && (
+                <p style={{ fontSize: 12, color: colors.textDim, marginTop: 10 }}>
+                  {visibleSessions.length} de {sessions.length} sessão(ões)
+                  {filterKey && ` da key ${keys.find(k => k.id === filterKey)?.name || ''}`}
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <h2 style={{ fontSize: 15, fontWeight: 500, color: colors.textMuted }}>API Keys</h2>
+                <button onClick={() => setShowCreate(true)} style={{ ...btnStyle(colors.accent, colors.accent), color: '#fff', fontWeight: 500 }}>+ Criar Key</button>
+              </div>
+
+              <div style={{ background: colors.bgCard, borderRadius: 10, border: `1px solid ${colors.border}`, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      {['Nome', 'Prefixo', 'Status', 'Sessões', 'Max Sessões', 'Último Uso', 'Criada', 'Ações'].map(h => (
+                        <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: colors.textMuted, fontWeight: 500, fontSize: 12, whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {keys.map(k => {
+                      const activeSessions = tenantSessions(k.id).length
+                      const limit = k.maxSessions || 1
+                      const pct = Math.min(100, (activeSessions / limit) * 100)
+                      return (
+                        <tr key={k.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                          <td style={tdStyle}>{k.name}</td>
+                          <td style={tdStyle}><code style={{ fontSize: 12, color: colors.textMuted }}>{k.keyPrefix}...</code></td>
+                          <td style={tdStyle}>
+                            <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500, background: k.enabled ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', color: k.enabled ? colors.success : colors.danger }}>
+                              {k.enabled ? 'Ativo' : 'Revogado'}
+                            </span>
+                          </td>
+                          <td style={tdStyle}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span
+                                onClick={() => { setFilterKey(k.id); setTab('sessions') }}
+                                style={{ cursor: 'pointer', color: colors.accent, textDecoration: 'underline' }}
+                                title="Ver as sessões desta key"
+                              >
+                                {activeSessions}
+                              </span>
+                              {activeSessions > 0 && (
+                                <span style={{ flex: 1, minWidth: 40, maxWidth: 90, background: '#333', borderRadius: 4, height: 4, overflow: 'hidden' }}>
+                                  <span style={{ display: 'block', width: `${pct}%`, background: pct > 80 ? colors.danger : colors.accent, height: 4 }} />
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={tdStyle}>{k.maxSessions}</td>
+                          <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{formatDate(k.lastUsedAt)}</td>
+                          <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{formatDate(k.createdAt)}</td>
+                          <td style={tdStyle}>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              <button onClick={() => { setEditKey(k); setEditForm({ name: k.name, maxSessions: k.maxSessions, maxSessionDuration: k.maxSessionDuration, maxIdleTimeout: k.maxIdleTimeout }) }} style={smallBtnStyle}>Editar</button>
+                              <button onClick={() => handleRegenerate(k)} disabled={actionLoading} style={{ ...smallBtnStyle, color: colors.warning }}>Regenerar</button>
+                              <button onClick={() => handleToggle(k)} disabled={actionLoading} style={smallBtnStyle}>{k.enabled ? 'Desativar' : 'Ativar'}</button>
+                              {k.enabled && <button onClick={() => handleRevoke(k)} disabled={actionLoading} style={{ ...smallBtnStyle, color: colors.danger }}>Revogar</button>}
+                              {activeSessions > 0 && (
+                                <button onClick={() => handleCloseBatch(k.id, k.name)} disabled={actionLoading} style={{ ...smallBtnStyle, color: colors.danger }}>Fechar sessões</button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {keys.length === 0 && (
+                      <tr><td colSpan={8} style={{ ...tdStyle, textAlign: 'center', color: colors.textDim }}>Nenhuma key cadastrada</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Create Modal */}
+      {showCreate && (
+        <Modal title="Criar API Key" onClose={() => setShowCreate(false)}>
+          <FormField label="Nome" value={createForm.name} onChange={v => setCreateForm(f => ({ ...f, name: v }))} />
+          <FormField label="Max Sessoes" type="number" value={String(createForm.maxSessions)} onChange={v => setCreateForm(f => ({ ...f, maxSessions: parseInt(v) || 100 }))} />
+          <FormField label="Max Duracao (s)" type="number" value={String(createForm.maxSessionDuration)} onChange={v => setCreateForm(f => ({ ...f, maxSessionDuration: parseInt(v) || 3600 }))} />
+          <FormField label="Max Idle Timeout (s)" type="number" value={String(createForm.maxIdleTimeout)} onChange={v => setCreateForm(f => ({ ...f, maxIdleTimeout: parseInt(v) || 300 }))} />
+          <button onClick={handleCreate} disabled={actionLoading || !createForm.name.trim()} style={{ ...btnStyle(colors.accent, colors.accent), color: '#fff', width: '100%', marginTop: 8, fontWeight: 500 }}>
+            {actionLoading ? 'Criando...' : 'Criar Key'}
+          </button>
+        </Modal>
+      )}
+
+      {/* Created Key Dialog */}
+      {createdKey && (
+        <Modal title="Key Criada!" onClose={() => setCreatedKey(null)}>
+          <p style={{ color: colors.warning, fontSize: 13, marginBottom: 12 }}>
+            Copie a key abaixo. Ela NAO sera exibida novamente.
+          </p>
+          <div style={{ background: colors.bgInput, padding: 12, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <code style={{ flex: 1, fontSize: 13, wordBreak: 'break-all', color: colors.text }}>{createdKey.key}</code>
+            <button onClick={() => copyKey(createdKey.key)} style={{ ...smallBtnStyle, background: copied ? colors.success : colors.accent, color: '#fff', padding: '4px 12px' }}>
+              {copied ? '✓' : 'Copiar'}
+            </button>
+          </div>
+          <p style={{ fontSize: 12, color: colors.textDim }}>Nome: {createdKey.name} | ID: {createdKey.id}</p>
+        </Modal>
+      )}
+
+      {/* Password Modal */}
+      {showPassword && (
+        <Modal title="Trocar senha" onClose={() => { setShowPassword(false); setPwdError('') }}>
+          <FormField label="Senha atual" type="password" value={pwdForm.current} onChange={v => setPwdForm(f => ({ ...f, current: v }))} />
+          <FormField label="Nova senha" type="password" value={pwdForm.next} onChange={v => setPwdForm(f => ({ ...f, next: v }))} />
+          <FormField label="Confirmar nova senha" type="password" value={pwdForm.confirm} onChange={v => setPwdForm(f => ({ ...f, confirm: v }))} />
+          {pwdError && <p style={{ color: colors.danger, fontSize: 13, marginBottom: 8 }}>{pwdError}</p>}
+          <button
+            onClick={handleChangePassword}
+            disabled={actionLoading || !pwdForm.current || !pwdForm.next}
+            style={{ ...btnStyle(colors.accent, colors.accent), color: '#fff', width: '100%', marginTop: 8, fontWeight: 500 }}
+          >
+            {actionLoading ? 'Salvando...' : 'Salvar'}
+          </button>
+        </Modal>
+      )}
+
+      {/* Edit Modal */}
+      {editKey && (
+        <Modal title={`Editar — ${editKey.name}`} onClose={() => setEditKey(null)}>
+          <FormField label="Nome" value={editForm.name} onChange={v => setEditForm(f => ({ ...f, name: v }))} />
+          <FormField label="Max Sessoes" type="number" value={String(editForm.maxSessions)} onChange={v => setEditForm(f => ({ ...f, maxSessions: parseInt(v) || 100 }))} />
+          <FormField label="Max Duracao (s)" type="number" value={String(editForm.maxSessionDuration)} onChange={v => setEditForm(f => ({ ...f, maxSessionDuration: parseInt(v) || 3600 }))} />
+          <FormField label="Max Idle Timeout (s)" type="number" value={String(editForm.maxIdleTimeout)} onChange={v => setEditForm(f => ({ ...f, maxIdleTimeout: parseInt(v) || 300 }))} />
+          <button onClick={handleUpdate} disabled={actionLoading} style={{ ...btnStyle(colors.accent, colors.accent), color: '#fff', width: '100%', marginTop: 8, fontWeight: 500 }}>
+            {actionLoading ? 'Salvando...' : 'Salvar'}
+          </button>
+        </Modal>
+      )}
     </div>
   )
 }
 
 // --- Sub-components ---
 
-/** Quantas sessoes por pagina da lista do admin. */
-const PAGE_SIZE = 20
-
-/**
- * Paginacao no cliente: `items` ja vem completo do endpoint (sem page/limit no
- * backend), entao aqui so cortamos a fatia da pagina corrente.
- * `resetKey` muda quando a lista muda de dono (outro tenant aberto/fechado) e
- * joga a pagina de volta pra 1 — senao uma lista de 2 itens ficaria na pagina 4.
- */
-function usePagination(items: AdminSession[], resetKey?: string) {
-  const [page, setPage] = useState(1)
-  const total = items.length
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-
-  const lastKey = useRef(resetKey)
-  useEffect(() => {
-    if (resetKey !== undefined && lastKey.current !== resetKey) {
-      lastKey.current = resetKey
-      setPage(1)
-    }
-  }, [resetKey])
-
-  // Sessao fechada pelo painel esvazia a lista: volta pra 1 para nao sobrar
-  // numa pagina fora do intervalo.
-  useEffect(() => {
-    if (page > pages) setPage(1)
-  }, [page, pages])
-
-  const safePage = Math.min(page, pages)
-  const start = (safePage - 1) * PAGE_SIZE
-
-  return {
-    page: items.slice(start, start + PAGE_SIZE),
-    pages,
-    current: safePage,
-    onChange: setPage,
-    from: total === 0 ? 0 : start + 1,
-    to: Math.min(start + PAGE_SIZE, total),
-  }
-}
-
-function kMaxSessions(keys: AdminKey[], tenantId: string): number {
-  return keys.find(k => k.id === tenantId)?.maxSessions || 1
-}
-
-function Pagination({
-  total, pages, current, from, to, onChange,
-}: {
-  total: number
-  pages: number
-  current: number
-  from: number
-  to: number
-  onChange: (p: number) => void
-}) {
-  if (total === 0) return null
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${colors.border}`, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 12, color: colors.textMuted }}>
-        Exibindo {from}-{to} de {total}
-      </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <button
-          onClick={() => onChange(current - 1)}
-          disabled={current <= 1}
-          style={{ ...smallBtnStyle, padding: '5px 12px', fontSize: 12, opacity: current <= 1 ? 0.4 : 1 }}
-        >‹ Anterior</button>
-        <span style={{ fontSize: 12, color: colors.textMuted, padding: '0 4px' }}>
-          Pagina {current} de {pages}
-        </span>
-        <button
-          onClick={() => onChange(current + 1)}
-          disabled={current >= pages}
-          style={{ ...smallBtnStyle, padding: '5px 12px', fontSize: 12, opacity: current >= pages ? 0.4 : 1 }}
-        >Proxima ›</button>
-      </div>
-    </div>
+    <button
+      onClick={onClick}
+      style={{
+        padding: '9px 16px',
+        borderRadius: '8px 8px 0 0',
+        border: 'none',
+        borderBottom: `2px solid ${active ? colors.accent : 'transparent'}`,
+        background: active ? colors.bg : 'transparent',
+        color: active ? colors.text : colors.textMuted,
+        fontSize: 13,
+        fontWeight: active ? 600 : 400,
+        cursor: 'pointer',
+      }}
+    >
+      {children}
+    </button>
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color?: string }) {
+function StatCard({ label, value, color }: { label: string; value: number | string; color?: string }) {
   return (
     <div style={{ background: colors.bgCard, padding: 16, borderRadius: 10, border: `1px solid ${colors.border}` }}>
       <p style={{ fontSize: 12, color: colors.textMuted, marginBottom: 4 }}>{label}</p>
