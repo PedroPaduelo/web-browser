@@ -524,7 +524,7 @@ app.post('/api/session', authMiddleware, async (req, res) => {
   }
 });
 
-app.delete('/api/session/:sessionId', authMiddleware, (req, res) => {
+app.delete('/api/session/:sessionId', authMiddleware, async (req, res) => {
   const { sessionId } = req.params;
   const session = sessionManager.getSession(sessionId);
 
@@ -543,7 +543,13 @@ app.delete('/api/session/:sessionId', authMiddleware, (req, res) => {
     sessionResources.delete(sessionId);
   }
 
-  sessionManager.stopSession(sessionId);
+  // Espera o Chrome fechar antes de responder: "Session stopped" passa a
+  // significar que RAM, display e porta já voltaram.
+  try {
+    await sessionManager.stopSession(sessionId);
+  } catch (e) {
+    return res.status(500).json({ error: 'Stop failed: ' + e.message });
+  }
   closeCdpClient(session.cdpPort);
   res.json({ message: 'Session stopped' });
 });
@@ -662,14 +668,25 @@ app.post('/api/input/batch', authMiddleware, trackActivity, async (req, res) => 
 
 const cdpPools = new Map();
 
-async function getCdpClient(cdpPort) {
+// Uma conexão CDP por porta. Chamadas concorrentes (o GET de rede, o evaluate
+// de uma tool e o input) esperavam o mesmo WebSocket: sem isso cada uma abria
+// o seu, a última sobrescrevia a primeira no mapa e a primeira seguia viva,
+// recebendo cada evento de rede de novo.
+const cdpConnecting = new Map();
+function getCdpClient(cdpPort) {
   const existing = cdpPools.get(cdpPort);
   if (existing && existing.ready) {
     clearTimeout(existing.closeTimer);
     existing.closeTimer = setTimeout(() => closeCdpClient(cdpPort), 30_000);
-    return existing;
+    return Promise.resolve(existing);
   }
+  if (cdpConnecting.has(cdpPort)) return cdpConnecting.get(cdpPort);
+  const p = openCdpClient(cdpPort).finally(() => cdpConnecting.delete(cdpPort));
+  cdpConnecting.set(cdpPort, p);
+  return p;
+}
 
+async function openCdpClient(cdpPort) {
   let pageUrl = null;
   try {
     const res = await fetch(`http://127.0.0.1:${cdpPort}/json`);
@@ -1106,6 +1123,16 @@ function networkEventHandler(sid) {
     if (!ev || !ev.enabled) return;
     const p = msg.params || {};
     const now = Date.now();
+
+    // Dedup: o mesmo evento CDP (método + requestId + timestamp) só entra uma
+    // vez. Duas conexões à mesma página entregavam cada evento duas vezes.
+    if (p.requestId) {
+      if (!ev.seen) ev.seen = new Set();
+      const k = `${msg.method}|${p.requestId}|${p.timestamp}`;
+      if (ev.seen.has(k)) return;
+      ev.seen.add(k);
+      if (ev.seen.size > 5000) ev.seen = new Set();
+    }
 
     if (msg.method === 'Network.requestWillBeSent') {
       const req = p.request || {};
