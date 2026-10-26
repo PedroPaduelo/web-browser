@@ -961,18 +961,29 @@ function createServer() {
 
   // ========== SCREENSHOT ==========
 
+  // O texto do screenshot carrega a PROVA da captura: dimensões, bytes e um
+  // hash da imagem. Há cliente MCP que descarta o bloco image (o do QA, por
+  // exemplo); com isto o agente ao menos confirma que a captura existe e se
+  // ela mudou entre duas chamadas.
+  function screenshotSummary(data) {
+    const info = data.info || {};
+    const buf = Buffer.from(data.screenshot, 'base64');
+    const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
+    const dims = info.image && info.image.width ? `${info.image.width}x${info.image.height}` : 'size unknown';
+    const vp = info.viewport && info.viewport.width ? ` (viewport ${info.viewport.width}x${info.viewport.height})` : '';
+    return `URL: ${info.url || 'unknown'}\nTitle: ${info.title || 'Unknown'}\nImage: JPEG ${dims}${vp}, ${buf.length} bytes, sha256:${hash}`;
+  }
+
   registerTool('screenshot', {
-    description: 'Take a screenshot of the current browser screen. Returns JPEG image with URL and title info overlay. Use this to see what is on screen before interacting.',
+    description: 'Take a screenshot of the current browser screen. Returns JPEG image with URL and title info overlay. The text block also reports the image size, byte count and a sha256 prefix, so a client that drops image blocks can still confirm the capture exists and whether it changed. Use this to see what is on screen before interacting.',
     inputSchema: z.object({}),
   }, async () => {
     const sid = await requireSession();
     const data = await api('GET', `/api/screenshotWithInfo/${sid}`);
     if (data.screenshot) {
-      const info = data.info || {};
-      const overlay = `[${info.title || 'Page'}] ${info.url || ''}`;
       return {
         content: [
-          { type: 'text', text: `URL: ${info.url || 'unknown'}\nTitle: ${info.title || 'Unknown'}` },
+          { type: 'text', text: screenshotSummary(data) },
           {
             type: 'image',
             data: data.screenshot,
@@ -1151,7 +1162,7 @@ function createServer() {
   });
 
   registerTool('type_text', {
-    description: 'Type text into the focused field. Answers isError when the focused element does not accept text (for example the page body), so "Typed" always means the text is in a field. Texts longer than 3 chars are pasted (React-compatible); shorter ones or humanized=true are typed key by key. Checks the field value before answering.',
+    description: 'Type text into the focused field. Answers isError when the focused element does not accept text (for example the page body), so "Typed" always means the text is in a field. Texts longer than 3 chars are pasted (React-compatible: fires input/change but NO keydown/keyup); shorter ones or humanized=true are typed key by key with real key events, so use humanized=true when the page listens to keys. The answer says which path ran: "Typed (paste)" or "Typed (keys)". Checks the field value before answering.',
     inputSchema: z.object({
       text: z.string().describe('Text to type'),
       humanized: z.boolean().default(false).describe('Force char-by-char typing with delay (for autocomplete fields)'),
@@ -1702,7 +1713,7 @@ function createServer() {
   });
 
   registerTool('click_and_type', {
-    description: 'Click at (x, y), wait for focus, then type text. Answers isError when the click does not leave a text field focused. Use clearFirst=true to clear existing text first.',
+    description: 'Click at (x, y), wait for focus, then type text. Answers isError when the click does not leave a text field focused. Texts longer than 3 chars are pasted (input/change, NO keydown/keyup); for real key events click first, then use type_text with humanized=true. The answer says "pasted" or "typed". Use clearFirst=true to clear existing text first.',
     inputSchema: z.object({
       x: z.number().describe('X coordinate to click'),
       y: z.number().describe('Y coordinate to click'),
@@ -2197,9 +2208,9 @@ function createServer() {
   // ========== NEW: GET NETWORK REQUESTS ==========
 
   registerTool('get_network_activity', {
-    description: 'Get recent network requests/responses from the browser. Must call with action="start" first to begin capture, then action="get" to retrieve.',
+    description: 'Get recent network requests from the browser, one entry per request: requestId, method, url, resourceType, status, state, headersMs, durationMs, size, bytesReceived, postData. Call action="start" first, then action="get". state: sent (no response yet) | receiving (headers arrived, but Chrome has not reported the end of loading; this is what happens to a fetch POST whose body the page never reads, so durationMs/size stay empty and headersMs/bytesReceived tell what is known) | finished | failed | redirected (a redirect hop; redirectedTo has the next URL). Times come from the Chrome clock: headersMs = request sent to response headers, durationMs = request sent to end of loading.',
     inputSchema: z.object({
-      action: z.enum(['start', 'get', 'clear']).default('get').describe('start=begin capture, get=retrieve, clear=reset'),
+      action: z.enum(['start', 'get', 'clear', 'stop']).default('get').describe('start=begin capture (empties the buffer), get=retrieve, clear=empty the buffer and keep capturing, stop=stop capturing'),
       filterUrl: z.string().default('').describe('Filter by URL pattern (empty = all)'),
       maxEntries: z.number().default(30).describe('Max entries to return'),
     }),
@@ -2211,9 +2222,15 @@ function createServer() {
       const data = await api('POST', `/api/network/${sid}/start`);
       return ok(data.message || 'Network capture started');
     }
+    // clear esvazia e segue capturando; stop desliga. Antes o clear chamava o
+    // /stop e respondia "buffer cleared" sem esvaziar nada.
     if (action === 'clear') {
+      const data = await api('POST', `/api/network/${sid}/clear`);
+      return ok(data.message || 'Network buffer cleared');
+    }
+    if (action === 'stop') {
       const data = await api('POST', `/api/network/${sid}/stop`);
-      return ok('Network buffer cleared');
+      return ok(data.message || 'Network tracking stopped');
     }
 
     // action === 'get' - retrieve network activity
@@ -2223,13 +2240,13 @@ function createServer() {
     }
 
     // Uma entrada por requisição. O backend atualiza a MESMA entrada quando a
-    // resposta e o fim do carregamento chegam: status, mimeType, durationMs e
-    // size entram nela. Antes a lista de respostas era somada à de requisições
-    // e cada requisição aparecia duas vezes, sem id para parear.
+    // resposta e o fim do carregamento chegam. A chave inclui o timestamp do
+    // Chrome porque um redirect REUSA o requestId: só pelo id, o salto e o
+    // destino viravam uma entrada só (e o destino sumia).
     const seen = new Set();
     let entries = [];
     for (const req of (data.requests || [])) {
-      const key = req.requestId || `${req.url}|${req.timestamp}`;
+      const key = req.requestId ? `${req.requestId}|${req.cdpTimestamp ?? req.timestamp}` : `${req.url}|${req.timestamp}`;
       if (seen.has(key)) continue;
       seen.add(key);
       entries.push({
@@ -2238,11 +2255,15 @@ function createServer() {
         url: req.url || req.urlFragment || '',
         resourceType: req.type || '',
         timestamp: req.timestamp,
+        state: req.state || (req.failed ? 'failed' : req.finished ? 'finished' : req.status ? 'receiving' : 'sent'),
         status: req.status ?? null,
         statusText: req.statusText || undefined,
         mimeType: req.mimeType || undefined,
+        headersMs: req.headersMs,
         durationMs: req.durationMs,
         size: req.size,
+        bytesReceived: req.bytesReceived,
+        ...(req.redirectedTo ? { redirectedTo: req.redirectedTo } : {}),
         ...(req.postData ? { postData: req.postData } : {}),
         ...(req.failed ? { failed: true, errorText: req.errorText } : {}),
       });
@@ -2254,13 +2275,18 @@ function createServer() {
     }
     entries = entries.slice(-maxEntries);
 
-    return ok(JSON.stringify({ count: entries.length, entries }, null, 2));
+    const out = { count: entries.length, entries };
+    const open = entries.filter((e) => e.state === 'receiving').length;
+    if (open) {
+      out.note = `${open} request(s) in state "receiving": the response headers arrived but Chrome has not reported the end of loading. A fetch POST whose response body the page never reads stays like this forever. headersMs and bytesReceived are what is known.`;
+    }
+    return ok(JSON.stringify(out, null, 2));
   });
 
   // ========== NEW: SCREENSHOT WITH DELAY ==========
 
   registerTool('screenshot_after', {
-    description: 'Take a screenshot after waiting a specified delay. Useful for capturing after animations, transitions, or async renders. Returns image with URL and title info.',
+    description: 'Take a screenshot after waiting a specified delay. Useful for capturing after animations, transitions, or async renders. Returns image with URL and title info; the text block also reports the image size, byte count and a sha256 prefix (same as screenshot).',
     inputSchema: z.object({
       delayMs: z.number().default(1000).describe('Delay before screenshot (ms)'),
     }),
@@ -2269,10 +2295,9 @@ function createServer() {
     await new Promise(r => setTimeout(r, delayMs));
     const data = await api('GET', `/api/screenshotWithInfo/${sid}`);
     if (data.screenshot) {
-      const info = data.info || {};
       return {
         content: [
-          { type: 'text', text: `URL: ${info.url || 'unknown'}\nTitle: ${info.title || 'Unknown'}` },
+          { type: 'text', text: screenshotSummary(data) },
           {
             type: 'image',
             data: data.screenshot,

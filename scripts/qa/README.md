@@ -37,3 +37,21 @@ Um caso por afirmação do QA de 26/10, contra o MCP em execução. Cria uma ses
 Rodar um por vez (cada sessão usa ~400-600 MB da sandbox).
 
     KEY_FILE=/tmp/ef.key MCP_URL=http://127.0.0.1:4202/mcp node scripts/qa/t-fidelidade.js
+
+## t-rede-estados.js — rede, clear/stop e prova do screenshot (26/10)
+
+Mede o que a rede e o screenshot afirmam, com uma sessão. Sai com código 1 se algo falhar.
+
+| Caso | Resultado 26/10 (MCP local e host público) |
+|---|---|
+| `screenshot` traz no texto dimensões, bytes e sha256 | PASS / PASS |
+| `screenshot` traz o bloco `image` JPEG (o host público devolve o bloco) | PASS / PASS |
+| POST cujo corpo a página não lê fica `receiving`, com `headersMs` e sem `durationMs` | PASS / PASS |
+| POST com corpo lido fecha como `finished`, com `durationMs` e `size` | PASS / PASS |
+| GET fecha como `finished` | PASS / PASS |
+| `clear` diz que a captura continua, e o buffer fica só com o que veio depois | PASS / PASS |
+| `stop` desliga: o `get` seguinte responde "not enabled" | PASS / PASS |
+| `type_text` sem campo editável responde isError | PASS / PASS |
+
+    KEY_FILE=/tmp/ef.key MCP_URL=http://127.0.0.1:4202/mcp node scripts/qa/t-rede-estados.js
+    KEY_FILE=/tmp/ef.key MCP_URL=https://sb-serende-p4202.mp.serendiped.com/mcp node scripts/qa/t-rede-estados.js
