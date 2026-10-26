@@ -532,11 +532,135 @@ function createServer() {
   // texto indefinido (dump de schema do SDK). O try/catch roda NO BROWSER,
   // então o erro volta como dado.
   async function evalPage(sid, script) {
-    const wrapped = `(() => { try { return { __ok: true, value: (${script}) }; } catch (e) { return { __ok: false, error: (e && e.message) ? String(e.message) : String(e) }; } })()`;
+    const wrapped = `(async () => { try { return { __ok: true, value: await (${script}) }; } catch (e) { return { __ok: false, error: (e && e.message) ? String(e.message) : String(e) }; } })()`;
     const data = await api('POST', `/api/evaluate/${sid}`, { script: wrapped });
     const r = data.result;
     if (r && r.__ok === false) throw new PageScriptError(r.error);
     return r ? r.value : undefined;
+  }
+
+  // ----- Digitação que diz a verdade -----
+  // Campo que aceita texto: input de texto, textarea ou contenteditable, sem
+  // readonly/disabled. Foco no <body> não recebe nada: antes, o type_text
+  // respondia "Typed" mesmo assim.
+  const FOCUS_PROBE_JS = `(() => {
+    const el = document.activeElement;
+    const body = !el || el === document.body || el === document.documentElement;
+    let editable = false;
+    if (!body) {
+      if (el.isContentEditable) editable = true;
+      else if (el.tagName === 'TEXTAREA') editable = !el.readOnly && !el.disabled;
+      else if (el.tagName === 'INPUT') {
+        const t = (el.type || 'text').toLowerCase();
+        editable = ['text', 'search', 'email', 'url', 'tel', 'password', 'number'].includes(t) && !el.readOnly && !el.disabled;
+      }
+    }
+    return {
+      editable,
+      active: body ? 'BODY' : el.tagName + (el.id ? '#' + el.id : ''),
+      value: body ? null : (el.isContentEditable ? el.innerText : el.value),
+    };
+  })()`;
+
+  // Cola o texto no campo com foco. Espera o React reconciliar: um valor que
+  // volta sozinho depois da mudança não conta como digitado.
+  function pasteScript(text, clearFirst) {
+    return `(async () => {
+      ${REACT_SET_VALUE_JS}
+      const el = document.activeElement;
+      const before = el.isContentEditable ? el.innerText : el.value;
+      const expected = ${clearFirst ? "''" : 'before'} + ${JSON.stringify(text)};
+      if (el.isContentEditable) {
+        ${clearFirst ? "document.execCommand('selectAll', false, null);" : ''}
+        document.execCommand('insertText', false, ${JSON.stringify(text)});
+      } else {
+        reactSetValue(el, expected);
+      }
+      await new Promise((r) => setTimeout(r, 300));
+      const after = el.isContentEditable ? el.innerText : el.value;
+      const landed = el.isContentEditable ? after.includes(${JSON.stringify(text)}) : after === expected;
+      return { landed, method: el.isContentEditable ? 'execCommand' : 'react_set', value: after };
+    })()`;
+  }
+
+  // Digita no campo com foco e confirma no próprio campo que o texto entrou:
+  // colagem para textos longos, teclas para curtos (ou humanized).
+  async function typeIntoFocus(sid, text, { humanized = false, delayMs = 80, clearFirst = false } = {}) {
+    const probe = await evalPage(sid, FOCUS_PROBE_JS);
+    if (!probe.editable) return { error: 'no_editable_focus', probe };
+    if (clearFirst) {
+      await api('POST', '/api/input/batch', {
+        sessionId: sid,
+        actions: [
+          { type: 'keydown', key: 'Control' },
+          { type: 'keydown', key: 'a' },
+          { type: 'keyup', key: 'a' },
+          { type: 'keyup', key: 'Control' },
+          { type: 'keydown', key: 'Backspace' },
+          { type: 'keyup', key: 'Backspace' },
+        ],
+      });
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const before = await evalPage(sid, FOCUS_PROBE_JS);
+    if (!humanized && text.length > 3) {
+      const r = await evalPage(sid, pasteScript(text, clearFirst));
+      if (r.landed) return { ok: true, method: 'paste', value: r.value };
+      return { error: 'not_landed', value: r.value, probe: before };
+    }
+    for (const ch of text) {
+      await api('POST', '/api/input/batch', {
+        sessionId: sid,
+        actions: [{ type: 'keydown', key: ch }, { type: 'keyup', key: ch }],
+      });
+      if (humanized) await new Promise((r) => setTimeout(r, delayMs));
+    }
+    const after = await evalPage(sid, FOCUS_PROBE_JS);
+    const grew = (after.value || '').length - (before.value || '').length;
+    if (!after.editable || grew !== text.length) {
+      return { error: 'keys_not_landed', value: after.value, probe: before };
+    }
+    return { ok: true, method: 'keys', value: after.value };
+  }
+
+  function noEditableFocus(probe, antes) {
+    return toolError(
+      `Nenhum campo editável com foco (ativo: ${probe.active}). ${antes} O texto NÃO foi digitado. ` +
+      'Use click_element ou click_by_text no campo antes, ou fill_form / react_fill_input.',
+      { ok: false, reason: 'no_editable_focus', active: probe.active }
+    );
+  }
+
+  function notLanded(value, active) {
+    return toolError(
+      `O campo com foco (${active}) não mostrou o texto (valor agora: ${JSON.stringify(value)}). ` +
+      'O texto NÃO ficou no campo: pode ser um campo controlado que descarta a mudança.',
+      { ok: false, reason: 'not_landed', value }
+    );
+  }
+
+  // Clipboard: navigator.clipboard só responde com o documento focado. O script
+  // SEMPRE assenta (corrida de 1,5 s): uma Promise que nunca resolve não pode
+  // segurar a chamada CDP e derrubar o canal da sessão.
+  const CLIPBOARD_NO_FOCUS = 'Clipboard indisponível agora: o documento não tem foco de janela, e o Chrome só libera navigator.clipboard com foco. Num navegador headless isso não se obtém sozinho. Para entrar texto use type_text ou fill_form.';
+
+  function clipboardScript(kind, text) {
+    const call = kind === 'write'
+      ? `navigator.clipboard.writeText(${JSON.stringify(text)})`
+      : 'navigator.clipboard.readText()';
+    return `(async () => {
+      if (!navigator.clipboard) return { ok: false, error: 'navigator.clipboard indisponível (contexto não seguro?)' };
+      let t;
+      const limite = new Promise((_, rej) => { t = setTimeout(() => rej(new Error('o navegador não respondeu em 1,5 s')), 1500); });
+      try {
+        const v = await Promise.race([${call}, limite]);
+        clearTimeout(t);
+        return { ok: true, text: typeof v === 'string' ? v : undefined };
+      } catch (e) {
+        clearTimeout(t);
+        return { ok: false, error: String((e && e.message) || e) };
+      }
+    })()`;
   }
 
   // Mensagem de erro para exceção de script. Seletor CSS inválido é o caso
@@ -1027,7 +1151,7 @@ function createServer() {
   });
 
   registerTool('type_text', {
-    description: 'Type text into the focused field. For texts > 3 chars, uses clipboard paste (fast). For short texts or when humanized=true, types char-by-char with realistic delay. Always verifies the result.',
+    description: 'Type text into the focused field. Answers isError when the focused element does not accept text (for example the page body), so "Typed" always means the text is in a field. Texts longer than 3 chars are pasted (React-compatible); shorter ones or humanized=true are typed key by key. Checks the field value before answering.',
     inputSchema: z.object({
       text: z.string().describe('Text to type'),
       humanized: z.boolean().default(false).describe('Force char-by-char typing with delay (for autocomplete fields)'),
@@ -1035,37 +1159,10 @@ function createServer() {
     }),
   }, async ({ text, humanized, delayMs }) => {
     const sid = await requireSession();
-
-    if (!humanized && text.length > 3) {
-      const result = await api('POST', `/api/evaluate/${sid}`, {
-        script: `(() => {
-          ${REACT_SET_VALUE_JS}
-          const el = document.activeElement;
-          if (!el || (!el.value && el.value !== '' && !el.isContentEditable)) return { ok: false, reason: 'no_active_input' };
-          if (el.isContentEditable) {
-            document.execCommand('insertText', false, ${JSON.stringify(text)});
-            return { ok: true, method: 'execCommand' };
-          }
-          reactSetValue(el, el.value + ${JSON.stringify(text)});
-          return { ok: true, method: 'react_set', value: el.value };
-        })()`,
-      });
-      if (result.result?.ok) {
-        return ok(`Typed (paste): "${text}" — method: ${result.result.method}`);
-      }
-    }
-
-    for (const ch of text) {
-      await api('POST', '/api/input/batch', {
-        sessionId: sid,
-        actions: [
-          { type: 'keydown', key: ch },
-          { type: 'keyup', key: ch },
-        ]
-      });
-      if (humanized) await new Promise(r => setTimeout(r, delayMs));
-    }
-    return ok(`Typed (keys): "${text}"`);
+    const r = await typeIntoFocus(sid, text, { humanized, delayMs });
+    if (r.error === 'no_editable_focus') return noEditableFocus(r.probe, 'Com o foco fora de campo, nenhuma tecla chega a lugar nenhum.');
+    if (r.error) return notLanded(r.value, r.probe.active);
+    return ok(r.method === 'paste' ? `Typed (paste): "${text}" — method: react_set` : `Typed (keys): "${text}"`);
   });
 
   registerTool('hotkey', {
@@ -1464,47 +1561,31 @@ function createServer() {
   });
 
   registerTool('clipboard_write', {
-    description: 'Write text to clipboard via JavaScript. Useful for copy/paste workflows.',
+    description: 'Write text to clipboard via JavaScript. Needs window focus on the page (click on the page first): without it, answers isError with the reason at once. The call always settles within 1.5 s, so it cannot hang the session.',
     inputSchema: z.object({
       text: z.string().describe('Text to copy to clipboard'),
     }),
   }, async ({ text }) => {
     const sid = await requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          return navigator.clipboard.writeText(${JSON.stringify(text)}).then(() => ({ ok: true, method: 'async' })).catch(e => ({ ok: false, error: String(e) }));
-        }
-        // Fallback for older browsers
-        const ta = document.createElement('textarea');
-        ta.value = ${JSON.stringify(text)};
-        document.body.appendChild(ta);
-        ta.select();
-        const success = document.execCommand('copy');
-        document.body.removeChild(ta);
-        return { ok: success, method: 'execCommand' };
-      })()`,
-    });
-    if (data.result?.ok) return ok(`Copied to clipboard: "${text}"`);
-    return toolError(`Failed to copy: ${data.result?.error || 'unknown'}`, { ok: false });
+    const foco = await evalPage(sid, '({ focused: document.hasFocus() })');
+    if (!foco.focused) return toolError(CLIPBOARD_NO_FOCUS, { ok: false, reason: 'document_not_focused' });
+    const r = await evalPage(sid, clipboardScript('write', text));
+    if (r.ok) return ok(`Copied to clipboard: "${text}"`);
+    return toolError(`Failed to copy: ${r.error}`, { ok: false });
   });
 
   registerTool('clipboard_read', {
-    description: 'Read text from clipboard via JavaScript.',
+    description: 'Read text from clipboard via JavaScript. Needs window focus on the page: without it, answers isError with the reason at once. The call always settles within 1.5 s.',
     inputSchema: z.object({}),
   }, async () => {
     const sid = await requireSession();
-    const data = await api('POST', `/api/evaluate/${sid}`, {
-      script: `(() => {
-        if (navigator.clipboard && navigator.clipboard.readText) {
-          return navigator.clipboard.readText().then(text => ({ ok: true, text })).catch(e => ({ ok: false, error: String(e) }));
-        }
-        return { ok: false, error: 'clipboard API not available' };
-      })()`,
-    });
-    if (data.result?.ok) return ok(`Clipboard: "${data.result.text}"`);
-    return toolError(`Failed to read: ${data.result?.error || 'unknown'}`, { ok: false });
+    const foco = await evalPage(sid, '({ focused: document.hasFocus() })');
+    if (!foco.focused) return toolError(CLIPBOARD_NO_FOCUS, { ok: false, reason: 'document_not_focused' });
+    const r = await evalPage(sid, clipboardScript('read'));
+    if (r.ok) return ok(`Clipboard: "${r.text ?? ''}"`);
+    return toolError(`Failed to read: ${r.error}`, { ok: false });
   });
+
 
   registerTool('fill_form', {
     description: 'Fill multiple form fields at once. React/Vue/Angular compatible. Each field: { selector, value, type } where type=text|select|checkbox|radio. For text fields, clicks first then sets value with proper React event simulation.',
@@ -1621,7 +1702,7 @@ function createServer() {
   });
 
   registerTool('click_and_type', {
-    description: 'Click at (x, y), wait for focus, then type text. Use clearFirst=true to clear existing text first. Better than separate click+type.',
+    description: 'Click at (x, y), wait for focus, then type text. Answers isError when the click does not leave a text field focused. Use clearFirst=true to clear existing text first.',
     inputSchema: z.object({
       x: z.number().describe('X coordinate to click'),
       y: z.number().describe('Y coordinate to click'),
@@ -1633,51 +1714,10 @@ function createServer() {
     const sid = await requireSession();
     await api('POST', '/api/input', { sessionId: sid, type: 'click', x, y, button: 0 });
     await new Promise(r => setTimeout(r, focusDelayMs));
-
-    if (clearFirst) {
-      await api('POST', '/api/input/batch', {
-        sessionId: sid,
-        actions: [
-          { type: 'keydown', key: 'Control' },
-          { type: 'keydown', key: 'a' },
-          { type: 'keyup', key: 'a' },
-          { type: 'keyup', key: 'Control' },
-          { type: 'keydown', key: 'Backspace' },
-          { type: 'keyup', key: 'Backspace' },
-        ]
-      });
-      await new Promise(r => setTimeout(r, 100));
-    }
-
-    if (text.length > 3) {
-      const result = await api('POST', `/api/evaluate/${sid}`, {
-        script: `(() => {
-          ${REACT_SET_VALUE_JS}
-          const el = document.activeElement;
-          if (!el || (!el.value && el.value !== '' && !el.isContentEditable)) return { ok: false, reason: 'no_active_input' };
-          if (el.isContentEditable) {
-            document.execCommand('insertText', false, ${JSON.stringify(text)});
-            return { ok: true, method: 'execCommand' };
-          }
-          reactSetValue(el, (clearFirst ? '' : el.value) + ${JSON.stringify(text)});
-          return { ok: true, method: 'react_set' };
-        })()`,
-      });
-      if (result.result?.ok) {
-        return ok(`Clicked (${x},${y}) and pasted "${text}"`);
-      }
-    }
-
-    for (const ch of text) {
-      await api('POST', '/api/input/batch', {
-        sessionId: sid,
-        actions: [
-          { type: 'keydown', key: ch },
-          { type: 'keyup', key: ch },
-        ]
-      });
-    }
-    return ok(`Clicked (${x},${y}) and typed "${text}"`);
+    const r = await typeIntoFocus(sid, text, { clearFirst });
+    if (r.error === 'no_editable_focus') return noEditableFocus(r.probe, `O clique em (${x},${y}) não deixou um campo de texto com foco.`);
+    if (r.error) return notLanded(r.value, r.probe.active);
+    return ok(r.method === 'paste' ? `Clicked (${x},${y}) and pasted "${text}"` : `Clicked (${x},${y}) and typed "${text}"`);
   });
 
   // ========== NEW: CLICK BY TEXT (robust) ==========
@@ -2182,28 +2222,33 @@ function createServer() {
       return ok(JSON.stringify({ count: 0, entries: [], message: 'Network tracking not enabled. Use action="start" first.' }, null, 2));
     }
 
-    // Filter and limit entries
+    // Uma entrada por requisição. O backend atualiza a MESMA entrada quando a
+    // resposta e o fim do carregamento chegam: status, mimeType, durationMs e
+    // size entram nela. Antes a lista de respostas era somada à de requisições
+    // e cada requisição aparecia duas vezes, sem id para parear.
+    const seen = new Set();
     let entries = [];
-    if (data.requests) {
-      entries = data.requests.map(req => ({
-        type: 'request',
+    for (const req of (data.requests || [])) {
+      const key = req.requestId || `${req.url}|${req.timestamp}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({
+        requestId: req.requestId || null,
+        method: req.method || '',
         url: req.url || req.urlFragment || '',
-        method: req.method || 'GET',
-        timestamp: req.timestamp
-      }));
-    }
-    if (data.responses) {
-      data.responses.forEach(res => {
-        entries.push({
-          type: 'response',
-          url: res.url || '',
-          status: res.status || res.statusCode || 0,
-          ok: (res.status || res.statusCode || 0) >= 200 && (res.status || res.statusCode || 0) < 300
-        });
+        resourceType: req.type || '',
+        timestamp: req.timestamp,
+        status: req.status ?? null,
+        statusText: req.statusText || undefined,
+        mimeType: req.mimeType || undefined,
+        durationMs: req.durationMs,
+        size: req.size,
+        ...(req.postData ? { postData: req.postData } : {}),
+        ...(req.failed ? { failed: true, errorText: req.errorText } : {}),
       });
     }
 
-    // Apply filters
+    // Filter and limit entries
     if (filterUrl) {
       entries = entries.filter(e => e.url.includes(filterUrl));
     }
