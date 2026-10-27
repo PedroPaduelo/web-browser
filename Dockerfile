@@ -40,13 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Xlib: o input relay (server/input-handler.js) spawna python3 e fala XTest.
 RUN pip3 install --break-system-packages --no-cache-dir python-xlib
 
-# ---- Chrome estavel (o apt do debian traz o chromium, que funciona, mas o
-# codigo espera o binario do google-chrome) --------------------------------
-RUN apt-get update && apt-get install -y --no-install-recommends wget gnupg \
-    && wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /etc/apt/trusted.gpg.d/google.gpg \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
-    && rm -rf /var/lib/apt/lists/*
+# (a instalacao do Chrome estah mais abaixo, junto do symlink — veja o
+# comentario de licao la: a camada antiga ficava CACHED sem instalar nada)
 
 # ---- aplicacao ------------------------------------------------------------
 WORKDIR /app
@@ -66,15 +61,42 @@ COPY scripts ./scripts
 # package.json) — garantimos que ele exista no runtime.
 RUN cd server && npm install ws --omit=dev --no-save
 
+# ---- Chrome estavel (o apt do debian traz o chromium, que funciona, mas o
+# codigo espera o binario do google-chrome) --------------------------------
+# LICAO: a camada de cima (google-chrome) estava CACHED no build do painel
+# porque o Dockerfile anterior ja a tinha "construido" — mas ela NUNCA
+# instalou o chrome de verdade (o apt do debian tem o chromium, nao o
+# google-chrome). O `which google-chrome` voltava vazio, o `ln -sf ""` criava
+# um link quebrado e o build quebrava com "chrome: not found".
+# Aqui instalamos o repo do Google EXPLICITAMENTE e conferimos que o binario
+# existe antes de criar o symlink.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      wget gnupg ca-certificates \
+    && wget -qO- https://dl.google.com/linux/linux_signing_key.pub \
+        | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+        > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/* \
+    && test -x "$(command -v google-chrome)" \
+    && google-chrome --version
+
 # ---- Chrome onde o codigo procura ----------------------------------------
 # O session-manager espera o binario em chrome-install/opt/google/chrome/chrome
 # (PROJECT_ROOT/chrome-install/...). Esse diretorio NAO vai para o git — sao
 # ~200MB de binario, reinstalados por scripts/install-chrome-sandbox.sh. Na
 # imagem a gente instala o Chrome via apt e cria o symlink no caminho que o
 # codigo exige, senao o preflight de sessao falha com "Chrome ausente".
-RUN mkdir -p chrome-install/opt/google/chrome chrome-install/usr/lib/x86_64-linux-gnu \
-    && ln -sf "$(which google-chrome)" chrome-install/opt/google/chrome/chrome \
-    && chrome --version
+#
+# ATENCAO: NUNCA use `ln -sf "$(which google-chrome)" ...` — se o which
+# voltar vazio (chrome nao instalado), o ln cria um link para o caminho
+# VAZIO e o build "passa" ate a primeira sessao. O `test -x` acima garante
+# que o binario existe; aqui checamos de novo o destino do symlink.
+RUN mkdir -p chrome-install/opt/google/chrome \
+    && ln -sf "$(command -v google-chrome)" chrome-install/opt/google/chrome/chrome \
+    && test -x chrome-install/opt/google/chrome/chrome \
+    && chrome-install/opt/google/chrome/chrome --version
 
 # ---- build do frontend (o dist NAO vai para o git) -----------------------
 # O backend serve o SPA estatico de frontend/dist na raiz e em /admin. O
