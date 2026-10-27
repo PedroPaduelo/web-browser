@@ -66,6 +66,32 @@ COPY scripts ./scripts
 # package.json) — garantimos que ele exista no runtime.
 RUN cd server && npm install ws --omit=dev --no-save
 
+# ---- Chrome onde o codigo procura ----------------------------------------
+# O session-manager espera o binario em chrome-install/opt/google/chrome/chrome
+# (PROJECT_ROOT/chrome-install/...). Esse diretorio NAO vai para o git — sao
+# ~200MB de binario, reinstalados por scripts/install-chrome-sandbox.sh. Na
+# imagem a gente instala o Chrome via apt e cria o symlink no caminho que o
+# codigo exige, senao o preflight de sessao falha com "Chrome ausente".
+RUN mkdir -p chrome-install/opt/google/chrome chrome-install/usr/lib/x86_64-linux-gnu \
+    && ln -sf "$(which google-chrome)" chrome-install/opt/google/chrome/chrome \
+    && chrome --version
+
+# ---- build do frontend (o dist NAO vai para o git) -----------------------
+# O backend serve o SPA estatico de frontend/dist na raiz e em /admin. O
+# .gitignore ignora dist/, entao o COPY acima nao o trouxe: precisa buildar.
+#
+# LICAO (deploy quebrado): `npm run build` = `tsc -b && vite build`. No
+# container o tsc falhou (tipos nao instalados no cache da camada) e o &&
+# MATOU a cadeia: o vite build nunca rodou, e a imagem nasceu SEM dist, com o
+# build "verde". O sintoma la fora era 404 em todas as rotas do SPA.
+# Aqui buildamos com o vite DIRETO (sem tsc, que so checa tipo) e conferimos
+# que o index.html existe — falha explicita no build, nao 404 em producao.
+RUN cd frontend \
+    && npm install \
+    && npx vite build \
+    && test -f dist/index.html \
+    && ls -la dist/index.html
+
 # AVISO: @roamhq/wrtc e dependencia NATIVA do server/package.json, e o npm
 # install abaixo vai compila-la do zero. Isso exige build-essential, que esta
 # no slim por padrao, entao o build pode falhar em "python3 make g++ not found".
