@@ -1523,6 +1523,66 @@ app.post('/api/admin/auth/password', adminJwtAuth, (req, res) => {
 
 // --- Admin Routes ---
 
+// Bootstrap do PRIMEIRO admin. Sem esta rota, um deploy novo nasce com a
+// tabela admin_users vazia (o servidor cria a tabela, mas nunca chama
+// createUser) e ninguém consegue entrar no painel — o login existe, mas não
+// há contra quem verificar a senha.
+//
+// Regras de segurança:
+//   • só cria se a tabela estiver VAZIA (countUsers() === 0). Com um usuário
+//     no banco, devolve 409 — não é brecha para criar admin arbitrariamente;
+//   • exige o ADMIN_SECRET do ambiente pelo header X-Admin-Secret. Sem o
+//     secret configurado, a rota é 503 (não "aberta": deploy sem secret não
+//     deveria estar criando admin por HTTP);
+//   • valida email e senha com as MESMAS regras do cadastro normal;
+//   • não faz login automático: devolve 201 e quem chamou usa /auth/login.
+//     Assim o primeiro acesso passa pelo limite de tentativas igual ao resto.
+app.post('/api/admin/bootstrap', adminLoginLimiter, (req, res) => {
+  if (!ADMIN_SECRET) {
+    return res.status(503).json({ error: 'ADMIN_SECRET not configured' });
+  }
+  if (!verifyLegacyAdminSecret(req.headers['x-admin-secret'])) {
+    return res.status(401).json({ error: 'Invalid admin secret' });
+  }
+
+  let existing;
+  try {
+    existing = adminUsers.countUsers();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+  if (existing > 0) {
+    return res.status(409).json({ error: 'Admin already exists' });
+  }
+
+  const { email, password, name } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password are required' });
+  }
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'email and password must be strings' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'A senha precisa de pelo menos 8 caracteres' });
+  }
+  if (password.length > 512) {
+    return res.status(400).json({ error: 'Password too long' });
+  }
+
+  let user;
+  try {
+    user = adminUsers.createUser(email, password, name || '');
+  } catch (err) {
+    // email inválido ou duplicado (duplicado não deveria acontecer: a tabela
+    // estava vazia, mas entre o countUsers e o INSERT outra corrida pode
+    // ter criado — daí a mensagem vem do próprio createUser).
+    return res.status(400).json({ error: err.message });
+  }
+
+  console.log('[AdminAuth] primeiro admin criado via bootstrap:', user.email);
+  res.status(201).json({ admin: user });
+});
+
 app.post('/api/admin/keys', adminAuth, (req, res) => {
   try {
     const { name, maxSessions, maxSessionDuration, maxIdleTimeout, features } = req.body || {};
