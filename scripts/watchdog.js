@@ -43,6 +43,11 @@ const FRONTEND_DIR = path.join(ROOT, 'frontend');
 
 const BACKEND_PORT = parseInt(process.env.SERENDE_PORT || '4201', 10);
 const FRONTEND_PORT = parseInt(process.env.SERENDE_FRONTEND_PORT || '4204', 10);
+// O MCP é processo SEPARADO do backend (porta própria, código próprio em
+// server/mcp). No deploy em container o watchdog é o PID 1 e tem que subir os
+// dois: sem isto o /mcp não existia em produção — que era exatamente a
+// reclamação ("preciso do mcp em prod").
+const MCP_PORT = parseInt(process.env.MCP_PORT || '4202', 10);
 
 const HEALTH_INTERVAL_MS = 5000;
 const HEALTH_TIMEOUT_MS = 3000;
@@ -55,6 +60,7 @@ const HEALTH_FAIL_THRESHOLD = 3;
 const only = process.argv.slice(2).filter((a) => a.startsWith('--'));
 const wantBackend = only.length === 0 || only.includes('--backend');
 const wantFrontend = only.length === 0 || only.includes('--frontend');
+const wantMcp = only.length === 0 || only.includes('--mcp');
 
 function log(scope, message) {
   console.log(`[watchdog:${scope}] ${new Date().toISOString()} ${message}`);
@@ -193,6 +199,30 @@ if (wantFrontend) {
     cwd: FRONTEND_DIR,
     port: FRONTEND_PORT,
     healthPath: '/',
+  }));
+}
+
+// O MCP é o que o agente (Claude/GPT/Cursor) chama em /mcp: é a ferramenta, não
+// o painel. Fica supervisionado igual ao backend — se cair, volta sozinho com o
+// mesmo backoff. Health em /health: rota pública do MCP (não /mcp, que exige
+// X-API-Key do cliente e devolveria 401 para o watchdog).
+//
+// Ordem importa: o MCP fala com o backend em SERENDE_API (localhost:4201), mas
+// só no primeiro request de um cliente — subir antes não quebra nada, e o
+// watchdog já tem backoff para o caso de o backend ainda não estar de pé.
+if (wantMcp) {
+  supervised.push(new Supervised({
+    name: 'mcp',
+    command: process.execPath,
+    args: [path.join(SERVER_DIR, 'mcp', 'index.js')],
+    cwd: path.join(SERVER_DIR, 'mcp'),
+    port: MCP_PORT,
+    healthPath: '/health',
+    env: {
+      MCP_PORT: String(MCP_PORT),
+      // Mesmo container: o backend escuta em 0.0.0.0:4201.
+      SERENDE_API: process.env.SERENDE_API || `http://127.0.0.1:${BACKEND_PORT}`,
+    },
   }));
 }
 

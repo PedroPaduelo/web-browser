@@ -124,12 +124,19 @@ RUN cd frontend \
 # container. O painel monta um volume em /data e o DB_PATH aponta para la.
 ENV NODE_ENV=production
 ENV PORT=4201
+ENV MCP_PORT=4202
+# Base pública usada para montar os links que o MCP devolve (viewer da sessão e
+# o link assinado da captura de tela). Sem isso o MCP cai no default hardcoded
+# (serende.ddw1sl.easypanel.host), que não é este deploy — o agente receberia
+# URL de outro ambiente. O valor real é injetado por services_create/env_vars;
+# aqui fica só o default do build.
+ENV SERENDE_PUBLIC_URL=https://web-browser.mp.serendiped.com
 ENV DB_PATH=/data/serende.db
 VOLUME ["/data"]
-EXPOSE 4201
+EXPOSE 4201 4202
 
 # healthcheck bate em /api/health, que o servidor responde sem auth.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4201)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "server/index.js"]
+CMD ["node", "scripts/watchdog.js", "--backend", "--mcp"]
