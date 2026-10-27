@@ -1,0 +1,87 @@
+# Imagem do backend do Serende Remote Browser.
+#
+# O backend NAO e um app Node comum: ele spawna um Chrome por sessao de
+# usuario, dentro de um Xvfb proprio, e conversa com ele por CDP. Por isso a
+# imagem traz a stack toda — Xvfb, Chrome, Python+Xlib (input relay) e ffmpeg
+# (audio). Sem eles o servidor sobe, mas session_start falha.
+#
+# Build no painel (services_create com sourceType github, dockerfilePath=Dockerfile).
+FROM node:22-bookworm-slim
+
+# ---- stack de video/input -------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      xvfb \
+      x11-utils \
+      libx11-6 \
+      libxext6 \
+      libxi6 \
+      libxtst6 \
+      libxrandr2 \
+      libnss3 \
+      libatk-bridge2.0-0 \
+      libatk1.0-0 \
+      libcups2 \
+      libdrm2 \
+      libgbm1 \
+      libasound2 \
+      libpango-1.0-0 \
+      libcairo2 \
+      libxcomposite1 \
+      libxdamage1 \
+      libxfixes3 \
+      libxkbcommon0 \
+      libgtk-3-0 \
+      fonts-liberation \
+      ffmpeg \
+      python3 \
+      python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Xlib: o input relay (server/input-handler.js) spawna python3 e fala XTest.
+RUN pip3 install --break-system-packages --no-cache-dir python-xlib
+
+# ---- Chrome estavel (o apt do debian traz o chromium, que funciona, mas o
+# codigo espera o binario do google-chrome) --------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends wget gnupg \
+    && wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /etc/apt/trusted.gpg.d/google.gpg \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- aplicacao ------------------------------------------------------------
+WORKDIR /app
+
+# dependencias primeiro (cache de camada): o node_modules do server tem o ws
+# fora do package.json, por isso instalamos no server/ e nao na raiz.
+COPY server/package.json ./server/
+COPY server/mcp/package.json ./server/mcp/
+RUN cd server && npm install --omit=dev \
+    && cd mcp && npm install --omit=dev
+
+COPY server ./server
+COPY frontend ./frontend
+COPY scripts ./scripts
+
+# o npm install acima nao trouxe o ws do server (esta em node_modules, nao no
+# package.json) — garantimos que ele exista no runtime.
+RUN cd server && npm install ws --omit=dev --no-save
+
+# AVISO: @roamhq/wrtc e dependencia NATIVA do server/package.json, e o npm
+# install abaixo vai compila-la do zero. Isso exige build-essential, que esta
+# no slim por padrao, entao o build pode falhar em "python3 make g++ not found".
+# O servidor nao importa webrtc-manager no boot, mas o package.json pede a
+# dependencia: se o build quebrar, tire @roamhq/wrtc do server/package.json.
+
+# O default do codigo e /tmp/serende.db, que se perde a cada restart do
+# container. O painel monta um volume em /data e o DB_PATH aponta para la.
+ENV NODE_ENV=production
+ENV PORT=4201
+ENV DB_PATH=/data/serende.db
+VOLUME ["/data"]
+EXPOSE 4201
+
+# healthcheck bate em /api/health, que o servidor responde sem auth.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||4201)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "server/index.js"]
