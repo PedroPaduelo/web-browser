@@ -320,6 +320,78 @@ async function sweepDeadSessions() {
   return reclaimed;
 }
 
+// --- Presets de dispositivo (emulação de hardware) ---
+//
+// O hCaptcha coleta: plataforma, GPU (WebGL vendor/renderer), cores, memória,
+// UA. Sinais REAIS do nosso host (Linux x86_64, 12 cores, 32GB, sem WebGL)
+// denunciam servidor. Os presets espelham máquinas típicas; 'win' é o PC de
+// escritório BR mais comum (Windows + Intel UHD integrada).
+//
+// A versão do Chrome no UA é preenchida em resolveDevice a partir da versão
+// real instalada (lida uma vez via --version), para nunca mentir a versão.
+const DEVICE_PRESETS = {
+  win: {
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{V} Safari/537.36',
+    platform: 'Win32',
+    gpuVendor: 'Intel Inc.',
+    gpuRenderer: 'Intel Iris OpenGL Engine',
+    glVendor: 'WebKit',
+    glRenderer: 'WebKit WebGL',
+    hardwareConcurrency: 8,
+    deviceMemory: 8,
+  },
+  mac: {
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{V} Safari/537.36',
+    platform: 'MacIntel',
+    gpuVendor: 'Apple Inc.',
+    gpuRenderer: 'Apple M1',
+    glVendor: 'WebKit',
+    glRenderer: 'WebKit WebGL',
+    hardwareConcurrency: 8,
+    deviceMemory: 8,
+  },
+  linux: {
+    userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{V} Safari/537.36',
+    platform: 'Linux x86_64',
+    gpuVendor: 'Intel Inc.',
+    gpuRenderer: 'Mesa Intel(R) UHD Graphics 630',
+    glVendor: 'WebKit',
+    glRenderer: 'WebKit WebGL',
+    hardwareConcurrency: 4,
+    deviceMemory: 4,
+  },
+};
+
+let chromeVersionCache = null;
+function chromeVersion() {
+  if (chromeVersionCache) return chromeVersionCache;
+  try {
+    const out = require('child_process').execFileSync(CHROME_BIN, ['--version'], { timeout: 5000 }).toString();
+    const m = /(\d+\.\d+\.\d+\.\d+)/.exec(out);
+    chromeVersionCache = m ? m[1] : '120.0.0.0';
+  } catch {
+    chromeVersionCache = '120.0.0.0';
+  }
+  return chromeVersionCache;
+}
+
+function resolveDevice(presetName, overrides = {}) {
+  const preset = DEVICE_PRESETS[presetName] || DEVICE_PRESETS.win;
+  const v = chromeVersion();
+  const device = {
+    preset: DEVICE_PRESETS[presetName] ? presetName : 'win',
+    userAgent: (overrides.userAgent || preset.userAgent).replace('{V}', v),
+    platform: overrides.platform || preset.platform,
+    gpuVendor: overrides.gpuVendor || preset.gpuVendor,
+    gpuRenderer: overrides.gpuRenderer || preset.gpuRenderer,
+    glVendor: preset.glVendor,
+    glRenderer: preset.glRenderer,
+    hardwareConcurrency: Number(overrides.hardwareConcurrency || preset.hardwareConcurrency) || 8,
+    deviceMemory: Number(overrides.deviceMemory || preset.deviceMemory) || 8,
+  };
+  return device;
+}
+
 async function startSession(sessionId, tenantId, options = {}) {
   // Pré-voo: binário ausente gera erro acionável ANTES de consumir display/porta.
   const missing = checkBinaries();
@@ -358,12 +430,32 @@ async function startSession(sessionId, tenantId, options = {}) {
     // (sem o bypass, o Chrome manda até o CDP 127.0.0.1 pelo proxy e o boot
     // trava). Ausente = saída direta, como antes.
     proxyUrl = process.env.CHROME_PROXY_URL || null,
+    // --- Preset de dispositivo (emulação de hardware, caso Serpro/hCaptcha) ---
+    // O hCaptcha coleta sinais de hardware: plataforma, GPU (WebGL), cores,
+    // memória. O default 'win' espelha o PC de escritório BR mais comum
+    // (Windows + Intel integrada); 'mac' e 'linux' disponíveis p/ coerência
+    // com outros cenários. session_start pode sobrescrever via devicePreset,
+    // ou passar sinais avulsos (userAgent, platform, gpuVendor, gpuRenderer,
+    // hardwareConcurrency, deviceMemory).
+    devicePreset = process.env.CHROME_DEVICE_PRESET || 'win',
+    userAgent = null,
+    platform = null,
+    gpuVendor = null,
+    gpuRenderer = null,
+    hardwareConcurrency = null,
+    deviceMemory = null,
   } = options;
 
   const [width, height] = String(resolution).split('x').map(Number);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width < 320 || height < 200) {
     throw stageError('validate', 'bad_resolution', `Resolução inválida "${resolution}" — use LARGURAxALTURA, ex.: 1920x1080`, 400);
   }
+
+  // Resolve o preset de dispositivo em sinais concretos. Sinais avulsos
+  // vencem o preset (ex.: devicePreset=win + hardwareConcurrency=4).
+  const device = resolveDevice(devicePreset, {
+    userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory,
+  });
 
   const displayNum = allocateDisplay();
   if (displayNum === null) {
@@ -514,7 +606,15 @@ async function startSession(sessionId, tenantId, options = {}) {
   const chromeArgs = [
     '--no-sandbox',
     '--disable-setuid-sandbox',
-    '--disable-gpu',
+    // GPU SOFTWARE (não desabilitada): o --disable-gpu antigo matava o WebGL
+    // (getContext('webgl') = null), e "sem WebGL" é sinal de automação para o
+    // hCaptcha. Com SwiftShader o contexto existe; o vendor/renderer é
+    // spoofado via script no boot (ver STEALTH_JS no index.js), porque o
+    // SwiftShader puro ("SwiftShader", "ANGLE (Google, Vulkan...") também
+    // denuncia software. MEDIDO: flags abaixo dão contexto webgl+webgl2.
+    '--use-gl=angle',
+    '--use-angle=swiftshader',
+    '--enable-unsafe-swiftshader',
     '--disable-dev-shm-usage',
     '--disable-breakpad',
     '--disable-crash-reporter',
@@ -573,6 +673,9 @@ async function startSession(sessionId, tenantId, options = {}) {
     // no boot via cdpRequest no index.js); a flag --lang cobre navigator.language
     // e o Accept-Language.
     `--lang=${locale}`,
+    // UA do preset de dispositivo (default: Windows). O platform e o resto
+    // dos sinais vão via Network.setUserAgentOverride + script no boot.
+    `--user-agent=${device.userAgent}`,
   ];
 
   if (extensionPath) {
@@ -739,6 +842,7 @@ async function startSession(sessionId, tenantId, options = {}) {
     locale,
     timezone,
     proxy: proxyActive,
+    device,
   };
 
   sessions.set(sessionId, sessionData);

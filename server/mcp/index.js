@@ -838,8 +838,15 @@ function createServer() {
       locale: z.string().optional().describe('Browser locale, e.g. "pt-BR". Default pt-BR. Sets --lang and the profile Preferences (navigator.languages).'),
       timezone: z.string().optional().describe('Page timezone, e.g. "America/Sao_Paulo". Default America/Sao_Paulo. Applied via CDP Emulation at boot.'),
       proxyUrl: z.string().optional().describe('Proxy for this session: "http://host:port", "socks5://host:port" or "http://user:pass@host:port". Omit = direct connection. Use a residential proxy when the target blocks datacenter IPs.'),
+      devicePreset: z.enum(['win', 'mac', 'linux']).optional().describe('Device emulation preset (default win): spoofs user-agent, platform, WebGL GPU vendor/renderer, CPU cores and memory so hardware fingerprinting sees a typical machine instead of the server.'),
+      userAgent: z.string().optional().describe('Override the preset user-agent string.'),
+      platform: z.string().optional().describe('Override the preset navigator.platform, e.g. "Win32".'),
+      gpuVendor: z.string().optional().describe('Override the preset WebGL UNMASKED vendor, e.g. "NVIDIA Corporation".'),
+      gpuRenderer: z.string().optional().describe('Override the preset WebGL UNMASKED renderer, e.g. "NVIDIA GeForce GTX 1050".'),
+      hardwareConcurrency: z.number().optional().describe('Override the preset CPU core count.'),
+      deviceMemory: z.number().optional().describe('Override the preset memory in GB.'),
     }),
-  }, async ({ resolution, startUrl, forceNew, locale, timezone, proxyUrl }) => {
+  }, async ({ resolution, startUrl, forceNew, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory }) => {
     const tenantId = getCurrentTenantId();
     const cachedId = effectiveCurrent(tenantId);
     // Já tem uma corrente viva: sem pedido explícito de nova, devolve ela.
@@ -858,7 +865,7 @@ function createServer() {
           return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', reused: true, resolution: existing.resolution, viewerUrl, message: 'Reused a session that was already open. If other agents use this key, call session_start with forceNew:true to get your own session.' }, null, 2));
         }
         // Resolução diferente da sessão existente: o pedido é por outra.
-        return startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl });
+        return startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory });
       } catch (e) {
         // Transiente (429/5xx/rede): a sessão pode continuar viva — não descarta
         // o cache, senão um rate limit cascateia em "cria outra sessão".
@@ -867,7 +874,7 @@ function createServer() {
         forgetSessionEverywhere(tenantId, cachedId);
       }
     }
-    return startNewSession(tenantId, { resolution: resolution || '1440x900', startUrl, locale, timezone, proxyUrl });
+    return startNewSession(tenantId, { resolution: resolution || '1440x900', startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory });
   });
 
   // A resolução pedida bate com a da sessão existente?
@@ -883,8 +890,8 @@ function createServer() {
   }
 
   // Cria a sessão no backend e a torna corrente DESTA conexão.
-  async function startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl }) {
-    const data = await api('POST', '/api/session', { resolution, startUrl, locale, timezone, proxyUrl });
+  async function startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory }) {
+    const data = await api('POST', '/api/session', { resolution, startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory });
     setCurrentSession(tenantId, data.sessionId);
     markSessionValidated(tenantId, data.sessionId);
     const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${data.sessionId}`;

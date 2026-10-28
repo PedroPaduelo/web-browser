@@ -450,10 +450,14 @@ app.get('/api/health', (req, res) => {
 
 app.post('/api/session', authMiddleware, async (req, res) => {
   try {
-    const { resolution, startUrl, extensionPath, locale, timezone, proxyUrl } = req.body || {};
+    const { resolution, startUrl, extensionPath, locale, timezone, proxyUrl,
+      devicePreset, userAgent, platform, gpuVendor, gpuRenderer,
+      hardwareConcurrency, deviceMemory } = req.body || {};
     const sessionId = uuidv4();
     const result = await sessionManager.startSession(sessionId, req.tenant.tenantId, {
       resolution, startUrl, extensionPath, locale, timezone, proxyUrl,
+      devicePreset, userAgent, platform, gpuVendor, gpuRenderer,
+      hardwareConcurrency, deviceMemory,
       maxSessions: req.tenant.maxSessions,
     });
 
@@ -518,17 +522,64 @@ app.post('/api/session', authMiddleware, async (req, res) => {
         // NewDocument sem o domínio Page habilitado registra (identifier:1)
         // mas NUNCA executa — a marca não aparece nem após Page.navigate.
         await cdpRequest(raw.cdpPort, 'Page.enable', {});
+        // UA + plataforma + idioma coerentes com o preset de dispositivo.
+        // A flag --user-agent cobre o processo; o override via CDP cobre o
+        // navigator.* da página (platform, vendor, appVersion).
+        if (raw.device) {
+          await cdpRequest(raw.cdpPort, 'Network.setUserAgentOverride', {
+            userAgent: raw.device.userAgent,
+            platform: raw.device.platform,
+            // Só idiomas, SEM pesos: o CDP espelha este valor em
+            // navigator.languages, e "pt;q=0.9" virava um "idioma" literal.
+            // Medido: com pesos, languages=["pt-BR","pt;q=0.9","en;q=0.8"].
+            acceptLanguage: raw.locale ? `${raw.locale},${raw.locale.split('-')[0]},en` : undefined,
+          });
+        }
+        const dv = raw.device || {};
+        // O script stealth roda em todo documento FUTURO (addScriptToEvaluate-
+        // OnNewDocument), mas NÃO no documento do boot (a startUrl) — e é
+        // justamente ela que o usuário abre primeiro (ex.: o Serpro). Então o
+        // mesmo source é avaliado UMA vez no documento atual via Runtime.
+        // Medido: sem isto, o doc do boot mostra hw real (12/4) e SwiftShader;
+        // com isto, mostra o preset (8/8, Intel) desde a primeira página.
+        const stealthSource = [
+          // navigator.webdriver: false não basta esconder — o Chrome define
+          // como true sob automação; redefine como getter falso e não
+          // configurável, como num browser manual.
+          'Object.defineProperty(navigator, "webdriver", { get: () => false, configurable: true });',
+          // Chrome runtime falso-positivo: alguns detectores checam
+          // window.chrome.runtime ausente como sinal de headless.
+          'if (window.chrome && !window.chrome.runtime) { window.chrome.runtime = {}; }',
+          // --- Hardware spoof (preset de dispositivo) ---
+          `Object.defineProperty(navigator, "hardwareConcurrency", { get: () => ${dv.hardwareConcurrency || 8}, configurable: true });`,
+          `Object.defineProperty(navigator, "deviceMemory", { get: () => ${dv.deviceMemory || 8}, configurable: true });`,
+          // WebGL: o SwiftShader dá contexto, mas o UNMASKED_* denuncia
+          // software ("SwiftShader"/"ANGLE (Google, Vulkan..."). Intercepta
+          // getParameter e devolve a GPU do preset.
+          `(function(){`,
+          `  const VENDOR=${JSON.stringify(dv.gpuVendor || 'Intel Inc.')};`,
+          `  const RENDERER=${JSON.stringify(dv.gpuRenderer || 'Intel Iris OpenGL Engine')};`,
+          `  const proto = WebGLRenderingContext && WebGLRenderingContext.prototype;`,
+          `  if (!proto || !proto.getParameter) return;`,
+          `  const orig = proto.getParameter;`,
+          `  proto.getParameter = function(p){`,
+          `    if (p === 37445) return VENDOR;`,   // UNMASKED_VENDOR_WEBGL
+          `    if (p === 37446) return RENDERER;`, // UNMASKED_RENDERER_WEBGL
+          `    return orig.apply(this, arguments);`,
+          `  };`,
+          `})();`,
+        ].join('\n');
         await cdpRequest(raw.cdpPort, 'Page.addScriptToEvaluateOnNewDocument', {
-          source: [
-            // navigator.webdriver: false não basta esconder — o Chrome define
-            // como true sob automação; redefine como getter falso e não
-            // configurável, como num browser manual.
-            'Object.defineProperty(navigator, "webdriver", { get: () => false, configurable: true });',
-            // Chrome runtime falso-positivo: alguns detectores checam
-            // window.chrome.runtime ausente como sinal de headless.
-            'if (window.chrome && !window.chrome.runtime) { window.chrome.runtime = {}; }',
-          ].join('\n'),
+          source: stealthSource,
         });
+        // Aplica no documento ATUAL também (a startUrl). Best-effort dentro
+        // do best-effort: se o documento ainda não existe, segue sem.
+        try {
+          await cdpRequest(raw.cdpPort, 'Runtime.evaluate', {
+            expression: stealthSource,
+            returnByValue: true,
+          });
+        } catch {}
         console.log(`[API] Session ${sessionId}: stealth aplicado (tz=${raw.timezone || 'default'}, lang=${raw.locale || 'default'})`);
       } catch (e) {
         console.warn(`[API] Session ${sessionId}: stealth falhou (segue sem):`, e.message);
