@@ -650,12 +650,25 @@ app.post('/api/input', authMiddleware, trackActivity, async (req, res) => {
 // seguidos no mesmo tick chega ao DOM como ~N/2 eventos (medido: 10 moves
 // -> 5 eventos no DOM), e o arrasto "anda" aos trancos. 16ms = 1 frame a
 // 60Hz: cada move vira um evento próprio, na ordem.
+//
+// Jitter humano (caso Serpro/hCaptcha): intervalo FIXO de 16ms é assinatura
+// mecânica — humano varia entre ~8 e ~40ms por movimento. O jitter mantém o
+// piso de 1 frame (para não reintroduzir o coalescing) e varia o resto.
+// Mesma lógica nas teclas (ver typeIntoFocus no MCP): delay base 80ms vira
+// 60-140ms. Desligável por sessão via humanize:false no batch.
 const MOUSE_MOVE_FRAME_MS = 16;
+const MOUSE_MOVE_JITTER_MS = 24;
+function humanDelay(base, jitter) {
+  return base + Math.floor(Math.random() * (jitter + 1));
+}
 
 app.post('/api/input/batch', authMiddleware, trackActivity, async (req, res) => {
-  const { sessionId, actions } = req.body || {};
+  const { sessionId, actions, humanize } = req.body || {};
   if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
   if (!Array.isArray(actions)) return res.status(400).json({ error: 'Missing actions array' });
+  // humanize (default true): jitter nos intervalos entre ações. false = timing
+  // determinístico (útil para testes que medem ordem/latência exata).
+  const jitter = humanize !== false;
 
   req.params = { ...req.params, sessionId };
   const session = getSessionAndValidate(req, res);
@@ -684,8 +697,13 @@ app.post('/api/input/batch', authMiddleware, trackActivity, async (req, res) => 
       await new Promise((resolve) => setImmediate(resolve));
       // Um move por frame: o Chrome coalesce os mousemove pendentes e o
       // DOM receberia ~metade dos eventos (o arrasto anda aos trancos).
+      // Com jitter: 16-40ms por move (piso de 1 frame preservado).
       if (msg.type === 'mousemove') {
-        await new Promise((resolve) => setTimeout(resolve, MOUSE_MOVE_FRAME_MS));
+        const wait = jitter ? humanDelay(MOUSE_MOVE_FRAME_MS, MOUSE_MOVE_JITTER_MS) : MOUSE_MOVE_FRAME_MS;
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      } else if (jitter && (msg.type === 'keydown' || msg.type === 'keyup')) {
+        // Teclas: 5-25ms entre down/up — humano nunca alterna em 0ms.
+        await new Promise((resolve) => setTimeout(resolve, humanDelay(5, 20)));
       }
     }
   }

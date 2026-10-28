@@ -671,7 +671,9 @@ function createServer() {
         sessionId: sid,
         actions: [{ type: 'keydown', key: ch }, { type: 'keyup', key: ch }],
       });
-      if (humanized) await new Promise((r) => setTimeout(r, delayMs));
+      // Jitter humano (caso Serpro/hCaptcha): delay fixo entre teclas é
+      // assinatura mecânica. 60-140ms em torno dos 80ms de base.
+      if (humanized) await new Promise((r) => setTimeout(r, delayMs * 0.75 + Math.random() * delayMs * 0.75));
     }
     const after = await evalPage(sid, FOCUS_PROBE_JS);
     const grew = (after.value || '').length - (before.value || '').length;
