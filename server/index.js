@@ -506,6 +506,10 @@ app.post('/api/session', authMiddleware, async (req, res) => {
             timezoneId: raw.timezone,
           });
         }
+        // Page.enable ANTES do registro: medido que addScriptToEvaluateOn-
+        // NewDocument sem o domínio Page habilitado registra (identifier:1)
+        // mas NUNCA executa — a marca não aparece nem após Page.navigate.
+        await cdpRequest(raw.cdpPort, 'Page.enable', {});
         await cdpRequest(raw.cdpPort, 'Page.addScriptToEvaluateOnNewDocument', {
           source: [
             // navigator.webdriver: false não basta esconder — o Chrome define
