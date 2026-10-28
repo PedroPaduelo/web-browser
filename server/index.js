@@ -450,10 +450,10 @@ app.get('/api/health', (req, res) => {
 
 app.post('/api/session', authMiddleware, async (req, res) => {
   try {
-    const { resolution, startUrl, extensionPath } = req.body || {};
+    const { resolution, startUrl, extensionPath, locale, timezone } = req.body || {};
     const sessionId = uuidv4();
     const result = await sessionManager.startSession(sessionId, req.tenant.tenantId, {
-      resolution, startUrl, extensionPath,
+      resolution, startUrl, extensionPath, locale, timezone,
       maxSessions: req.tenant.maxSessions,
     });
 
@@ -495,6 +495,32 @@ app.post('/api/session', authMiddleware, async (req, res) => {
       }
 
       const inputHdl = createInputHandler(raw.displayNum);
+
+      // --- Stealth ambiental (caso Serpro 429) ---
+      // Aplicado UMA vez no boot, antes de devolver a sessão: timezone da página
+      // + remoção de navigator.webdriver em todo documento futuro. Best-effort:
+      // se o CDP ainda não responde, a sessão segue sem stealth (não falha).
+      try {
+        if (raw.timezone) {
+          await cdpRequest(raw.cdpPort, 'Emulation.setTimezoneOverride', {
+            timezoneId: raw.timezone,
+          });
+        }
+        await cdpRequest(raw.cdpPort, 'Page.addScriptToEvaluateOnNewDocument', {
+          source: [
+            // navigator.webdriver: false não basta esconder — o Chrome define
+            // como true sob automação; redefine como getter falso e não
+            // configurável, como num browser manual.
+            'Object.defineProperty(navigator, "webdriver", { get: () => false, configurable: true });',
+            // Chrome runtime falso-positivo: alguns detectores checam
+            // window.chrome.runtime ausente como sinal de headless.
+            'if (window.chrome && !window.chrome.runtime) { window.chrome.runtime = {}; }',
+          ].join('\n'),
+        });
+        console.log(`[API] Session ${sessionId}: stealth aplicado (tz=${raw.timezone || 'default'}, lang=${raw.locale || 'default'})`);
+      } catch (e) {
+        console.warn(`[API] Session ${sessionId}: stealth falhou (segue sem):`, e.message);
+      }
 
       sessionResources.set(sessionId, { streamManager: streamMgr, screencast, inputHandler: inputHdl, captureMode });
     } catch (setupErr) {

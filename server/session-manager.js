@@ -345,6 +345,11 @@ async function startSession(sessionId, tenantId, options = {}) {
     resolution = '1440x900',
     startUrl = 'https://www.google.com',
     extensionPath = null,
+    // Coerência ambiental (caso Serpro 429): o Chrome nascia com locale en-US
+    // e timezone UTC, incoerente com sites BR. Os defaults abaixo espelham um
+    // usuário brasileiro; session_start pode sobrescrever.
+    locale = process.env.CHROME_LOCALE || 'pt-BR',
+    timezone = process.env.CHROME_TIMEZONE || 'America/Sao_Paulo',
   } = options;
 
   const [width, height] = String(resolution).split('x').map(Number);
@@ -474,6 +479,15 @@ async function startSession(sessionId, tenantId, options = {}) {
       // Sem isso, a página nova (NTP) pode pintar em light por cima.
       prefs.ntp = prefs.ntp || {};
 
+      // --- LOCALE NO PERFIL (não só na flag --lang) ---
+      // MEDIDO: a flag --lang=pt-BR sozinha NÃO muda navigator.languages — o
+      // Preferences do profile copiado (intl.selected_languages="en-US,en")
+      // sobrescreve a flag. O Chrome lê o idioma daqui; a flag só vale num
+      // profile virgem. Então grava o locale pedido no perfil da sessão.
+      prefs.intl = prefs.intl || {};
+      prefs.intl.selected_languages = locale;
+      prefs.intl.accept_languages = locale;
+
       fs.writeFileSync(prefsPath, JSON.stringify(prefs));
     } catch (e) {
       console.warn(`[Session:${sessionId}] Failed to patch Preferences:`, e.message);
@@ -546,6 +560,11 @@ async function startSession(sessionId, tenantId, options = {}) {
     `--remote-debugging-port=${cdpPort}`,
     '--remote-debugging-address=127.0.0.1',
     `--app=${startUrl}`, // App mode: sem barra de endereço/abas, viewport == screen
+    // Locale/timezone via CLI: aceito pelo Chrome sem depender de CDP.
+    // O timezone real da página vem do Emulation.setTimezoneOverride (aplicado
+    // no boot via cdpRequest no index.js); a flag --lang cobre navigator.language
+    // e o Accept-Language.
+    `--lang=${locale}`,
   ];
 
   if (extensionPath) {
@@ -688,6 +707,10 @@ async function startSession(sessionId, tenantId, options = {}) {
     userDataDir,
     createdAt: new Date(),
     startUrl,
+    // Stealth ambiental: o index.js aplica via CDP após o boot
+    // (Emulation.setTimezoneOverride + script de webdriver).
+    locale,
+    timezone,
   };
 
   sessions.set(sessionId, sessionData);
