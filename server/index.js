@@ -506,6 +506,14 @@ app.post('/api/session', authMiddleware, async (req, res) => {
             timezoneId: raw.timezone,
           });
         }
+        // Locale de formatação (Intl.*): o --lang + Preferences mudam
+        // navigator.languages, mas o Intl.locale continua en-US. O override
+        // via CDP fecha a última incoerência (medido: vira pt-BR).
+        if (raw.locale) {
+          await cdpRequest(raw.cdpPort, 'Emulation.setLocaleOverride', {
+            locale: raw.locale,
+          });
+        }
         // Page.enable ANTES do registro: medido que addScriptToEvaluateOn-
         // NewDocument sem o domínio Page habilitado registra (identifier:1)
         // mas NUNCA executa — a marca não aparece nem após Page.navigate.
