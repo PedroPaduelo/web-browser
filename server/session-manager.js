@@ -350,6 +350,14 @@ async function startSession(sessionId, tenantId, options = {}) {
     // usuário brasileiro; session_start pode sobrescrever.
     locale = process.env.CHROME_LOCALE || 'pt-BR',
     timezone = process.env.CHROME_TIMEZONE || 'America/Sao_Paulo',
+    // Proxy por sessão (caso Serpro 429): sem IP residencial BR na saída, o
+    // WAF barra antes de avaliar qualquer captcha. Formato:
+    //   http://host:porta  |  socks5://host:porta
+    //   http://usuario:senha@host:porta  (auth vai na URL)
+    // Quando presente, vira --proxy-server + --proxy-bypass-list=<-loopback>
+    // (sem o bypass, o Chrome manda até o CDP 127.0.0.1 pelo proxy e o boot
+    // trava). Ausente = saída direta, como antes.
+    proxyUrl = process.env.CHROME_PROXY_URL || null,
   } = options;
 
   const [width, height] = String(resolution).split('x').map(Number);
@@ -571,6 +579,25 @@ async function startSession(sessionId, tenantId, options = {}) {
     chromeArgs.push(`--load-extension=${extensionPath}`);
   }
 
+  // Proxy: valida o formato antes de passar ao Chrome — URL malformada aqui
+  // vira Chrome sem rede e sessão que nunca abre página, com erro opaco.
+  // Auth vai NA URL (http://user:pass@host:port): o Chrome aceita direto na
+  // flag --proxy-server, sem precisar de Fetch.authRequired (que conflitaria
+  // com o tracking de rede do pool CDP). A senha nunca é logada.
+  let proxyActive = null;
+  if (proxyUrl) {
+    const m = /^(https?|socks5):\/\/(?:([^:@\/]+)(?::([^@\/]*))?@)?([^:\/]+):(\d+)\/?$/.exec(String(proxyUrl).trim());
+    if (!m) {
+      await fail('validate', 'bad_proxy', `Proxy inválido "${proxyUrl}" — use http://host:porta, socks5://host:porta ou http://usuario:senha@host:porta`, 400);
+    }
+    const [, scheme, user, pass, host, port] = m;
+    proxyActive = { scheme, user: user || null, hasPass: Boolean(pass), host, port };
+    const authPart = user ? `${user}${pass ? `:${pass}` : ''}@` : '';
+    chromeArgs.push(`--proxy-server=${scheme}://${authPart}${host}:${port}`);
+    chromeArgs.push('--proxy-bypass-list=<-loopback>');
+    console.log(`[Session:${sessionId}] Proxy: ${scheme}://${host}:${port}${user ? ` (auth: ${user})` : ''}`);
+  }
+
   console.log(`[Session:${sessionId}] Starting Chrome on ${display} cdpPort=${cdpPort}`);
   const chromeEnv = {
     ...process.env,
@@ -711,6 +738,7 @@ async function startSession(sessionId, tenantId, options = {}) {
     // (Emulation.setTimezoneOverride + script de webdriver).
     locale,
     timezone,
+    proxy: proxyActive,
   };
 
   sessions.set(sessionId, sessionData);

@@ -450,10 +450,10 @@ app.get('/api/health', (req, res) => {
 
 app.post('/api/session', authMiddleware, async (req, res) => {
   try {
-    const { resolution, startUrl, extensionPath, locale, timezone } = req.body || {};
+    const { resolution, startUrl, extensionPath, locale, timezone, proxyUrl } = req.body || {};
     const sessionId = uuidv4();
     const result = await sessionManager.startSession(sessionId, req.tenant.tenantId, {
-      resolution, startUrl, extensionPath, locale, timezone,
+      resolution, startUrl, extensionPath, locale, timezone, proxyUrl,
       maxSessions: req.tenant.maxSessions,
     });
 

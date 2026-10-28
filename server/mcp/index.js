@@ -833,8 +833,11 @@ function createServer() {
       resolution: z.string().optional().describe('Screen resolution WxH. Omit = 1920x1080. If a session is already open with a DIFFERENT resolution, a new one is created instead of silently reusing it.'),
       startUrl: z.string().default('https://www.google.com').describe('URL to open on start'),
       forceNew: z.boolean().default(false).describe('true = always create a new session (required when several agents share this key). false (default) = reuse the session already open for this connection when its resolution matches, like a single-session client.'),
+      locale: z.string().optional().describe('Browser locale, e.g. "pt-BR". Default pt-BR. Sets --lang and the profile Preferences (navigator.languages).'),
+      timezone: z.string().optional().describe('Page timezone, e.g. "America/Sao_Paulo". Default America/Sao_Paulo. Applied via CDP Emulation at boot.'),
+      proxyUrl: z.string().optional().describe('Proxy for this session: "http://host:port", "socks5://host:port" or "http://user:pass@host:port". Omit = direct connection. Use a residential proxy when the target blocks datacenter IPs.'),
     }),
-  }, async ({ resolution, startUrl, forceNew }) => {
+  }, async ({ resolution, startUrl, forceNew, locale, timezone, proxyUrl }) => {
     const tenantId = getCurrentTenantId();
     const cachedId = effectiveCurrent(tenantId);
     // Já tem uma corrente viva: sem pedido explícito de nova, devolve ela.
@@ -853,7 +856,7 @@ function createServer() {
           return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', reused: true, resolution: existing.resolution, viewerUrl, message: 'Reused a session that was already open. If other agents use this key, call session_start with forceNew:true to get your own session.' }, null, 2));
         }
         // Resolução diferente da sessão existente: o pedido é por outra.
-        return startNewSession(tenantId, { resolution, startUrl });
+        return startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl });
       } catch (e) {
         // Transiente (429/5xx/rede): a sessão pode continuar viva — não descarta
         // o cache, senão um rate limit cascateia em "cria outra sessão".
@@ -862,7 +865,7 @@ function createServer() {
         forgetSessionEverywhere(tenantId, cachedId);
       }
     }
-    return startNewSession(tenantId, { resolution: resolution || '1440x900', startUrl });
+    return startNewSession(tenantId, { resolution: resolution || '1440x900', startUrl, locale, timezone, proxyUrl });
   });
 
   // A resolução pedida bate com a da sessão existente?
@@ -878,8 +881,8 @@ function createServer() {
   }
 
   // Cria a sessão no backend e a torna corrente DESTA conexão.
-  async function startNewSession(tenantId, { resolution, startUrl }) {
-    const data = await api('POST', '/api/session', { resolution, startUrl });
+  async function startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl }) {
+    const data = await api('POST', '/api/session', { resolution, startUrl, locale, timezone, proxyUrl });
     setCurrentSession(tenantId, data.sessionId);
     markSessionValidated(tenantId, data.sessionId);
     const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${data.sessionId}`;
