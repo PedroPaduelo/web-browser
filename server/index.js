@@ -119,11 +119,11 @@ function screencastOptions(sessionId, raw = {}) {
   const sess = sessionManager.getSession(sessionId);
   const res = (sess && sess.resolution) || (raw && raw.resolution);
   // Dieta de lote: quality 60→35, everyNthFrame 1→4 (fallback CDP mais barato;
-  // o primário é o ffmpeg). Em fallback puro o vídeo granula em movimento,
-  // mas a leitura via DOM não muda.
+  // o primário é o ffmpeg). maxWidth 1920 entrega 1080p real no fallback.
+  // Em fallback puro o vídeo granula em movimento, mas a leitura via DOM não muda.
   return {
     quality: 35,
-    maxWidth: 1280,
+    maxWidth: 1920,
     maxHeight: res && Number(res.height) ? Number(res.height) : 0,
     everyNthFrame: 4,
     sessionId,
@@ -1835,8 +1835,8 @@ app.delete('/api/admin/sessions/:sessionId', adminAuth, (req, res) => {
 
 async function captureThumbnail(session, maxWidth) {
   const target = Math.max(64, Math.min(640, Number(maxWidth) || 320));
-  const sw = session.resolution?.width || 1440;
-  const sh = session.resolution?.height || 900;
+  const sw = session.resolution?.width || 1920;
+  const sh = session.resolution?.height || 1080;
   const scale = target / sw;
   const result = await cdpRequest(session.cdpPort, 'Page.captureScreenshot', {
     format: 'jpeg',

@@ -208,11 +208,11 @@ function startFfmpegCapture(sessionId, display, width, height) {
   const ffmpegBin = resolveFfmpegPath();
   if (!ffmpegBin) return null;
 
-  // A janela do Chrome em --kiosk ocupa 1279x719 dentro do display 1280x720:
+  // A janela do Chrome em --kiosk ocupa (W-1)x(H-1) dentro do display WxH:
   // a última linha e a última coluna ficam SEM conteúdo (o último frame do
-  // x11grab mostrava 1px preto em y=719 e x=1279). O usuário lia essa borda
+  // x11grab mostrava 1px preto na borda). O usuário lia essa borda
   // como "tela cortada". O crop remove a faixa não pintada e o scale de volta
-  // para a resolução da sessão entrega o quadro cheio (1280x720) ao usuário.
+  // para a resolução da sessão entrega o quadro cheio ao usuário.
   const args = [
     '-loglevel', 'error',
     '-f', 'x11grab',
@@ -438,10 +438,11 @@ async function startSession(sessionId, tenantId, options = {}) {
   }
 
   const {
-    // 1280x720 (16:9) é o default para lote: -29% de pixels vs 1440x900
-    // (= -29% raster/JPEG/CPU do ffmpeg por sessão). session_start continua
-    // aceitando qualquer resolução — quem precisa de tela grande pede.
-    resolution = '1280x720',
+    // 1920x1080 (1080p) é o padrão: pedido do usuário, tela cheia real.
+    // Custa ~2.25x pixels vs 1280x720 (= mais raster/JPEG/CPU do ffmpeg por
+    // sessão). session_start continua aceitando qualquer resolução — quem
+    // faz lote pode pedir 1280x720 para economizar.
+    resolution = '1920x1080',
     startUrl = 'https://www.google.com',
     extensionPath = null,
     // Coerência ambiental (caso Serpro 429): o Chrome nascia com locale en-US

@@ -9,10 +9,9 @@ import SessionControls from './components/SessionControls'
 import ConnectionStatus from './components/ConnectionStatus'
 import LoginScreen from './components/LoginScreen'
 
-// Resolução padrão do browser interno. 1440x900 (16:10) é o painel de 19"
-// mais comum e barato: cabe inteiro numa tela de 1920x1080 sem barra de
-// rolagem na pagina, e sobra largura util para o agente ver a pagina inteira.
-export const DEFAULT_RESOLUTION = { width: 1440, height: 900 }
+// Resolução padrão do browser interno. 1920x1080 (1080p) é o padrão:
+// tela cheia real.
+export const DEFAULT_RESOLUTION = { width: 1920, height: 1080 }
 
 export default function App() {
   const { isAuthenticated, loading: authLoading, logout, token } = useAuth()

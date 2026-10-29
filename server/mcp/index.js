@@ -875,7 +875,7 @@ function createServer() {
         forgetSessionEverywhere(tenantId, cachedId);
       }
     }
-    return startNewSession(tenantId, { resolution: resolution || '1280x720', startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory, webgl });
+    return startNewSession(tenantId, { resolution: resolution || '1920x1080', startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory, webgl });
   });
 
   // A resolução pedida bate com a da sessão existente?

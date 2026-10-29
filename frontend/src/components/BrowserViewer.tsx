@@ -30,9 +30,8 @@ interface RectCache {
   containerTop: number
 }
 
-// 1440x900 (16:10): o painel de 19" mais comum e barato. Cabe inteiro numa
-// tela de 1920x1080 sem rolagem, e sobra largura util para ver a pagina.
-const DEFAULT_RESOLUTION = { width: 1440, height: 900 }
+// 1920x1080 (1080p): o padrão, tela cheia real.
+const DEFAULT_RESOLUTION = { width: 1920, height: 1080 }
 
 function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
