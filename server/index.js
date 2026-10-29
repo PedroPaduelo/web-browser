@@ -17,7 +17,6 @@ const crypto = require('crypto');
 const { URL } = require('url');
 const { v4: uuidv4 } = require('uuid');
 const helmet = require('helmet');
-const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const db = require('./db');
 const keyStore = require('./key-store');
 const sessionManager = require('./session-manager');
@@ -82,46 +81,8 @@ app.use(cors({
 // --- Body Parser com limite ---
 app.use(express.json({ limit: '1mb' }));
 
-// --- Rate Limiting Global (tenant-aware) ---
-// Chavear por IP não funciona neste deploy: o MCP é um proxy local
-// (SERENDE_API=http://localhost:4201), então TODO o tráfego vindo do MCP
-// chega como 127.0.0.1 — todos os tenants disputavam UM único balde e um
-// tenant só estourava o limite dos outros (virava 429 em cascata).
-// A chave passa a ser a IDENTIDADE do tenant: o tenantId do JWT (verificado
-// localmente, sem esperar o authMiddleware que roda depois do limiter) ou o
-// hash da x-api-key. Tráfego sem identidade continua no balde por IP.
-const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000;
-const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100;
-const RATE_LIMIT_MAX_REQUESTS_TENANT = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS_TENANT) || 600;
-
-function tenantKeyFromRequest(req) {
-  // Memoizado por request: keyGenerator e limit são avaliados separadamente,
-  // e verifyToken faz uma verificação de assinatura (custo real) a cada chamada.
-  if (req._rateLimitTenantKey !== undefined) return req._rateLimitTenantKey;
-
-  let key = null;
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const payload = verifyToken(authHeader.slice(7));
-    const tenantId = payload && (payload.tenantId || payload.userId);
-    if (tenantId) key = `tenant:${tenantId}`;
-  }
-  if (!key && req.headers['x-api-key']) {
-    key = `tenant:${deriveTenantId(String(req.headers['x-api-key']))}`;
-  }
-  req._rateLimitTenantKey = key;
-  return key;
-}
-
-const globalLimiter = rateLimit({
-  windowMs: RATE_LIMIT_WINDOW_MS,
-  limit: (req) => (tenantKeyFromRequest(req) ? RATE_LIMIT_MAX_REQUESTS_TENANT : RATE_LIMIT_MAX_REQUESTS),
-  keyGenerator: (req) => tenantKeyFromRequest(req) || ipKeyGenerator(req.ip),
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later' },
-});
-app.use('/api/', globalLimiter);
+// SEM RATE LIMIT (decisão do dono, 2026-10-29): nenhum teto de requisições.
+// O único limite que continua valendo é o de SESSÕES por chave (max_sessions).
 
 // --- Request ID ---
 app.use((req, res, next) => {
@@ -314,69 +275,14 @@ sessionManager.onSessionDied((sessionId) => {
 const distPath = path.join(__dirname, '..', 'frontend', 'dist');
 app.use(express.static(distPath));
 
-// --- Rate Limiter (login) ---
-const loginAttempts = new Map();
-const LOGIN_MAX = 5;
-const LOGIN_WINDOW_MS = 60_000;
-
-function loginRateLimiter(req, res, next) {
-  const ip = req.ip || req.socket.remoteAddress;
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-
-  if (entry && now < entry.resetAt) {
-    if (entry.count >= LOGIN_MAX) {
-      const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
-      return res.status(429).json({ error: `Too many attempts. Retry in ${retryAfter}s` });
-    }
-    entry.count++;
-  } else {
-    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
-  }
-
-  next();
-}
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of loginAttempts) {
-    if (now >= entry.resetAt) loginAttempts.delete(ip);
-  }
-}, 300_000);
-
-// Limiter do login do ADMIN: mais restritivo que o de usuário (10/min) porque
-// o alvo aqui é brute force de senha — e cada tentativa custa um scrypt.
-const adminLoginAttempts = new Map();
-const ADMIN_LOGIN_MAX = 5;
-const ADMIN_LOGIN_WINDOW_MS = 5 * 60_000;
-
-function adminLoginLimiter(req, res, next) {
-  const ip = req.ip || req.socket.remoteAddress;
-  const now = Date.now();
-  const entry = adminLoginAttempts.get(ip);
-
-  if (entry && now < entry.resetAt) {
-    if (entry.count >= ADMIN_LOGIN_MAX) {
-      const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
-      return res.status(429).json({ error: `Muitas tentativas. Tente em ${retryAfter}s` });
-    }
-    entry.count++;
-  } else {
-    adminLoginAttempts.set(ip, { count: 1, resetAt: now + ADMIN_LOGIN_WINDOW_MS });
-  }
-  next();
-}
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of adminLoginAttempts) {
-    if (now >= entry.resetAt) adminLoginAttempts.delete(ip);
-  }
-}, 300_000);
+// --- Sem rate limit (login e global removidos) ---
+// SEM RATE LIMIT de login (decisão do dono, 2026-10-29): sem teto de
+// tentativas em /api/auth/login, /api/admin/auth/login e /api/admin/bootstrap.
+// O único limite que continua valendo é o de SESSÕES por chave (max_sessions).
 
 // --- Auth Routes (public) ---
 
-app.post('/api/auth/login', loginRateLimiter, (req, res) => {
+app.post('/api/auth/login', (req, res) => {
   const { apiKey } = req.body || {};
   if (!apiKey) {
     return res.status(400).json({ error: 'apiKey required' });
@@ -1552,7 +1458,7 @@ const adminAuth = adminAnyAuth(verifyLegacyAdminSecret);
 
 // --- Admin Auth (email + senha → JWT) ---
 
-app.post('/api/admin/auth/login', adminLoginLimiter, (req, res) => {
+app.post('/api/admin/auth/login', (req, res) => {
   const { email, password } = req.body || {};
 
   if (!email || !password) {
@@ -1645,7 +1551,7 @@ app.post('/api/admin/auth/password', adminJwtAuth, (req, res) => {
 //   • valida email e senha com as MESMAS regras do cadastro normal;
 //   • não faz login automático: devolve 201 e quem chamou usa /auth/login.
 //     Assim o primeiro acesso passa pelo limite de tentativas igual ao resto.
-app.post('/api/admin/bootstrap', adminLoginLimiter, (req, res) => {
+app.post('/api/admin/bootstrap', (req, res) => {
   if (!ADMIN_SECRET) {
     return res.status(503).json({ error: 'ADMIN_SECRET not configured' });
   }
