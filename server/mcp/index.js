@@ -845,8 +845,9 @@ function createServer() {
       gpuRenderer: z.string().optional().describe('Override the preset WebGL UNMASKED renderer, e.g. "NVIDIA GeForce GTX 1050".'),
       hardwareConcurrency: z.number().optional().describe('Override the preset CPU core count.'),
       deviceMemory: z.number().optional().describe('Override the preset memory in GB.'),
+      webgl: z.boolean().optional().describe('true = real WebGL via software GPU (SwiftShader), for sites that require WebGL. Default false: a real WebGL context can crash heavy pages; the emulated GPU vendor/renderer is reported regardless.'),
     }),
-  }, async ({ resolution, startUrl, forceNew, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory }) => {
+  }, async ({ resolution, startUrl, forceNew, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory, webgl }) => {
     const tenantId = getCurrentTenantId();
     const cachedId = effectiveCurrent(tenantId);
     // Já tem uma corrente viva: sem pedido explícito de nova, devolve ela.
@@ -865,7 +866,7 @@ function createServer() {
           return ok(JSON.stringify({ sessionId: cachedId, status: 'already_active', reused: true, resolution: existing.resolution, viewerUrl, message: 'Reused a session that was already open. If other agents use this key, call session_start with forceNew:true to get your own session.' }, null, 2));
         }
         // Resolução diferente da sessão existente: o pedido é por outra.
-        return startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory });
+        return startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory, webgl });
       } catch (e) {
         // Transiente (429/5xx/rede): a sessão pode continuar viva — não descarta
         // o cache, senão um rate limit cascateia em "cria outra sessão".
@@ -874,7 +875,7 @@ function createServer() {
         forgetSessionEverywhere(tenantId, cachedId);
       }
     }
-    return startNewSession(tenantId, { resolution: resolution || '1440x900', startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory });
+    return startNewSession(tenantId, { resolution: resolution || '1440x900', startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory, webgl });
   });
 
   // A resolução pedida bate com a da sessão existente?
@@ -890,8 +891,8 @@ function createServer() {
   }
 
   // Cria a sessão no backend e a torna corrente DESTA conexão.
-  async function startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory }) {
-    const data = await api('POST', '/api/session', { resolution, startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory });
+  async function startNewSession(tenantId, { resolution, startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory, webgl }) {
+    const data = await api('POST', '/api/session', { resolution, startUrl, locale, timezone, proxyUrl, devicePreset, userAgent, platform, gpuVendor, gpuRenderer, hardwareConcurrency, deviceMemory, webgl });
     setCurrentSession(tenantId, data.sessionId);
     markSessionValidated(tenantId, data.sessionId);
     const viewerUrl = `${SERENDE_PUBLIC_URL}?session=${data.sessionId}`;

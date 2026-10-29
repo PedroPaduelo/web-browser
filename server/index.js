@@ -452,12 +452,12 @@ app.post('/api/session', authMiddleware, async (req, res) => {
   try {
     const { resolution, startUrl, extensionPath, locale, timezone, proxyUrl,
       devicePreset, userAgent, platform, gpuVendor, gpuRenderer,
-      hardwareConcurrency, deviceMemory } = req.body || {};
+      hardwareConcurrency, deviceMemory, webgl } = req.body || {};
     const sessionId = uuidv4();
     const result = await sessionManager.startSession(sessionId, req.tenant.tenantId, {
       resolution, startUrl, extensionPath, locale, timezone, proxyUrl,
       devicePreset, userAgent, platform, gpuVendor, gpuRenderer,
-      hardwareConcurrency, deviceMemory,
+      hardwareConcurrency, deviceMemory, webgl,
       maxSessions: req.tenant.maxSessions,
     });
 

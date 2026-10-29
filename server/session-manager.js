@@ -444,6 +444,15 @@ async function startSession(sessionId, tenantId, options = {}) {
     gpuRenderer = null,
     hardwareConcurrency = null,
     deviceMemory = null,
+    // WebGL real (SwiftShader): OPT-IN, default false.
+    // REGRESSÃO 2026-10-29 (flagrada em produção): ligar o SwiftShader por
+    // padrão fez o Chrome crashar em páginas pesadas com "Aw, Snap! Error
+    // code: SIGTRAP" (medido em perplexity.ai, em produção). O SIGTRAP é
+    // trap de instrução ilegal no processo GPU/renderer. Estabilidade
+    // (browser funcionando) vale mais que ter WebGL, então só liga quem
+    // pedir: o preset de GPU continua entregando o spoof de vendor/renderer
+    // via script, independentemente de haver contexto real.
+    webgl = process.env.CHROME_WEBGL === '1',
   } = options;
 
   const [width, height] = String(resolution).split('x').map(Number);
@@ -606,15 +615,13 @@ async function startSession(sessionId, tenantId, options = {}) {
   const chromeArgs = [
     '--no-sandbox',
     '--disable-setuid-sandbox',
-    // GPU SOFTWARE (não desabilitada): o --disable-gpu antigo matava o WebGL
-    // (getContext('webgl') = null), e "sem WebGL" é sinal de automação para o
-    // hCaptcha. Com SwiftShader o contexto existe; o vendor/renderer é
-    // spoofado via script no boot (ver STEALTH_JS no index.js), porque o
-    // SwiftShader puro ("SwiftShader", "ANGLE (Google, Vulkan...") também
-    // denuncia software. MEDIDO: flags abaixo dão contexto webgl+webgl2.
-    '--use-gl=angle',
-    '--use-angle=swiftshader',
-    '--enable-unsafe-swiftshader',
+    // GPU: --disable-gpu (default, estável) ou SwiftShader (opt-in WebGL).
+    // O --disable-gpu nunca crashou; o SwiftShader deu SIGTRAP em páginas
+    // pesadas em produção (2026-10-29). Quem pede webgl=true aceita o risco.
+    // Ver a nota do `webgl` nas options acima.
+    ...(webgl
+      ? ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+      : ['--disable-gpu']),
     '--disable-dev-shm-usage',
     '--disable-breakpad',
     '--disable-crash-reporter',
