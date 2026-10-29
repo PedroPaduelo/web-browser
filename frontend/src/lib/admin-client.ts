@@ -113,7 +113,7 @@ export interface AdminStats {
   totalKeys: number
   activeKeys: number
   totalActiveSessions: number
-  maxSessionsGlobal: number
+  maxSessionsGlobal: number | null
   uptime: number
 }
 

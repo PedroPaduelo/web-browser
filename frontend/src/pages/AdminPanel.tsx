@@ -553,7 +553,7 @@ export default function AdminPanel() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 18 }}>
                   <StatCard label="Sessões ativas" value={stats.totalActiveSessions} color={colors.accent} />
                   <StatCard label="Chaves ativas" value={stats.activeKeys} color={colors.success} />
-                  <StatCard label="Limite global" value={stats.maxSessionsGlobal} color={colors.warning} />
+                  <StatCard label="Limite global" value={stats.maxSessionsGlobal ?? 'por chave'} color={colors.warning} />
                   <StatCard label="Uptime" value={`${Math.floor(stats.uptime / 60)}min`} />
                 </div>
               )}

@@ -5,7 +5,12 @@ const { WebSocket } = require('./node_modules/ws');
 const profileManager = require('./profile-manager');
 const tenantManager = require('./tenant-manager');
 
-const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS) || 10;
+// Sem TETO GLOBAL de sessões (decisão do dono, 2026-10-29): só vale o limite
+// da chave (options.maxSessions, que vem do max_sessions da tabela api_keys).
+// KEY_SESSION_LIMIT_DEFAULT cobre tokens antigos sem limite no payload
+// (ex.: chave legada migrada, cujo max_sessions é NULL) — mesmo default do
+// createKey em key-store.js, para não virar "ilimitado" por acidente.
+const KEY_SESSION_LIMIT_DEFAULT = 100;
 const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MINUTES || '30') * 60 * 1000;
 const TIMEOUT_WARNING_MS = 2 * 60 * 1000;
 
@@ -399,12 +404,9 @@ async function startSession(sessionId, tenantId, options = {}) {
     throw stageError('preflight', 'missing_binary', `Dependências ausentes: ${missing.join(' | ')}`, 503);
   }
 
-  if (sessions.size >= MAX_SESSIONS) {
-    throw stageError('limits', 'limit_reached', `Global session limit reached (${MAX_SESSIONS})`, 429);
-  }
-
-  const tenantMaxSessions = options.maxSessions || MAX_SESSIONS;
-  const effectiveMax = Math.min(tenantMaxSessions, MAX_SESSIONS);
+  // Só o limite DA CHAVE: sem teto global. O effectiveMax vem do max_sessions
+  // da api_keys (via JWT); chave sem limite no payload cai no default 100.
+  const effectiveMax = Number(options.maxSessions) > 0 ? Number(options.maxSessions) : KEY_SESSION_LIMIT_DEFAULT;
   const tenantCount = getTenantSessionCount(tenantId);
   if (tenantCount >= effectiveMax) {
     throw stageError('limits', 'limit_reached', `Tenant session limit reached (${effectiveMax})`, 429);

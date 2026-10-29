@@ -433,7 +433,8 @@ app.get('/api/health', (req, res) => {
     uptime: Math.floor(process.uptime()),
     sessions: {
       active: sessionManager.getSessionCount(),
-      max: parseInt(process.env.MAX_SESSIONS) || 10,
+      // Sem teto global (só o limite da chave vale): null = ilimitado aqui.
+      max: null,
       dead: deadCount,
     },
     memory: {
@@ -1920,7 +1921,8 @@ app.get('/api/admin/stats', adminAuth, (req, res) => {
     res.json({
       ...keyStats,
       totalActiveSessions: sessionManager.getSessionCount(),
-      maxSessionsGlobal: parseInt(process.env.MAX_SESSIONS) || 10,
+      // Sem teto global (só o limite da chave vale): null = ilimitado aqui.
+      maxSessionsGlobal: null,
       uptime: Math.floor(process.uptime()),
     });
   } catch (err) {
@@ -2077,7 +2079,8 @@ server.listen(PORT, '0.0.0.0', () => {
     port: PORT,
     environment: process.env.NODE_ENV || 'development',
     corsOrigins: corsOrigins,
-    maxSessions: parseInt(process.env.MAX_SESSIONS) || 10,
+    // Sem teto global: só o limite da chave (max_sessions da api_keys) vale.
+    globalSessionCap: 'disabled (per-key only)',
   });
 });
 
