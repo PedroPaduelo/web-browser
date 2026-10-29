@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react'
 import {
   adminLogin, adminLogout, loadAdminIdentity, changeAdminPassword, clearAdminToken,
   getAdminStats, getAdminKeys, createAdminKey, updateAdminKey, revokeAdminKey, regenerateAdminKey,
@@ -62,6 +62,16 @@ export default function AdminPanel() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   // Miniatura ao vivo de cada sessao, para a aba "Ao vivo".
   const [thumbs, setThumbs] = useState<Record<string, string>>({})
+  // Refs para o loop da grade não resetar: sessions no dep do efeito recriava
+  // o timer a cada loadData (5s), e o tick nunca estabilizava.
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
+  const thumbsRef = useRef(thumbs)
+  thumbsRef.current = thumbs
+  // Visibilidade por tile (IntersectionObserver no LiveTile): tile fora da
+  // viewport não puxa thumbnail — com 20 telas, só ~6-8 visíveis baixam.
+  const visibleRef = useRef(new Map<string, boolean>())
+  const onTileVisible = useCallback((id: string, v: boolean) => { visibleRef.current.set(id, v) }, [])
 
   const [showCreate, setShowCreate] = useState(false)
   const [createdKey, setCreatedKey] = useState<CreateKeyResponse | null>(null)
@@ -137,35 +147,83 @@ export default function AdminPanel() {
   // Miniaturas ao vivo, so na aba "Ao vivo". Cada sessao vira um quadrado
   // com a tela dela. As imagens vao como blob (o token do admin vai no
   // header, entao <img src> direto nao serviria).
+  //
+  // Dieta de lote (20 telas sem travar):
+  // - loop com setTimeout encadeado (não setInterval): o próximo ciclo só é
+  //   agendado quando o atual termina — sem sobreposição quando 20 thumbs
+  //   demoram mais que o intervalo;
+  // - intervalo adaptativo: 3s até 8 sessões, 8s acima (menos CDP+rede);
+  // - largura adaptativa: 320px até 8, 256px acima (menos bytes/frame);
+  // - concorrência 4 (não sequencial 1-a-1, não rajada N);
+  // - 1 setThumbs por ciclo (não N renders em rajada);
+  // - tile invisível (fora da viewport) ou aba oculta: pula o fetch;
+  // - URL antiga revogada antes de trocar (sem isto, 20 telas = 400 URLs/hora
+  //   retidas em memória).
   useEffect(() => {
-    if (!authed || tab !== 'live' || sessions.length === 0) return
+    if (!authed || tab !== 'live') return
     let cancelled = false
-    const urls: string[] = []
+    let running = false
+    let timer: ReturnType<typeof setTimeout> | null = null
 
     const tick = async () => {
-      const current = sessions
-      for (const s of current) {
-        try {
-          const blob = await fetchAdminThumbnail(s.sessionId, 320)
-          if (cancelled) return
-          if (!blob) continue
-          const url = URL.createObjectURL(blob)
-          urls.push(url)
-          setThumbs((prev) => ({ ...prev, [s.sessionId]: url }))
-        } catch {
-          // Sessao sem CDP vivo: o quadrado fica com o placeholder.
+      if (running || cancelled) return
+      if (document.hidden) return
+      running = true
+      try {
+        const current = sessionsRef.current
+        const ids = current.map(s => s.sessionId).filter(id => visibleRef.current.get(id) !== false)
+        if (ids.length === 0) return
+        const w = current.length > 8 ? 256 : 320
+        const results: Array<[string, string | null]> = []
+        for (let i = 0; i < ids.length && !cancelled; i += 4) {
+          const batch = await Promise.all(ids.slice(i, i + 4).map(async (id): Promise<[string, string | null]> => {
+            try {
+              const blob = await fetchAdminThumbnail(id, w)
+              if (!blob || cancelled) return [id, null]
+              return [id, URL.createObjectURL(blob)]
+            } catch {
+              return [id, null]
+            }
+          }))
+          results.push(...batch)
         }
+        if (cancelled) {
+          for (const [, u] of results) if (u) URL.revokeObjectURL(u)
+          return
+        }
+        if (results.some(([, u]) => u)) {
+          setThumbs((prev) => {
+            const next = { ...prev }
+            for (const [id, url] of results) {
+              if (!url) continue
+              const old = next[id]
+              if (old) URL.revokeObjectURL(old)
+              next[id] = url
+            }
+            return next
+          })
+        }
+      } finally {
+        running = false
       }
     }
-    void tick()
-    const t = setInterval(tick, 3000)
+    const loop = () => {
+      if (cancelled) return
+      void tick().finally(() => {
+        if (cancelled) return
+        timer = setTimeout(loop, sessionsRef.current.length > 8 ? 8000 : 3000)
+      })
+    }
+    void loop()
     return () => {
       cancelled = true
-      clearInterval(t)
+      if (timer) clearTimeout(timer)
       // Libera as URLs do blob: sem isso, cada ciclo vaza uma imagem.
-      for (const u of urls) URL.revokeObjectURL(u)
+      const cur = thumbsRef.current
+      for (const u of Object.values(cur)) URL.revokeObjectURL(u)
+      setThumbs({})
     }
-  }, [authed, tab, sessions])
+  }, [authed, tab])
 
   const handleLogin = async (e?: React.FormEvent) => {
     e?.preventDefault()
@@ -659,7 +717,7 @@ export default function AdminPanel() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 500, color: colors.textMuted }}>Sessões ativas</h2>
                 <span style={{ fontSize: 12, color: colors.textDim }}>
-                  {sessions.length === 0 ? 'nenhuma sessão aberta' : `${sessions.length} sessão(ões) · atualiza a cada 3s`}
+                  {sessions.length === 0 ? 'nenhuma sessão aberta' : `${sessions.length} sessão(ões) · atualiza a cada ${sessions.length > 8 ? 8 : 3}s`}
                 </span>
               </div>
               <p style={{ fontSize: 12, color: colors.textDim, marginBottom: 16 }}>
@@ -673,7 +731,7 @@ export default function AdminPanel() {
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
                   {sessions.map(s => (
-                    <LiveTile key={s.sessionId} session={s} thumb={thumbs[s.sessionId]} />
+                    <LiveTile key={s.sessionId} session={s} thumb={thumbs[s.sessionId]} onVisible={onTileVisible} />
                   ))}
                 </div>
               )}
@@ -820,10 +878,24 @@ export default function AdminPanel() {
  * Um quadrado por sessao, na aba "Ao vivo": a tela da sessao, a key, a URL
  * e o tempo de vida. SEM acoes — e a tela de olhar, nao de mexer. Quem quer
  * agir usa a aba Sessões.
+ *
+ * memo: sem isto, cada setThumbs (1 por ciclo) re-renderizava os N tiles mesmo
+ * quando só 1 thumb mudou. observer: avisa o pai quando o tile sai da viewport
+ * para o loop pular o fetch (grade com 20 telas baixa só as ~6-8 visíveis).
  */
-function LiveTile({ session, thumb }: { session: AdminSession; thumb?: string }) {
+const LiveTile = memo(function LiveTile({ session, thumb, onVisible }: { session: AdminSession; thumb?: string; onVisible: (id: string, v: boolean) => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver((entries) => {
+      onVisible(session.sessionId, entries[0]?.isIntersecting ?? true)
+    }, { rootMargin: '200px' })
+    io.observe(el)
+    return () => { io.disconnect(); onVisible(session.sessionId, true) }
+  }, [session.sessionId, onVisible])
   return (
-    <div style={{ background: colors.bgCard, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: 'hidden' }}>
+    <div ref={ref} style={{ background: colors.bgCard, border: `1px solid ${colors.border}`, borderRadius: 10, overflow: 'hidden' }}>
       <div style={{ aspectRatio: '16 / 10', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
         {thumb ? (
           <img
@@ -851,7 +923,7 @@ function LiveTile({ session, thumb }: { session: AdminSession; thumb?: string })
       </div>
     </div>
   )
-}
+})
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (

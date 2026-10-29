@@ -64,6 +64,10 @@ class StreamManager {
 
     ffmpegStdout.on('end', () => { this.ffmpegStream = null; });
     ffmpegStdout.on('error', () => {});
+    // O produtor nasce pausado (startFfmpegCapture faz stdout.pause() para o
+    // pipe não encher antes de assinar). Só 'data' NÃO retoma após pause()
+    // explícito (medido: 0 bytes) — precisa do resume().
+    try { ffmpegStdout.resume(); } catch {}
   }
 
   // Encerra a captura de vídeo: solta o stdout e limpa o buffer parcial.

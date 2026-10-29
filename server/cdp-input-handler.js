@@ -128,6 +128,12 @@ function createInputHandler(displayNum, opts = {}) {
   let msgId = 0;
   let connected = false;
   let retries = 0;
+  // Sessão morreu: nenhum timer pendente pode reconectar. Sem este flag, o
+  // setTimeout(connect, 300) do boot (ou retries) disparava após o stop(),
+  // abria WS novo no CDP moribundo e o 'open' recriava o setInterval de 3s —
+  // 20 sessões = 20 intervals eternos batendo em porta morta.
+  let stopped = false;
+  let bootTimer = null;
   let sessionId = opts.sessionId || null;
   // Escala cliente -> viewport do Chrome (setViewport/setScale atualizam sem recriar).
   let scaleX = opts.scaleX || 1;
@@ -194,6 +200,7 @@ function createInputHandler(displayNum, opts = {}) {
   }
 
   async function connect() {
+    if (stopped) return;
     try {
       const res = await fetch(`http://127.0.0.1:${cdpPort}/json`);
       const targets = await res.json();
@@ -206,6 +213,7 @@ function createInputHandler(displayNum, opts = {}) {
 
       ws = new WebSocket(page.webSocketDebuggerUrl);
       ws.on('open', () => {
+        if (stopped) { try { ws.close(); } catch {} ws = null; return; }
         connected = true; retries = 0;
         // Libera quem estava esperando o input ficar pronto.
         while (readyWaiters.length) readyWaiters.shift()();
@@ -251,7 +259,7 @@ function createInputHandler(displayNum, opts = {}) {
     }
   }
 
-  setTimeout(connect, 300);
+  bootTimer = setTimeout(connect, 300);
 
   function send(method, params) {
     if (!connected || !ws || ws.readyState !== 1) return;
@@ -521,8 +529,10 @@ function createInputHandler(displayNum, opts = {}) {
     },
 
     stop() {
+      stopped = true;
       retries = 99;
       connected = false;
+      if (bootTimer) { clearTimeout(bootTimer); bootTimer = null; }
       pendingMove = null; moveScheduled = false; pressedMask = 0; pressedButton = null;
       lastPressCC = 0; lastReleaseCC = 0;
       if (layoutTimer) { clearInterval(layoutTimer); layoutTimer = null; }

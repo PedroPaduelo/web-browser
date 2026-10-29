@@ -93,6 +93,10 @@ class CDPScreencast {
       return;
     }
 
+    // stop() durante o loop de fetch (até 5s): sem este recheck, o WS nascia
+    // órfão e ninguém o fechava.
+    if (this.stopped) return;
+
     const ws = new WebSocket(wsUrl);
     this.ws = ws;
 

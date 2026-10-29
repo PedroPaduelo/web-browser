@@ -62,9 +62,9 @@ const FFMPEG_BIN = process.env.FFMPEG_BIN || 'ffmpeg';
 // Path absoluto do ffmpeg (cacheado): 'ffmpeg' puro no PATH resolve via shell,
 // mas o spawn precisa de um executável real. Sem isso, o produtor de vídeo
 // simplesmente não sobe e caímos no CDP screencast.
-let ffmpegPathCache; // undefined = ainda não checado, null = ausente
+let ffmpegPathCache; // undefined = ainda não checado, null = ausente (NÃO cacheado: re-tenta)
 function resolveFfmpegPath() {
-  if (ffmpegPathCache !== undefined) return ffmpegPathCache;
+  if (ffmpegPathCache) return ffmpegPathCache; // só sucesso é cacheado
   try {
     const out = execSync(`command -v ${FFMPEG_BIN}`, { encoding: 'utf8' }).trim();
     ffmpegPathCache = out || null;
@@ -292,6 +292,31 @@ function stopCapture(capture) {
   killProcessGroup(capture.proc);
 }
 
+// --- Vídeo sob demanda (dieta de lote) ---
+//
+// O ffmpeg x11grab roda 30fps CONTÍNUOS mesmo sem ninguém assistindo
+// (~350MB + ~0.5-1 core por sessão à toa). Com ninguém no viewer, o produtor
+// é pausado; no primeiro viewer, retomado. `stopCapture` marca stopping, então
+// o exit handler não dispara o fallback CDP (é pausa intencional, não queda).
+function pauseSessionCapture(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s || !s.capture) return false;
+  stopCapture(s.capture);
+  s.capture = null;
+  console.log(`[Session:${sessionId}] Vídeo pausado (sem viewers)`);
+  return true;
+}
+
+function resumeSessionCapture(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s || s.capture) return s ? !!s.capture : false;
+  const cap = startFfmpegCapture(sessionId, s.display, s.resolution.width, s.resolution.height);
+  if (!cap) return false;
+  s.capture = cap;
+  console.log(`[Session:${sessionId}] Vídeo retomado (viewer conectado)`);
+  return cap;
+}
+
 // Saúde síncrona de uma sessão (processos vivos?) — base da detecção/recuperação de mortas.
 function getSessionHealth(sessionId) {
   const s = sessions.get(sessionId);
@@ -413,10 +438,10 @@ async function startSession(sessionId, tenantId, options = {}) {
   }
 
   const {
-    // 1440x900 (16:10) é o painel de 19" mais comum e barato: cabe inteiro
-    // numa tela de 1920x1080 sem rolagem na página e sobra largura útil para
-    // o agente ver a página inteira.
-    resolution = '1440x900',
+    // 1280x720 (16:9) é o default para lote: -29% de pixels vs 1440x900
+    // (= -29% raster/JPEG/CPU do ffmpeg por sessão). session_start continua
+    // aceitando qualquer resolução — quem precisa de tela grande pede.
+    resolution = '1280x720',
     startUrl = 'https://www.google.com',
     extensionPath = null,
     // Coerência ambiental (caso Serpro 429): o Chrome nascia com locale en-US
@@ -1046,7 +1071,12 @@ function killProcess(proc) {
 //
 // Fallback para o sinal no PID se o grupo não existir (o processo já morreu).
 function killProcessGroup(proc) {
-  if (!proc || proc.killed) return;
+  // Sem `proc.killed` no guard: o Node marca `killed=true` assim que o sinal
+  // é ENTREGUE (não quando o processo morre). Um processo que ignora o
+  // SIGTERM ficava com killed=true e o segundo caminho de morte pulava o
+  // SIGKILL de grupo — o neto (ffmpeg/renderer) sobrevivia segurando o
+  // socket X do display. Sinal duplicado é inofensivo; grupo vivo sem kill não.
+  if (!proc || proc.exitCode !== null) return;
   const pid = proc.pid;
   if (!pid) return;
   try {
@@ -1172,6 +1202,32 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// Mata processos casando padrões de `pgrep -f`, MAS só os desta instância
+// (SERENDE_INSTANCE_ID no /proc/<pid>/environ). Sem filtro, abrir sessão
+// numa instância matava o Xvfb/Chrome de outra no mesmo host. environ
+// ilegível = resto de crash: mata mesmo assim.
+function killStaleDisplayProcs(patterns) {
+  const mine = process.env.SERENDE_INSTANCE_ID || 'default';
+  let pids = [];
+  for (const pat of patterns) {
+    try {
+      const out = require('child_process').execSync(`pgrep -f "${pat.replace(/"/g, '')}"`, { encoding: 'utf8' });
+      pids.push(...out.split('\n').map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n) && n !== process.pid));
+    } catch {}
+  }
+  pids = [...new Set(pids)];
+  for (const pid of pids) {
+    let theirs = null;
+    try {
+      const env = fs.readFileSync(`/proc/${pid}/environ`, 'utf8');
+      const m = /SERENDE_INSTANCE_ID=([^\0]*)/.exec(env);
+      theirs = m ? m[1] : null;
+    } catch { theirs = null; }
+    if (theirs !== null && theirs !== mine) continue; // outra instância viva: não toca
+    try { process.kill(pid, 'SIGTERM'); } catch {}
+  }
+}
+
 // --- Timeout de Inatividade ---
 
 function startTimeoutTracker(sessionId) {
@@ -1192,6 +1248,10 @@ function startTimeoutTracker(sessionId) {
       console.log(`[Session:${sessionId}] Timeout after ${Math.round(inactive / 60000)}min inactivity`);
       if (s.tenantId) {
         try { tenantManager.mergeProfileFromSession(s.tenantId, sessionId); } catch {}
+        // O merge COPIOu o profile para o master; o diretório da sessão
+        // (cópia inteira do Chrome, dezenas de MB) ficaria no disco para
+        // sempre — 20 timeouts = 20 pastas órfãs. Limpa após o merge.
+        try { tenantManager.cleanupSessionDir(s.tenantId, sessionId); } catch {}
       }
       profileManager.saveSessionState(s.tenantId, s.displayNum).catch(() => {});
       stopSession(sessionId, 'timeout');
@@ -1243,6 +1303,8 @@ function getSessionTimeout(sessionId) {
 module.exports = {
   startSession,
   stopSession,
+  pauseSessionCapture,
+  resumeSessionCapture,
   getSession,
   getSessionRaw,
   getSessionHealth,

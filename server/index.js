@@ -118,11 +118,14 @@ function isGroupLeader(pid) {
 function screencastOptions(sessionId, raw = {}) {
   const sess = sessionManager.getSession(sessionId);
   const res = (sess && sess.resolution) || (raw && raw.resolution);
+  // Dieta de lote: quality 60→35, everyNthFrame 1→4 (fallback CDP mais barato;
+  // o primário é o ffmpeg). Em fallback puro o vídeo granula em movimento,
+  // mas a leitura via DOM não muda.
   return {
-    quality: 60,
+    quality: 35,
     maxWidth: 1280,
     maxHeight: res && Number(res.height) ? Number(res.height) : 0,
-    everyNthFrame: 1,
+    everyNthFrame: 4,
     sessionId,
   };
 }
@@ -261,15 +264,22 @@ sessionManager.onCaptureDied((sessionId, reason) => {
 
 sessionManager.onSessionDied((sessionId) => {
   const resources = sessionResources.get(sessionId);
+  // cdpPort vem dos resources: getSession aqui já é null (stopSession fez
+  // sessions.delete antes), então o closeCdpClient antigo NUNCA rodava e o
+  // WS do pool ficava pendurado. Guarda a porta nos resources no boot.
+  const cdpPort = resources?.cdpPort;
   if (resources) {
     resources.screencast.stop();
     resources.streamManager.stop();
     resources.inputHandler.stop();
+    if (resources.videoPauseTimer) { clearTimeout(resources.videoPauseTimer); resources.videoPauseTimer = null; }
     sessionResources.delete(sessionId);
     console.log(`[API] Cleaned up resources for orphaned session ${sessionId}`);
   }
-  const session = sessionManager.getSession(sessionId);
-  if (session) closeCdpClient(session.cdpPort);
+  cleanupNetworkState(sessionId, cdpPort);
+  clearThumbCache(sessionId);
+  closeSessionInputSockets(sessionId);
+  if (cdpPort) closeCdpClient(cdpPort);
 });
 
 const distPath = path.join(__dirname, '..', 'frontend', 'dist');
@@ -381,12 +391,18 @@ app.post('/api/session', authMiddleware, async (req, res) => {
     }
 
     // Se ligar stream/input falhar, a sessão (Xvfb+Chrome) NÃO pode vazar: para tudo.
+    // Declarados fora do try para o catch alcançar (const dentro do try é
+    // invisível no catch).
+    let streamMgr = null, screencast = null, inputHdl = null;
     try {
       // --- Produtor de VÍDEO ---
       // Primário: ffmpeg x11grab (30fps). Fallback: CDP screencast (~0.3-20fps,
       // só emite frame quando a página repinta).
-      const streamMgr = new StreamManager();
-      const screencast = new CDPScreencast(raw.cdpPort, screencastOptions(sessionId, raw));
+      streamMgr = new StreamManager();
+      screencast = new CDPScreencast(raw.cdpPort, screencastOptions(sessionId, raw));
+      // Sem viewers, o screencast (fallback) também não precisa produzir:
+      // descarta na origem em vez de decodificar + enfileirar à toa.
+      screencast.setShouldDrop(() => streamMgr.clients.size === 0);
 
       let captureMode = 'cdp';
       if (raw.capture && raw.capture.stdout) {
@@ -405,7 +421,7 @@ app.post('/api/session', authMiddleware, async (req, res) => {
         console.log(`[API] Session ${sessionId}: video via CDP screencast (fallback)`);
       }
 
-      const inputHdl = createInputHandler(raw.displayNum);
+      inputHdl = createInputHandler(raw.displayNum);
 
       // --- Stealth ambiental (caso Serpro 429) ---
       // Aplicado UMA vez no boot, antes de devolver a sessão: timezone da página
@@ -492,8 +508,20 @@ app.post('/api/session', authMiddleware, async (req, res) => {
         console.warn(`[API] Session ${sessionId}: stealth falhou (segue sem):`, e.message);
       }
 
-      sessionResources.set(sessionId, { streamManager: streamMgr, screencast, inputHandler: inputHdl, captureMode });
+      sessionResources.set(sessionId, { streamManager: streamMgr, screencast, inputHandler: inputHdl, captureMode, videoPauseTimer: null, cdpPort: raw.cdpPort });
+      // Sem viewers no boot, o ffmpeg é pausado na hora (dieta de lote: sem
+      // ninguém assistindo, 30fps contínuos é ~350MB + CPU à toa). O primeiro
+      // viewer no /ws/stream retoma (ver upgrade handler). Thumbnails da grade
+      // usam Page.captureScreenshot via CDP — não precisam do ffmpeg.
+      // stopCapture no manager TAMBÉM (determinístico): sem isto o mode ficava
+      // 'ffmpeg' com stream morta e a retomada podia não reanexar (race no 'end').
+      try { streamMgr.stopCapture(); sessionManager.pauseSessionCapture(sessionId); } catch {}
     } catch (setupErr) {
+      // Stream/screencast/input criados acima e nunca parados = reconnect
+      // eterno + timers vivos. Para tudo antes de derrubar a sessão.
+      try { screencast.stop(); } catch {}
+      try { streamMgr.stop(); } catch {}
+      try { inputHdl.stop(); } catch {}
       try { await sessionManager.stopSession(sessionId, 'resource_setup_failed'); } catch {}
       const wrapped = new Error(`Falha ao ligar stream/input da sessão: ${setupErr.message}`);
       wrapped.stage = 'resources';
@@ -536,8 +564,15 @@ app.delete('/api/session/:sessionId', authMiddleware, async (req, res) => {
     resources.screencast.stop();
     resources.streamManager.stop();
     resources.inputHandler.stop();
+    if (resources.videoPauseTimer) { clearTimeout(resources.videoPauseTimer); resources.videoPauseTimer = null; }
     sessionResources.delete(sessionId);
   }
+  // Estado que vazava para sempre: buffer de rede + handler CDP por porta
+  // (corrompia a próxima sessão no mesmo display), miniaturas em cache e
+  // sockets /ws/input presos na closure do upgrade.
+  cleanupNetworkState(sessionId, session.cdpPort);
+  clearThumbCache(sessionId);
+  closeSessionInputSockets(sessionId);
 
   // Espera o Chrome fechar antes de responder: "Session stopped" passa a
   // significar que RAM, display e porta já voltaram.
@@ -785,13 +820,22 @@ async function cdpRequest(cdpPort, method, params = {}) {
     } catch (err) {
       pool.pendingRequests.delete(id);
       reject(err);
+      return;
     }
-    setTimeout(() => {
+    // Timer limpo no sucesso: sem clearTimeout, cada chamada CDP deixava um
+    // timer de 10s vivo segurando closure+Promise+pool (churn com stealth
+    // boot + polling + thumbnails).
+    const timer = setTimeout(() => {
       if (pool.pendingRequests.has(id)) {
         pool.pendingRequests.delete(id);
         reject(new Error('CDP request timeout'));
       }
     }, 10000);
+    const origResolve = resolve, origReject = reject;
+    pool.pendingRequests.set(id, {
+      resolve: (v) => { clearTimeout(timer); origResolve(v); },
+      reject: (e) => { clearTimeout(timer); origReject(e); },
+    });
   });
 }
 
@@ -852,12 +896,13 @@ app.get('/api/screenshot/:sessionId', authMiddleware, trackActivity, async (req,
         }
         if (screenshotId && msg.id === screenshotId && msg.result) {
           client.close();
+          clearTimeout(shotTimer);
           resolve(msg.result.data);
         }
-        if (msg.error) { client.close(); reject(new Error(msg.error.message)); }
+        if (msg.error) { client.close(); clearTimeout(shotTimer); reject(new Error(msg.error.message)); }
       });
-      client.on('error', reject);
-      setTimeout(() => { client.close(); reject(new Error('Screenshot timeout')); }, 10000);
+      client.on('error', (e) => { clearTimeout(shotTimer); reject(e); });
+      const shotTimer = setTimeout(() => { client.close(); reject(new Error('Screenshot timeout')); }, 10000);
     });
 
     const buf = Buffer.from(result, 'base64');
@@ -934,7 +979,7 @@ app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, asy
             client.send(JSON.stringify({ id: 4, method: 'Runtime.evaluate', params: { expression: MEASURE, returnByValue: true } }));
             return;
           }
-          done = true; client.close(); reject(new Error(msg.error.message)); return;
+          done = true; client.close(); try { clearTimeout(shotTimer2); } catch {} reject(new Error(msg.error.message)); return;
         }
 
         // 1 -> 2: mede a página (url/title/viewport).
@@ -984,11 +1029,12 @@ app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, asy
         if (msg.id === 5 && msg.result && msg.result.data) {
           done = true;
           client.close();
+          clearTimeout(shotTimer2);
           resolve({ screenshot: msg.result.data, info: infoData || {}, viewport });
         }
       });
-      client.on('error', reject);
-      setTimeout(() => { if (!done) { done = true; client.close(); reject(new Error('Screenshot timeout')); } }, 15000);
+      client.on('error', (e) => { if (!done) { done = true; clearTimeout(shotTimer2); reject(e); } });
+      const shotTimer2 = setTimeout(() => { if (!done) { done = true; client.close(); reject(new Error('Screenshot timeout')); } }, 15000);
     });
 
     const image = jpegSize(Buffer.from(result.screenshot, 'base64'));
@@ -1271,6 +1317,31 @@ async function disableNetworkTracking(cdpPort) {
     // ignore
   }
   cdpEventHandlers.delete(cdpPort);
+}
+
+// Limpeza SÍNCRONA do estado de rede de uma sessão que está morrendo.
+// Sem isto, networkEvents (requests+responses+byRequestId, 500 cada) ficava
+// no Map PARA SEMPRE, e o handler velho (por cdpPort, derivada do display)
+// continuava despachando eventos da sessão NOVA que reusar a porta para o
+// buffer morto da sessão antiga. Chamado em todo teardown.
+function cleanupNetworkState(sessionId, cdpPort) {
+  try { networkEvents.delete(sessionId); } catch {}
+  try { if (cdpPort) cdpEventHandlers.delete(cdpPort); } catch {}
+}
+
+// Fecha os sockets /ws/input de uma sessão morta: eles ficam presos na closure
+// do upgrade e ninguém os fecha (o sweep de 60s só pega socket fechado ou
+// token expirado). Sem isto o cliente continua mandando input para um handler
+// já stop()ado e a entrada fica retida em activeWsConnections.
+function closeSessionInputSockets(sessionId) {
+  try {
+    for (const [ws, meta] of activeWsConnections) {
+      if (meta && meta.sessionId === sessionId) {
+        try { ws.close(1001, 'session ended'); } catch {}
+        activeWsConnections.delete(ws);
+      }
+    }
+  } catch {}
 }
 
 app.post('/api/network/:sessionId/start', authMiddleware, trackActivity, async (req, res) => {
@@ -1711,7 +1782,17 @@ app.get('/api/admin/sessions/:sessionId/token', adminAuth, (req, res) => {
 // Declarado ANTES de stopSessionFully: o cache e limpo quando a sessao
 // morre, e um `const` usado antes da declaracao cai em TDZ.
 const thumbCache = new Map(); // `${sessionId}@${width}` → { data, mime, at }
-const THUMB_TTL_MS = 1500;
+const THUMB_TTL_MS = 4000;
+
+// Miniaturas de sessões mortas ficavam no Map para sempre (o TTL só é checado
+// na leitura, e sessão morta nunca é relida). Chamado em todo teardown.
+function clearThumbCache(sessionId) {
+  try {
+    for (const k of [...thumbCache.keys()]) {
+      if (k.startsWith(`${sessionId}@`)) thumbCache.delete(k);
+    }
+  } catch {}
+}
 
 // Derruba uma sessao: para o stream, o input, o gerenciador e o cliente CDP.
 // Extraido para ser reusado pelo DELETE individual e pelo DELETE em lote.
@@ -1719,19 +1800,18 @@ function stopSessionFully(sessionId) {
   const session = sessionManager.getSession(sessionId);
   if (!session) return false;
 
-  // A miniatura em cache e da sessao que esta morrendo: sai junto. A chave
-  // tem a largura, entao apaga todas as larguras daquela sessao.
-  for (const k of [...thumbCache.keys()]) {
-    if (k.startsWith(`${sessionId}@`)) thumbCache.delete(k);
-  }
+  clearThumbCache(sessionId);
 
   const resources = sessionResources.get(sessionId);
   if (resources) {
     resources.screencast.stop();
     resources.streamManager.stop();
     resources.inputHandler.stop();
+    if (resources.videoPauseTimer) { clearTimeout(resources.videoPauseTimer); resources.videoPauseTimer = null; }
     sessionResources.delete(sessionId);
   }
+  cleanupNetworkState(sessionId, session.cdpPort);
+  closeSessionInputSockets(sessionId);
 
   sessionManager.stopSession(sessionId);
   closeCdpClient(session.cdpPort);
@@ -1907,9 +1987,44 @@ server.on('upgrade', (req, socket, head) => {
   if (pathname === '/ws/stream') {
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws._socket && ws._socket.setNoDelay(true);
+      // Vídeo sob demanda: primeiro viewer retoma o ffmpeg pausado no boot
+      // (ou após idle). Sem isto, o viewer abriria num produtor morto.
+      if (resources.captureMode === 'ffmpeg') {
+        if (resources.videoPauseTimer) { clearTimeout(resources.videoPauseTimer); resources.videoPauseTimer = null; }
+        try {
+          const cap = sessionManager.resumeSessionCapture(sessionId);
+          if (cap && cap.stdout && resources.streamManager.mode !== 'ffmpeg') {
+            resources.streamManager.startCapture(cap.stdout);
+            resources.streamManager.mode = 'ffmpeg';
+          } else if (cap && cap.stdout && !resources.streamManager.ffmpegStream) {
+            resources.streamManager.startCapture(cap.stdout);
+          }
+        } catch (e) {
+          console.warn(`[API] Session ${sessionId}: falha ao retomar vídeo:`, e.message);
+        }
+      }
       resources.streamManager.addClient(ws);
       activeWsConnections.set(ws, { token, sessionId });
-      ws.on('close', () => activeWsConnections.delete(ws));
+      ws.on('close', () => {
+        activeWsConnections.delete(ws);
+        // Último viewer saiu: agenda a pausa do ffmpeg em 10s (graça para
+        // não flapping em reconnect). Novo viewer cancela acima.
+        try {
+          if (resources.captureMode === 'ffmpeg' && resources.streamManager.clients.size === 0) {
+            if (resources.videoPauseTimer) clearTimeout(resources.videoPauseTimer);
+            resources.videoPauseTimer = setTimeout(() => {
+              resources.videoPauseTimer = null;
+              try {
+                if (resources.streamManager.clients.size === 0) {
+                  try { resources.streamManager.stopCapture(); } catch {}
+                  sessionManager.pauseSessionCapture(sessionId);
+                }
+              } catch {}
+            }, 10000);
+            if (resources.videoPauseTimer.unref) resources.videoPauseTimer.unref();
+          }
+        } catch {}
+      });
     });
   } else if (pathname === '/ws/input') {
     wss.handleUpgrade(req, socket, head, (ws) => {
