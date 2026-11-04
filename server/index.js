@@ -29,6 +29,7 @@ const { login: adminJwtLogin, adminJwtAuth, adminAnyAuth } = require('./admin-au
 const adminUsers = require('./admin-users');
 const profileManager = require('./profile-manager');
 const tenantManager = require('./tenant-manager');
+const { validateUrl, guardBodyUrl } = require('./url-guard');
 
 // Migracao de key legada
 const AUTH_API_KEY = process.env.AUTH_API_KEY;
@@ -734,6 +735,14 @@ app.delete('/api/webrtc/:sessionId/peer/:peerId', authMiddleware, trackActivity,
 app.post('/api/session', authMiddleware, async (req, res) => {
   try {
     const { resolution, startUrl, extensionPath } = req.body || {};
+    // SSRF guard (torneio): startUrl vira --app + startup_urls sem validação.
+    // Fail-closed ANTES de consumir display/porta (barato, sem display gasto).
+    if (startUrl !== undefined && startUrl !== null && String(startUrl).trim() !== '') {
+      const v = await validateUrl(String(startUrl)).catch((e) => ({ ok: false, reason: String(e.message || e) }));
+      if (!v.ok) {
+        return res.status(403).json({ error: `startUrl bloqueado: ${v.reason}`, code: 'url_blocked', stage: 'url-guard' });
+      }
+    }
     const sessionId = uuidv4();
     const result = await sessionManager.startSession(sessionId, req.tenant.tenantId, {
       resolution, startUrl, extensionPath,
@@ -1295,7 +1304,7 @@ app.get('/api/url/:sessionId', authMiddleware, trackActivity, async (req, res) =
   }
 });
 
-app.post('/api/navigate/:sessionId', authMiddleware, trackActivity, async (req, res) => {
+app.post('/api/navigate/:sessionId', authMiddleware, trackActivity, guardBodyUrl('url'), async (req, res) => {
   const session = getSessionAndValidate(req, res);
   if (!session) return;
   const { url } = req.body || {};

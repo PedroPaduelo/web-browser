@@ -243,6 +243,34 @@ async function startSession(sessionId, tenantId, options = {}) {
     throw stageError('validate', 'bad_resolution', `Resolução inválida "${resolution}" — use LARGURAxALTURA, ex.: 1920x1080`, 400);
   }
 
+  // SSRF guard, defesa em profundidade (torneio): o index.js já valida o
+  // startUrl, mas o session-manager é chamado por outros caminhos (testes,
+  // scripts) — valida de novo aqui, ANTES de consumir display/porta.
+  // extensionPath é confinado ao EXTENSIONS_PATH (allowlist root): fora dele,
+  // a extensão é ignorada com warning (não falha a sessão — compat).
+  const { validateUrl } = require('./url-guard');
+  if (startUrl !== undefined && startUrl !== null && String(startUrl).trim() !== '') {
+    const v = await validateUrl(String(startUrl)).catch((e) => ({ ok: false, reason: String(e.message || e) }));
+    if (!v.ok) {
+      throw stageError('validate', 'url_blocked', `startUrl bloqueado: ${v.reason}`, 403);
+    }
+  }
+  let safeExtensionPath = null;
+  if (extensionPath) {
+    try {
+      const root = path.resolve(process.env.EXTENSIONS_PATH || path.join(PROJECT_ROOT, 'extensions'));
+      const resolved = path.resolve(root, String(extensionPath));
+      const rel = path.relative(root, resolved);
+      if (rel && !rel.startsWith('..') && !path.isAbsolute(rel) && fs.existsSync(resolved)) {
+        safeExtensionPath = resolved;
+      } else {
+        console.warn(`[Session:${sessionId}] extensionPath fora do allowlist (${root}): ignorado`);
+      }
+    } catch (e) {
+      console.warn(`[Session:${sessionId}] extensionPath inválido: ignorado (${e.message})`);
+    }
+  }
+
   const displayNum = allocateDisplay();
   if (displayNum === null) {
     throw stageError('limits', 'no_display', 'No display available (:100-199 todos em uso ou em quarentena)', 429);
@@ -444,8 +472,8 @@ async function startSession(sessionId, tenantId, options = {}) {
     `--app=${startUrl}`, // App mode: sem barra de endereço/abas, viewport == screen
   ];
 
-  if (extensionPath) {
-    chromeArgs.push(`--load-extension=${extensionPath}`);
+  if (safeExtensionPath) {
+    chromeArgs.push(`--load-extension=${safeExtensionPath}`);
   }
 
   console.log(`[Session:${sessionId}] Starting Chrome on ${display} cdpPort=${cdpPort}`);
