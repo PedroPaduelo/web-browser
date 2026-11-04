@@ -11,6 +11,11 @@ const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
 function generateToken(tenantId, options = {}) {
   const payload = { tenantId };
   if (options.maxSessions) payload.maxSessions = options.maxSessions;
+  // Key-version binding (torneio): `kv` amarra o JWT à versão da API key.
+  // revoke/regenerate/toggle de enabled dá bump na versão → JWTs antigos
+  // morrem no próximo request em vez de viverem até 24h. Tokens sem `kv`
+  // (pré-migração) continuam válidos — política fail-open documentada.
+  if (options.keyVersion != null) payload.kv = options.keyVersion;
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 }
 
@@ -50,6 +55,21 @@ function authMiddleware(req, res, next) {
   const tenantId = payload.tenantId || payload.userId;
   if (!tenantId) {
     return res.status(401).json({ error: 'Token has no tenant' });
+  }
+  // Revogação real: se o token carrega `kv`, ele precisa casar com a versão
+  // atual da key. Mismatch = key foi revogada/regenerada/toggleada depois da
+  // emissão → 401 imediato (não espera o expiry de 24h). Sem `kv`
+  // (pré-migração): aceita (fail-open documentado — expira sozinho em 24h).
+  if (payload.kv != null) {
+    try {
+      const keyStore = require('./key-store');
+      const current = keyStore.getKeyVersion(tenantId);
+      if (Number(payload.kv) !== Number(current)) {
+        return res.status(401).json({ error: 'Token revoked (key version mismatch)', code: 'token_revoked' });
+      }
+    } catch {
+      // DB indisponível: não derruba auth por causa de telemetria de versão.
+    }
   }
   req.tenant = { tenantId, maxSessions: payload.maxSessions };
   req.user = { userId: tenantId };

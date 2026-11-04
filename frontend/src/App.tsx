@@ -196,6 +196,7 @@ export default function App() {
             sessionId={sessionId}
             videoMode={videoMode}
             onRtcStatus={handleRtcStatus}
+            onVideoModeChange={handleVideoModeChange}
           />
         ) : (
           <div style={{

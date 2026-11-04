@@ -165,8 +165,11 @@ function createInputHandler(displayNum, opts = {}) {
   // `connected`), e o gesto (arrasto/clique) começava pela metade.
   const readyWaiters = [];
 
-  const CDP_BASE_PORT = 9222;
-  const DISPLAY_MIN = 100;
+  // Segundo hardcode do par display↔CDP (o primeiro vive no session-manager.js):
+  // AMBOS lêem as mesmas envs — sharding (host B com CDP_BASE_PORT=9272)
+  // precisa mudar os dois, senão o input roteia para a porta errada.
+  const CDP_BASE_PORT = Math.max(1024, parseInt(process.env.CDP_BASE_PORT || '9222') || 9222);
+  const DISPLAY_MIN = Math.max(1, parseInt(process.env.DISPLAY_MIN || '100') || 100);
   const cdpPort = opts.cdpPort || (CDP_BASE_PORT + (displayNum - DISPLAY_MIN));
   // Reconsulta periódica do viewport (resize/navegação mudam clientWidth/Height).
   // 3s → 15s: o intervalo antigo acordava o renderer do Chrome 20×/min SEM

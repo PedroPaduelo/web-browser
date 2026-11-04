@@ -28,8 +28,39 @@ db.exec(`
     max_idle_timeout INTEGER DEFAULT 300,
     features TEXT DEFAULT '{}',
     created_at TEXT DEFAULT (datetime('now')),
-    last_used_at TEXT
+    last_used_at TEXT,
+    version INTEGER DEFAULT 1
   )
 `);
+
+// Migração idempotente: bancos criados antes da coluna `version` ganham ela
+// com DEFAULT 1 (tokens pré-migração não têm `kv` e continuam válidos —
+// política documentada no authMiddleware).
+try {
+  const cols = db.prepare(`PRAGMA table_info(api_keys)`).all().map((c) => c.name);
+  if (!cols.includes('version')) {
+    db.exec(`ALTER TABLE api_keys ADD COLUMN version INTEGER DEFAULT 1`);
+    console.log('[DB] Migrated api_keys: added version column');
+  }
+} catch (e) {
+  console.warn('[DB] version migration check failed:', e.message);
+}
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT DEFAULT (datetime('now')),
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT,
+    ip TEXT,
+    request_id TEXT,
+    detail TEXT
+  )
+`);
+try {
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor)`);
+} catch {}
 
 module.exports = db;

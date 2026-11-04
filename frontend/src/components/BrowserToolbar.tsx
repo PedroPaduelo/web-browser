@@ -58,32 +58,34 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
     }
   }, [url, sessionId, onNavigate, refocusViewer])
 
-  const handleBack = useCallback(async () => {
-    if (!sessionId || !token) return
-    try {
-      await tapKey(sessionId, token, 'Backspace', 'Backspace', { altKey: true })
-    } catch (e) {
-      console.error('Back failed:', e)
-    }
-  }, [sessionId, token])
+  // Pending por botão (torneio): nav por keystroke sintético é fire-and-forget —
+  // sem feedback o usuário clica 3x. Com pending + refocus, 1 clique basta.
+  const [pendingBtn, setPendingBtn] = useState<string | null>(null)
 
-  const handleForward = useCallback(async () => {
-    if (!sessionId || !token) return
+  const runNavAction = useCallback(async (name: string, fn: () => Promise<void>) => {
+    if (!sessionId || !token || pendingBtn) return
+    setPendingBtn(name)
     try {
-      await tapKey(sessionId, token, 'Forward', 'BrowserForward')
+      await fn()
     } catch (e) {
-      console.error('Forward failed:', e)
+      console.error(`${name} failed:`, e)
+    } finally {
+      setPendingBtn(null)
+      refocusViewer()
     }
-  }, [sessionId, token])
+  }, [sessionId, token, pendingBtn, refocusViewer])
 
-  const handleRefresh = useCallback(async () => {
-    if (!sessionId || !token) return
-    try {
-      await tapKey(sessionId, token, 'F5', 'F5')
-    } catch (e) {
-      console.error('Refresh failed:', e)
-    }
-  }, [sessionId, token])
+  const handleBack = useCallback(() => {
+    void runNavAction('back', () => tapKey(sessionId!, token!, 'Backspace', 'Backspace', { altKey: true }))
+  }, [sessionId, token, runNavAction])
+
+  const handleForward = useCallback(() => {
+    void runNavAction('forward', () => tapKey(sessionId!, token!, 'Forward', 'BrowserForward'))
+  }, [sessionId, token, runNavAction])
+
+  const handleRefresh = useCallback(() => {
+    void runNavAction('refresh', () => tapKey(sessionId!, token!, 'F5', 'F5'))
+  }, [sessionId, token, runNavAction])
 
   const handleUrlKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     // Escape na barra: cancela a edição e devolve o foco ao viewer.
@@ -104,15 +106,16 @@ export default function BrowserToolbar({ sessionId, pageUrl, onNavigate }: Props
       minWidth: 0,
       padding: '6px 8px',
     }}>
-      {/* Navigation buttons */}
-      <button type="button" onClick={handleBack} disabled={!sessionId} title="Voltar" style={btnStyle}>
-        ←
+      {/* Navigation buttons. Opacidade 0.5 + disabled durante pending: sem isso
+          o usuário clicava 3x no keystroke sintético sem feedback. */}
+      <button type="button" onClick={handleBack} disabled={!sessionId || pendingBtn !== null} title="Voltar" style={{ ...btnStyle, opacity: pendingBtn === 'back' ? 0.5 : 1 }}>
+        {pendingBtn === 'back' ? '…' : '←'}
       </button>
-      <button type="button" onClick={handleForward} disabled={!sessionId} title="Avançar" style={btnStyle}>
-        →
+      <button type="button" onClick={handleForward} disabled={!sessionId || pendingBtn !== null} title="Avançar" style={{ ...btnStyle, opacity: pendingBtn === 'forward' ? 0.5 : 1 }}>
+        {pendingBtn === 'forward' ? '…' : '→'}
       </button>
-      <button type="button" onClick={handleRefresh} disabled={!sessionId} title="Atualizar" style={btnStyle}>
-        ↻
+      <button type="button" onClick={handleRefresh} disabled={!sessionId || pendingBtn !== null} title="Atualizar" style={{ ...btnStyle, opacity: pendingBtn === 'refresh' ? 0.5 : 1 }}>
+        {pendingBtn === 'refresh' ? '…' : '↻'}
       </button>
 
       {/* URL bar */}

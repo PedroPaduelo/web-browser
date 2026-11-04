@@ -11,6 +11,7 @@ interface Props {
   sessionId: string | null
   videoMode?: VideoMode
   onRtcStatus?: (state: string, fps: number) => void
+  onVideoModeChange?: (mode: VideoMode) => void
 }
 
 function isEditableTarget(t: EventTarget | null): boolean {
@@ -39,7 +40,7 @@ interface RectCache {
 // tela de 1920x1080 sem rolagem, e sobra largura util para ver a pagina.
 const DEFAULT_RESOLUTION = { width: 1440, height: 900 }
 
-function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId, videoMode = 'mjpeg', onRtcStatus }: Props) {
+function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId, videoMode = 'mjpeg', onRtcStatus, onVideoModeChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   // Cursor overlay: posicionado por style direto (sem setState por mousemove).
@@ -257,7 +258,8 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId, 
         // encolher abaixo do conteudo e o app cresce alem da viewport.
         minHeight: 0,
         minWidth: 0,
-        cursor: 'none',
+        // cursor:none SÓ no canvas/vídeo (não no container): no letterbox o
+        // cursor nativo sumia e o overlay SVG se escondia — área sem cursor.
         outline: 'none',
         background: '#000',
         display: 'flex',
@@ -280,6 +282,7 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId, 
           height: fit.height ? `${fit.height}px` : '100%',
           objectFit: 'contain',
           display: videoMode === 'webrtc' ? 'none' : 'block',
+          cursor: 'none',
         }}
       />
 
@@ -298,6 +301,7 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId, 
               objectFit: 'contain',
               display: 'block',
               background: '#000',
+              cursor: 'none',
             }}
           />
           {rtc.state !== 'connected' && fit.width > 0 && (
@@ -305,8 +309,10 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId, 
               position: 'absolute',
               inset: 0,
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
+              gap: '12px',
               color: '#9ca3af',
               fontSize: 13,
               fontFamily: 'system-ui, sans-serif',
@@ -315,7 +321,27 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId, 
               {rtc.state === 'connecting'
                 ? 'conectando via WebRTC…'
                 : rtc.state === 'failed'
-                  ? 'WebRTC falhou — volte ao modo MJPEG'
+                  ? (<>
+                      <span>WebRTC falhou — o modo MJPEG continua funcionando</span>
+                      {onVideoModeChange && (
+                        <button
+                          onClick={() => onVideoModeChange('mjpeg')}
+                          style={{
+                            pointerEvents: 'auto',
+                            padding: '6px 16px',
+                            borderRadius: '6px',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            background: 'rgba(255,255,255,0.1)',
+                            color: '#e5e7eb',
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          Voltar ao MJPEG
+                        </button>
+                      )}
+                    </>)
                   : ''}
             </div>
           )}
@@ -362,6 +388,7 @@ function arePropsEqual(prev: Props, next: Props): boolean {
   if (prev.setCanvas !== next.setCanvas) return false
   if (prev.sessionId !== next.sessionId) return false
   if (prev.videoMode !== next.videoMode) return false
+  if (prev.onVideoModeChange !== next.onVideoModeChange) return false
   const a = prev.resolution ?? DEFAULT_RESOLUTION
   const b = next.resolution ?? DEFAULT_RESOLUTION
   return a.width === b.width && a.height === b.height

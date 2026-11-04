@@ -116,13 +116,31 @@ function updateKey(id, fields) {
 
   if (sets.length === 0) return getKeyById(id);
 
+  // Toggle de enabled (não mudança cosmética como nome) invalida JWTs vivos.
+  const touchesEnabled = Object.keys(fields).some((k) => k === 'enabled');
   values.push(id);
-  db.prepare(`UPDATE api_keys SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+  db.prepare(`UPDATE api_keys SET ${sets.join(', ')}${touchesEnabled ? ', version = version + 1' : ''} WHERE id = ?`).run(...values);
   return getKeyById(id);
+}
+
+function bumpVersion(id) {
+  try { db.prepare('UPDATE api_keys SET version = version + 1 WHERE id = ?').run(id); } catch {}
+  try {
+    const r = db.prepare('SELECT version FROM api_keys WHERE id = ?').get(id);
+    return r ? r.version : 1;
+  } catch { return 1; }
+}
+
+function getKeyVersion(id) {
+  try {
+    const r = db.prepare('SELECT version FROM api_keys WHERE id = ?').get(id);
+    return r && r.version != null ? r.version : 1;
+  } catch { return 1; }
 }
 
 function revokeKey(id) {
   db.prepare('UPDATE api_keys SET enabled = 0 WHERE id = ?').run(id);
+  bumpVersion(id); // revoke de verdade: JWTs já emitidos morrem no próximo request
   return { message: 'Key revoked', id };
 }
 
@@ -183,7 +201,7 @@ function regenerateKey(id) {
   const newHash = hashKey(rawKey);
   const newPrefix = rawKey.slice(0, 10);
 
-  db.prepare('UPDATE api_keys SET key_hash = ?, key_prefix = ? WHERE id = ?').run(newHash, newPrefix, id);
+  db.prepare('UPDATE api_keys SET key_hash = ?, key_prefix = ?, version = version + 1 WHERE id = ?').run(newHash, newPrefix, id);
 
   return { id, key: rawKey, keyPrefix: newPrefix, name: existing.name };
 }
@@ -199,4 +217,6 @@ module.exports = {
   regenerateKey,
   migrateFromEnv,
   deriveTenantId,
+  bumpVersion,
+  getKeyVersion,
 };

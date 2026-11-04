@@ -30,6 +30,7 @@ const adminUsers = require('./admin-users');
 const profileManager = require('./profile-manager');
 const tenantManager = require('./tenant-manager');
 const { validateUrl, guardBodyUrl } = require('./url-guard');
+const { audit, listAudit } = require('./audit');
 
 // Migracao de key legada
 const AUTH_API_KEY = process.env.AUTH_API_KEY;
@@ -444,7 +445,7 @@ app.post('/api/auth/login', loginRateLimiter, (req, res) => {
   if (tenant.disabled) {
     return res.status(403).json({ error: `API key "${tenant.name}" is disabled. Enable it in the admin panel.` });
   }
-  const token = generateToken(tenant.id, { maxSessions: tenant.maxSessions });
+  const token = generateToken(tenant.id, { maxSessions: tenant.maxSessions, keyVersion: keyStore.getKeyVersion(tenant.id) });
   res.json({ token, tenantId: tenant.id, userId: tenant.id });
 });
 
@@ -473,6 +474,11 @@ app.delete('/api/profile', authMiddleware, async (req, res) => {
   }
 });
 
+// Drain mode (torneio): POST /api/admin/drain flipa readiness — sessões novas
+// ganham 503 (com Retry-After) e as vivas terminam em paz. Rolling deploys
+// deixam de massacrar browsers de agentes no meio da tarefa.
+let drainMode = false;
+
 app.get('/api/health', (req, res) => {
   const memUsage = process.memoryUsage();
   // Sessões com processo morto entram em recuperação assíncrona (sem bloquear o health).
@@ -484,12 +490,21 @@ app.get('/api/health', (req, res) => {
       sessionManager.sweepDeadSessions().catch((e) => console.warn('[Health] sweep falhou:', e.message));
     }
   } catch {}
+  const max = parseInt(process.env.MAX_SESSIONS) || 10;
+  const active = sessionManager.getSessionCount();
   res.json({
-    status: 'ok',
+    status: drainMode ? 'draining' : 'ok',
+    // Identidade + capacidade para LBs espertos (torneio): rotear por slots
+    // livres em vez de spray cego, e sticky por instância (sessões são
+    // in-memory por processo).
+    instance: process.env.SERENDE_INSTANCE_ID || 'default',
+    ready: !drainMode,
+    draining: drainMode,
     uptime: Math.floor(process.uptime()),
     sessions: {
-      active: sessionManager.getSessionCount(),
-      max: parseInt(process.env.MAX_SESSIONS) || 10,
+      active,
+      max,
+      availableSlots: Math.max(0, max - active),
       dead: deadCount,
     },
     memory: {
@@ -501,6 +516,9 @@ app.get('/api/health', (req, res) => {
     version: '2.1.0',
   });
 });
+
+// Rota POST /api/admin/drain declarada junto às rotas admin (após adminAuth).
+// Ver bloco "--- Admin Drain ---" abaixo.
 
 // --- Protected Routes ---
 
@@ -734,6 +752,12 @@ app.delete('/api/webrtc/:sessionId/peer/:peerId', authMiddleware, trackActivity,
 
 app.post('/api/session', authMiddleware, async (req, res) => {
   try {
+    // Drain mode: sessões novas ganham 503 (vivas terminam em paz). LB deve
+    // rotear para instância ready (ver /api/health ready/instance).
+    if (drainMode) {
+      res.set('Retry-After', '30');
+      return res.status(503).json({ error: 'Instance draining — retry on a ready instance', code: 'draining', stage: 'drain' });
+    }
     const { resolution, startUrl, extensionPath } = req.body || {};
     // SSRF guard (torneio): startUrl vira --app + startup_urls sem validação.
     // Fail-closed ANTES de consumir display/porta (barato, sem display gasto).
@@ -831,6 +855,11 @@ app.post('/api/session', authMiddleware, async (req, res) => {
       : err.code === 'missing_binary' ? 503
       : err.stage === 'cdp' || err.stage === 'chrome' || err.stage === 'xvfb' || err.stage === 'resources' ? 502
       : 500);
+    // Contrato 429 com Retry-After (torneio): o start é caro (~1 core +
+    // ffmpeg por sessão) — hot-retry cego piora. 30s é conservador frente a
+    // sessões de 30min, mas evita o spin.
+    if (status === 429) res.set('Retry-After', '30');
+    res.set('X-Serve-Instance', process.env.SERENDE_INSTANCE_ID || 'default');
     res.status(status).json({ error: err.message, stage: err.stage || 'unknown', code: err.code || 'start_failed', requestId: req.requestId });
   }
 });
@@ -1821,6 +1850,7 @@ app.post('/api/admin/auth/password', adminJwtAuth, (req, res) => {
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
+  audit(req, 'admin.password_change', String(req.admin.id), {});
   res.json({ ok: true });
 });
 
@@ -1883,6 +1913,7 @@ app.post('/api/admin/bootstrap', adminLoginLimiter, (req, res) => {
   }
 
   console.log('[AdminAuth] primeiro admin criado via bootstrap:', user.email);
+  audit(req, 'admin.bootstrap', user.email, {});
   res.status(201).json({ admin: user });
 });
 
@@ -1891,6 +1922,7 @@ app.post('/api/admin/keys', adminAuth, (req, res) => {
     const { name, maxSessions, maxSessionDuration, maxIdleTimeout, features } = req.body || {};
     if (!name) return res.status(400).json({ error: 'name required' });
     const result = keyStore.createKey(name, { maxSessions, maxSessionDuration, maxIdleTimeout, features });
+    audit(req, 'key.create', result.id, { name });
     res.status(201).json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1910,6 +1942,7 @@ app.patch('/api/admin/keys/:id', adminAuth, (req, res) => {
   try {
     const result = keyStore.updateKey(req.params.id, req.body || {});
     if (!result) return res.status(404).json({ error: 'Key not found' });
+    audit(req, 'key.update', req.params.id, { fields: Object.keys(req.body || {}) });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1920,6 +1953,7 @@ app.post('/api/admin/keys/:id/regenerate', adminAuth, (req, res) => {
   try {
     const result = keyStore.regenerateKey(req.params.id);
     if (!result) return res.status(404).json({ error: 'Key not found' });
+    audit(req, 'key.regenerate', req.params.id, {});
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1929,6 +1963,7 @@ app.post('/api/admin/keys/:id/regenerate', adminAuth, (req, res) => {
 app.delete('/api/admin/keys/:id', adminAuth, (req, res) => {
   try {
     const result = keyStore.revokeKey(req.params.id);
+    audit(req, 'key.revoke', req.params.id, {});
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2001,7 +2036,8 @@ app.get('/api/admin/sessions/:sessionId/token', adminAuth, (req, res) => {
     const { sessionId } = req.params;
     const session = sessionManager.getSession(sessionId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
-    const token = generateToken(session.tenantId, { maxSessions: 10 });
+    const token = generateToken(session.tenantId, { maxSessions: 10, keyVersion: keyStore.getKeyVersion(session.tenantId) });
+    audit(req, 'admin.impersonate_token', sessionId, { tenantId: session.tenantId });
     res.json({ token, sessionId, tenantId: session.tenantId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2053,6 +2089,7 @@ app.delete('/api/admin/sessions/:sessionId', adminAuth, (req, res) => {
     if (!stopSessionFully(sessionId)) {
       return res.status(404).json({ error: 'Session not found' });
     }
+    audit(req, 'admin.session_kill', sessionId, {});
     res.json({ message: 'Session stopped' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2119,6 +2156,7 @@ app.delete('/api/admin/sessions', adminAuth, (req, res) => {
         failed.push(s.sessionId);
       }
     }
+    audit(req, 'admin.session_kill_bulk', tenantId || 'all', { closed: closed.length, failed: failed.length });
     res.json({
       message: `${closed.length} session(s) closed`,
       closed: closed.length,
@@ -2128,6 +2166,27 @@ app.delete('/api/admin/sessions', adminAuth, (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/admin/audit', adminAuth, (req, res) => {
+  try {
+    const { limit, actor, action } = req.query || {};
+    res.json({ entries: listAudit({ limit, actor, action }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Admin Drain ---
+// POST /api/admin/drain flipa readiness: sessões novas ganham 503 (com
+// Retry-After) e as vivas terminam em paz. Rolling deploys deixam de
+// massacrar browsers de agentes no meio da tarefa.
+app.post('/api/admin/drain', adminAuth, (req, res) => {
+  const { draining } = req.body || {};
+  drainMode = draining !== false;
+  audit(req, drainMode ? 'admin.drain_on' : 'admin.drain_off', 'instance', {});
+  console.log(`[Admin] drain mode ${drainMode ? 'ATIVADO' : 'desativado'}`);
+  res.json({ draining: drainMode });
 });
 
 app.get('/api/admin/stats', adminAuth, (req, res) => {

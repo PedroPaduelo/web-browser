@@ -9,9 +9,14 @@ const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS) || 10;
 const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MINUTES || '30') * 60 * 1000;
 const TIMEOUT_WARNING_MS = 2 * 60 * 1000;
 
-const DISPLAY_MIN = 100;
-const DISPLAY_MAX = 199;
-const CDP_BASE_PORT = 9222;
+// Ranges via env (torneio): sharding estático de hosts (host A 100-149 +
+// CDP 9222, host B 150-199 + CDP 9272) sem editar código. Defaults preservados.
+// ATENÇÃO: cdp-input-handler.js tem seu próprio DISPLAY_MIN=100 fallback —
+// ambos precisam mudar juntos (ver comentário lá).
+const DISPLAY_MIN = Math.max(1, parseInt(process.env.DISPLAY_MIN || '100') || 100);
+const DISPLAY_MAX = Math.max(DISPLAY_MIN, parseInt(process.env.DISPLAY_MAX || '199') || 199);
+const CDP_BASE_PORT = Math.max(1024, parseInt(process.env.CDP_BASE_PORT || '9222') || 9222);
+const DISPLAY_QUARANTINE_MS = Math.max(0, parseInt(process.env.DISPLAY_QUARANTINE_MS || '2000') || 2000);
 
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 // Use the actual chrome binary directly instead of the wrapper script to avoid SIGTRAP issues
@@ -47,8 +52,9 @@ function allocateDisplay() {
 
 function releaseDisplay(displayNum) {
   usedDisplays.delete(displayNum);
+  if (DISPLAY_QUARANTINE_MS <= 0) return;
   releasingDisplays.add(displayNum);
-  setTimeout(() => releasingDisplays.delete(displayNum), 2000);
+  setTimeout(() => releasingDisplays.delete(displayNum), DISPLAY_QUARANTINE_MS);
 }
 
 const XVFB_BIN = process.env.XVFB_BIN || 'Xvfb';
