@@ -193,6 +193,10 @@ class WebRTCSession {
     if (pc) {
       try { pc.close(); } catch {}
       this.peers.delete(peerId);
+      // Notifica SEMPRE (inclusive ICE-driven failed/closed/disconnected, que
+      // chama _removePeer direto sem passar pelo removePeer público) — o
+      // index.js reconcilia o refcount do CaptureService via setPeers.
+      if (this._onPeerCountChanged) { try { this._onPeerCountChanged(this.peers.size); } catch {} }
     }
   }
 

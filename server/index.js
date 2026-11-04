@@ -528,7 +528,7 @@ async function pauseVideoCapture(sessionId) {
   // seu remove aqui; o service ignora saldo negativo).
   try {
     const svc = resources.captureService;
-    if (svc) { svc.viewers = 0; svc._scheduleIdleCheck(); }
+    if (svc) { svc.viewers = 0; svc.nudgeIdle(); }
   } catch {}
 }
 
@@ -649,12 +649,14 @@ app.post('/api/webrtc/:sessionId/offer', authMiddleware, trackActivity, async (r
       const dims = unifiedDims(session.resolution.width, session.resolution.height);
       wrtc = new WebRTCSession(session.sessionId, raw.display, { width: session.resolution.width, height: session.resolution.height }, dims);
       // ICE-driven _removePeer (failed/closed/disconnected, sem DELETE explícito)
-      // também alimenta o refcount — sem isso o produtor vazava ligado.
-      wrtc.onPeerCountChanged(() => {
+      // reconcilia o refcount — sem isso, peers fantasmas prendiam o produtor
+      // ligado para sempre (vazamento real medido em teste de consumo).
+      wrtc.onPeerCountChanged((n) => {
         try {
           const s2 = sessionResources.get(session.sessionId);
           const svc2 = s2 && s2.captureService;
-          if (svc2 && wrtc.getStats().peers === 0) {
+          if (svc2) svc2.setPeers(n);
+          if (svc2 && n === 0) {
             try { s2.streamManager.pokeIdle(); } catch {}
           }
         } catch {}
@@ -709,16 +711,17 @@ app.delete('/api/webrtc/:sessionId/peer/:peerId', authMiddleware, trackActivity,
     const wrtc = webrtcSessions.get(session.sessionId);
     if (wrtc) {
       wrtc.removePeer(req.params.peerId);
-      // Veredito B: devolve ao refcount unificado + reaproveita o grace timer
-      // compartilhado (pokeIdle). O produtor SÓ cai quando demanda total = 0
-      // após o grace — nunca imediatamente, nunca com viewers MJPEG vivos.
+      // Veredito B: devolve ao refcount unificado. Grace ÚNICO (15s, no
+      // service): passar pelo pokeIdle do stream CASCATEAVA dois graces
+      // (stream 15s → service 15s = 30s para desligar). Aqui agenda direto no
+      // service, que só mata com demanda total = 0 — nunca com viewers vivos.
       try {
         const resources = sessionResources.get(session.sessionId);
         const svc = resources && resources.captureService;
         if (svc) svc.removePeer(req.params.peerId);
         if (wrtc.getStats().peers === 0 && resources) {
           try { wrtc.detachRawStream(); } catch {}
-          try { resources.streamManager.pokeIdle(); } catch {}
+          try { svc && svc.nudgeIdle(); } catch {}
         }
       } catch {}
     }

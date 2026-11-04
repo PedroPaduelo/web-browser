@@ -282,6 +282,21 @@ class CaptureService {
   peerCount() { return this.peers; }
   viewerCount() { return this.viewers; }
 
+  // Agenda a checagem de idle (grace ÚNICO de 15s). Chamado quando demanda cai
+  // a zero por qualquer caminho (DELETE-peer, WS close, reconciliação ICE).
+  // Só mata com demanda total = 0 — com viewers/peers vivos é no-op.
+  nudgeIdle() { this._scheduleIdleCheck(); }
+
+  // Reconciliação autoritativa: o WebRTCSession é o dono dos pcs; quando um
+  // peer morre por ICE (failed/closed/disconnected, sem DELETE explícito), o
+  // index.js chama setPeers com a contagem real — sem isso, peers fantasmas
+  // prendiam o produtor ligado para sempre (vazamento medido em teste).
+  setPeers(n) {
+    const real = Math.max(0, n | 0);
+    if (real < this.peers) this.peers = real;
+    this._scheduleIdleCheck();
+  }
+
   markRawAttached() { this.rawAttached = true; }
 
   // Parada total (fim da sessão): intencional, sem onDeath, sem timer.
