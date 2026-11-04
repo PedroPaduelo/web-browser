@@ -195,8 +195,15 @@ wait "$READER_PID" 2>/dev/null || true
 exit "$STATUS"
 `;
 
-const FFMPEG_FRAMERATE = Math.max(1, Math.min(60, parseInt(process.env.FFMPEG_FRAMERATE || '30') || 30));
-const FFMPEG_QUALITY = Math.max(1, Math.min(31, parseInt(process.env.FFMPEG_QSCALE || '5') || 5));
+// MEDIDO 2026-11 (torneio #1, 🥇): x11grab 30fps/q5 custa ~1 núcleo + ~114MB
+// por sessão ativa. 15fps/q7 corta ~50% do CPU de encode com trade aceitável
+// para UI de browser (texto pequeno perde um pouco de nitidez; scroll/drag
+// ficam menos suaves). Env overrides preservados — quem precisa de 30fps
+// volta com FFMPEG_FRAMERATE=30 FFMPEG_QSCALE=5. Sem -threads 2: o encoder
+// mjpeg nativo é efetivamente single-thread, forçar threads só aumenta
+// contenção com N sessões empacotadas.
+const FFMPEG_FRAMERATE = Math.max(1, Math.min(60, parseInt(process.env.FFMPEG_FRAMERATE || '15') || 15));
+const FFMPEG_QUALITY = Math.max(1, Math.min(31, parseInt(process.env.FFMPEG_QSCALE || '7') || 7));
 
 // Sobe o produtor de vídeo. Retorna { proc, stdout, stdin, stopping } ou null.
 function startFfmpegCapture(sessionId, display, width, height) {

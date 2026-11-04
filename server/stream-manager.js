@@ -2,6 +2,10 @@ const SOI_0 = 0xFF;
 const SOI_1 = 0xD8;
 const EOI_0 = 0xFF;
 const EOI_1 = 0xD9;
+// Needles pré-alocadas para Buffer.indexOf (torneio 🥈): evita realocar os
+// 2 bytes a cada busca dentro do loop de frames.
+const SOI_NEEDLE = Buffer.from([SOI_0, SOI_1]);
+const EOI_NEEDLE = Buffer.from([EOI_0, EOI_1]);
 
 class StreamManager {
   constructor(opts = {}) {
@@ -139,23 +143,18 @@ class StreamManager {
 
   extractAndBroadcast() {
     let offset = 0;
+    // View limitada ao que chegou: o buf é oversized (allocUnsafe reutilizado)
+    // e o indexOf precisa parar em bufLen, não no fim da alocação.
+    const view = this.buf.subarray(0, this.bufLen);
 
     while (offset < this.bufLen - 1) {
-      // encontrar SOI (FF D8)
-      if (!(this.buf[offset] === SOI_0 && this.buf[offset + 1] === SOI_1)) {
-        offset++;
-        continue;
-      }
+      // encontrar SOI (FF D8). Torneio 🥈: scan byte-a-byte em JS vira
+      // Buffer.indexOf (nativo) — mesma semântica de first-match, zero
+      // mudança de protocolo/framing.
+      const soiIdx = view.indexOf(SOI_NEEDLE, offset);
+      if (soiIdx === -1 || soiIdx >= this.bufLen - 1) break;
 
-      const soiIdx = offset;
-      let eoiIdx = -1;
-
-      for (let j = soiIdx + 2; j < this.bufLen - 1; j++) {
-        if (this.buf[j] === EOI_0 && this.buf[j + 1] === EOI_1) {
-          eoiIdx = j;
-          break;
-        }
-      }
+      const eoiIdx = view.indexOf(EOI_NEEDLE, soiIdx + 2);
 
       if (eoiIdx === -1) break; // frame incompleto, aguardar mais dados
 
