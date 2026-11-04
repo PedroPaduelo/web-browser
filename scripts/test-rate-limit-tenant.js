@@ -132,18 +132,26 @@ async function mcpCall(sid, apiKey, name, args = {}, id = 99) {
   check('sessao iniciada pelo MCP', Boolean(sessionId), sessionId || start.texto.slice(0, 120));
 
   // --- TESTE 3: um tenant nao bloqueia o outro ------------------------
+  // Teto ALTO por tenant (default 6000/min — o consumidor é um AGENTE via MCP,
+  // dezenas de tool calls/min). Lê o limite real do header e estoura de verdade.
   console.log('\nesgotando o balde do tenant A...');
-  const esgotado = await burst(a.token, 700);
+  const sonda = await burst(a.token, 5);
+  const teto = Math.max(100, parseInt(sonda.limit || '6000', 10) || 6000);
+  console.log(`teto do tenant: ${teto} — disparando ${teto + 200} req...`);
+  const esgotado = await burst(a.token, teto + 200);
   check('tenant A chega a 429', esgotado.status === 429, `status=${esgotado.status} limit=${esgotado.limit}`);
 
   const bDepois = await burst(b.token, 5);
   check('tenant B NAO e afetado pelo esgotamento do A', bDepois.status === 200, `status B=${bDepois.status}`);
 
-  // --- TESTE 4: 429 no MCP reporta rate limit, nao "no session" -------
-  console.log('\nchamando o MCP com o balde do tenant A esgotado...');
+  // --- TESTE 4: o MCP tem balde próprio (por agente) -------------------
+  // O MCP manda x-serende-agent (connId) e ganha balde separado dentro da cota
+  // do tenant: esgotar o balde direto NÃO pode estrangular o agente. É o fix
+  // da cascata original + o motivo do teto alto (o agente faz N req/min).
+  console.log('\nchamando o MCP com o balde direto do tenant A esgotado...');
   const chamada = await mcpCall(sid, rawA, 'session_status', {}, 21);
   const texto = chamada.texto;
-  check('MCP reporta o rate limit real', /429|Too many requests/i.test(texto), texto.slice(0, 140).replace(/\n/g, ' '));
+  check('MCP funciona mesmo com o balde direto esgotado (balde por agente)', /running|resolution|uptime/i.test(texto), texto.slice(0, 140).replace(/\n/g, ' '));
   check('MCP NAO mascara como "No active session"', !/No active session/i.test(texto));
 
   // --- TESTE 5: a sessao sobrevive ao rate limit ----------------------

@@ -94,7 +94,12 @@ app.use(express.json({ limit: '1mb' }));
 // hash da x-api-key. Tráfego sem identidade continua no balde por IP.
 const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000;
 const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100;
-const RATE_LIMIT_MAX_REQUESTS_TENANT = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS_TENANT) || 600;
+// Teto ALTO por tenant (6000/min default): o consumidor primário é um AGENTE
+// via MCP, que faz dezenas de tool calls por minuto (observe/act em loop) e
+// cada tool pode custar 2+ hits no backend. 600 estrangulava o loop do agente
+// em ~10 req/s; 6000 dá ~100 req/s de headroom. O isolamento por agente
+// (x-serende-agent) continua valendo dentro da cota. Ajuste via env.
+const RATE_LIMIT_MAX_REQUESTS_TENANT = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS_TENANT) || 6000;
 
 function tenantKeyFromRequest(req) {
   // Memoizado por request: keyGenerator e limit são avaliados separadamente,

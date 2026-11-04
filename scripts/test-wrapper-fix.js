@@ -32,6 +32,12 @@ exit "$STATUS"
 `;
 
 function wrapperAtual() {
+  // O wrapper mora em server/ffmpeg-wrapper.js desde o produtor único (#3);
+  // fallback para o local antigo (server/session-manager.js) se o módulo sumir.
+  try {
+    const { script } = require('../server/ffmpeg-wrapper.js');
+    if (script && script.includes('FF_PID')) return script;
+  } catch {}
   const sm = fs.readFileSync('server/session-manager.js', 'utf8');
   const m = sm.match(/const FFMPEG_WRAPPER_SCRIPT = `([\s\S]*?)`;/);
   if (!m) throw new Error('FFMPEG_WRAPPER_SCRIPT não encontrado');
