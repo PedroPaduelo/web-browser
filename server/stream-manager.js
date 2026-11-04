@@ -102,6 +102,14 @@ class StreamManager {
     if (this.clients.size === 0) this._scheduleIdleCheck();
   }
 
+  // Veredito B (passo 7): a saída do ÚLTIMO peer WebRTC precisa reaproveitar
+  // o MESMO grace timer do MJPEG (um produtor, um timer). O index.js chama
+  // pokeIdle() quando peers chega a 0; se não há viewers MJPEG, o idle
+  // agenda a suspensão compartilhada.
+  pokeIdle() {
+    if (this.clients.size === 0) this._scheduleIdleCheck();
+  }
+
   startCapture(ffmpegStdout) {
     if (!ffmpegStdout) return;
 

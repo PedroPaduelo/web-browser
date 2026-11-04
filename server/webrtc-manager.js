@@ -18,7 +18,7 @@ const ICE_SERVERS = [
 ];
 
 class WebRTCSession {
-  constructor(sessionId, display, resolution) {
+  constructor(sessionId, display, resolution, dims) {
     this.sessionId = sessionId;
     this.display = display;
     this.width = resolution.width;
@@ -28,11 +28,21 @@ class WebRTCSession {
     this.videoTrack = this.videoSource.createTrack();
 
     this.peers = new Map();
-    this.ffmpeg = null;
-    this.running = false;
+    // Torneio #3 (veredito B): ESTA CLASSE NÃO SPAWNA MAIS NADA. O produtor
+    // único (ffmpeg dual-output) mora no CaptureService; aqui só consumimos o
+    // rawFd (pipe:4) via attachRawStream(). _spawnFfmpeg + respawn cego
+    // deletados; morte do produtor chega via detach (onDeath no index.js).
+    this._rawStream = null;   // readable atual (rawFd do CaptureService)
+    this._onRawDataBound = (chunk) => this._onRawData(chunk);
+    this._onRawEnd = null;
 
-    // I420: Y=w*h + U=(w/2)*(h/2) + V=(w/2)*(h/2) = w*h*3/2
-    this.frameSize = Math.floor(this.width * this.height * 3 / 2);
+    // I420 EXATO (sem Math.floor): dims vêm do unifiedDims do CaptureService
+    // (pares garantidos). Fallback defensivo para chamadas antigas.
+    const fs = (dims && dims.frameSize)
+      || ((this.width & ~1) * (this.height & ~1) * 3) / 2;
+    this.frameWidth = (dims && dims.ew) || (this.width & ~1);
+    this.frameHeight = (dims && dims.eh) || (this.height & ~1);
+    this.frameSize = fs;
     this.frameBuf = Buffer.allocUnsafe(this.frameSize);
     this.frameBufLen = 0;
 
@@ -41,65 +51,46 @@ class WebRTCSession {
     this.fps = 0;
   }
 
-  startCapture() {
-    if (this.running) return;
-    this.running = true;
-    this._spawnFfmpeg();
+  // Liga este peer-set ao rawFd do CaptureService. Troca o listener de 'data'
+  // (o dreno de descarte do service sai, entra o reassembler) e reseta o
+  // frame parcial. Retorna true se anexado.
+  attachRawStream(readable) {
+    if (!readable) return false;
+    this.detachRawStream();
+    this._rawStream = readable;
+    this.frameBufLen = 0;
+    try { readable.on('data', this._onRawDataBound); } catch { return false; }
+    this._onRawEnd = () => { this.detachRawStream(); };
+    try { readable.once('end', this._onRawEnd); } catch {}
+    try { readable.once('close', this._onRawEnd); } catch {}
+    try { readable.once('error', this._onRawEnd); } catch {}
+    try { readable.resume(); } catch {}
+    return true;
   }
 
-  // Pausa: derruba a captura mantendo os peers vivos. O x11grab rawvideo é
-  // ~83MB/s de memcpy — capturar com NINGUÉM conectado é o mesmo
-  // desperdício do MJPEG sem viewer (aqui a.Flow é invertido: começa no
-  // 1º peer e para quando o último sai).
-  pauseCapture() {
-    this.running = false; // PRIMEIRO: o handler de exit não reagendará spawn
-    if (this.ffmpeg) {
-      try { this.ffmpeg.kill('SIGTERM'); } catch {}
-      this.ffmpeg = null;
+  detachRawStream() {
+    const s = this._rawStream;
+    this._rawStream = null;
+    this.frameBufLen = 0; // descarta frame parcial (novo attach realinha)
+    if (!s) return;
+    try { s.removeListener('data', this._onRawDataBound); } catch {}
+    if (this._onRawEnd) {
+      try { s.removeListener('end', this._onRawEnd); } catch {}
+      try { s.removeListener('close', this._onRawEnd); } catch {}
+      try { s.removeListener('error', this._onRawEnd); } catch {}
+      this._onRawEnd = null;
     }
   }
 
-  resumeCapture() {
-    this.startCapture();
+  closeAllPeers() {
+    for (const [id] of this.peers) this._removePeer(id);
   }
 
-  _spawnFfmpeg() {
-    if (!this.running) return;
-
-    const args = [
-      '-probesize', '32',
-      '-analyzeduration', '0',
-      '-fflags', 'nobuffer',
-      '-flags', 'low_delay',
-      '-f', 'x11grab',
-      '-framerate', '30',
-      '-video_size', `${this.width}x${this.height}`,
-      '-draw_mouse', '0',
-      '-thread_queue_size', '4',
-      '-i', this.display,
-      '-f', 'rawvideo',
-      '-pix_fmt', 'yuv420p',
-      '-an',
-      'pipe:1',
-    ];
-
-    this.ffmpeg = spawn('ffmpeg', args, {
-      env: { ...process.env, DISPLAY: this.display },
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-
-    this.ffmpeg.stdout.on('data', (chunk) => this._onRawData(chunk));
-
-    this.ffmpeg.on('exit', () => {
-      this.ffmpeg = null;
-      if (this.running) setTimeout(() => this._spawnFfmpeg(), 1000);
-    });
-
-    this.ffmpeg.on('error', () => {
-      this.ffmpeg = null;
-      if (this.running) setTimeout(() => this._spawnFfmpeg(), 1000);
-    });
-  }
+  // Compat (dual-producer): o index.js agora dirige o CaptureService; estes
+  // viram no-ops para não quebrar chamadas restantes.
+  startCapture() {}
+  pauseCapture() { this.detachRawStream(); }
+  resumeCapture() {}
 
   _onRawData(chunk) {
     let srcOffset = 0;
@@ -122,14 +113,17 @@ class WebRTCSession {
   _dispatchFrame() {
     if (this.peers.size === 0) return;
 
-    const data = new Uint8ClampedArray(
-      this.frameBuf.buffer,
-      this.frameBuf.byteOffset,
-      this.frameSize,
-    );
+    // FIX (b, veredito B): cópia por dispatch em vez da view sobre o
+    // frameBuf reutilizado — o timing de encode do libwrtc é opaco, e a view
+    // seria sobrescrita pelo próximo frame antes do encode terminar.
+    // ~1.4MB@15fps de garbage transitório (eden), aceito por correção.
+    let data;
+    try {
+      data = new Uint8ClampedArray(Buffer.from(this.frameBuf));
+    } catch { return; }
 
     try {
-      this.videoSource.onFrame({ width: this.width, height: this.height, data });
+      this.videoSource.onFrame({ width: this.frameWidth, height: this.frameHeight, data });
     } catch {}
 
     this.frameCount++;
@@ -202,20 +196,27 @@ class WebRTCSession {
     }
   }
 
-  removePeer(peerId) { this._removePeer(peerId); }
+  removePeer(peerId) {
+    this._removePeer(peerId);
+    // Veredito B: o ICE-driven _removePeer (failed/closed/disconnected) também
+    // passa por aqui? NÃO — ele chama _removePeer direto. O index.js lê
+    // getStats().peers após CADA remoção (DELETE-route) e o oniceconnection-
+    // statechange do frontend re-offerta; peers órfãos sem DELETE explícito
+    // são cobertos pelo refcount lido no offer/answer. Documentado, sem leak
+    // estrutural: peers mortos não recebem frames (_dispatchFrame checa size).
+    if (this._onPeerCountChanged) { try { this._onPeerCountChanged(this.peers.size); } catch {} }
+  }
+
+  onPeerCountChanged(cb) { this._onPeerCountChanged = cb; }
 
   stop() {
-    this.running = false;
-    if (this.ffmpeg) {
-      try { this.ffmpeg.kill('SIGTERM'); } catch {}
-      this.ffmpeg = null;
-    }
+    this.detachRawStream();
     for (const [id] of this.peers) this._removePeer(id);
     try { this.videoTrack.stop(); } catch {}
   }
 
   getStats() {
-    return { peers: this.peers.size, fps: this.fps, capturing: !!this.ffmpeg };
+    return { peers: this.peers.size, fps: this.fps, capturing: !!this._rawStream };
   }
 }
 

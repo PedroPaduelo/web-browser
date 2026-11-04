@@ -324,8 +324,10 @@ function purgeSessionMemory(sessionId) {
   if (removed) console.log(`[Startup] ${removed} perfil(is) de sessão morta removido(s)`);
 })();
 
-// Queda do produtor de vídeo (ffmpeg): troca para o CDP screencast SEM
-// derrubar a sessão — vídeo degrada de 30fps para ~0.3-20fps, mas continua.
+// Queda do produtor de vídeo (ffmpeg ÚNICO, dual-output): troca o MJPEG para o
+// CDP screencast SEM derrubar a sessão, e CONGELA os peers WebRTC (veredito B:
+// shared fate explícito — peers fechados, não congelados em frame velho; o
+// retry do frontend com backoff re-offerta e ressuscita via demanda).
 sessionManager.onCaptureDied((sessionId, reason) => {
   const resources = sessionResources.get(sessionId);
   if (!resources) return;
@@ -333,6 +335,10 @@ sessionManager.onCaptureDied((sessionId, reason) => {
   resources.captureMode = 'cdp';
   try { resources.streamManager.stopCapture(); } catch {}
   try { resources.streamManager.mode = 'cdp'; } catch {}
+  try {
+    const wrtc = webrtcSessions.get(sessionId);
+    if (wrtc) { try { wrtc.detachRawStream(); } catch {} try { wrtc.closeAllPeers(); } catch {} }
+  } catch {}
   try {
     if (!resources.screencast) {
       resources.screencast = new CDPScreencast(sessionManager.getSession(sessionId)?.cdpPort,
@@ -343,7 +349,7 @@ sessionManager.onCaptureDied((sessionId, reason) => {
     console.error(`[API] Fallback CDP screencast falhou para ${sessionId}:`, e.message);
     return;
   }
-  console.warn(`[API] Session ${sessionId}: ffmpeg caiu (${reason}) — usando CDP screencast`);
+  console.warn(`[API] Session ${sessionId}: ffmpeg caiu (${reason}) — usando CDP screencast (peers WebRTC fechados)`);
 });
 
 sessionManager.onSessionDied((sessionId) => {
@@ -497,41 +503,64 @@ app.get('/api/health', (req, res) => {
 
 // --- Protected Routes ---
 
-// --- Pausa/Retomada do produtor por espectadores ---
+// --- Pausa/Retomada do produtor ÚNICO por demanda (viewers MJPEG + peers RTC) ---
 //
-// onIdle  (StreamManager, grace ~15s sem viewer): mata o ffmpeg x11grab
-//         (stopCapture com stopping=true → sem fallback CDP por engano).
-// onActive (1º viewer): respawna o ffmpeg no display da sessão e religa o
-//         pipe no StreamManager. Sem ffmpeg disponível: CDP screencast.
+// Veredito B: UM produtor (CaptureService dual-output), UMA demanda
+// (streamManager.clients.size + wrtc.peers.size), UM grace timer (~15s).
+// onIdle  (sem demanda total): para o produtor (intencional → sem fallback).
+// onActive (1ª demanda de qualquer lado): ensureRunning + re-anexa AMBOS os
+//         consumidores (MJPEG stdout + raw pipe:4).
 //
 // O modo CDP nunca é suspenso: ele só emite frame em repaint — custo ≈ 0
 // em tela parada, e suspender/retomar WS CDP constantemente gera churn.
-function pauseVideoCapture(sessionId) {
+//
+// Guarda anti-morte-cruzada: pause NUNCA derruba o produtor com peers vivos;
+// resume é idempotente (ensureRunning + attach condicional).
+async function pauseVideoCapture(sessionId) {
   const resources = sessionResources.get(sessionId);
   if (!resources || resources.captureSuspended) return;
   if (resources.captureMode !== 'ffmpeg') return; // CDP: on-repaint, deixa
+  const wrtc = webrtcSessions.get(sessionId);
+  if (wrtc && wrtc.getStats().peers > 0) return; // peers vivos: não mata
   resources.captureSuspended = true;
   try { resources.streamManager.stopCapture(); } catch {}
-  try { sessionManager.pauseCapture(sessionId); } catch {}
+  // Devolve TODA a demanda MJPEG ao refcount (cada addViewer do onActive tem
+  // seu remove aqui; o service ignora saldo negativo).
+  try {
+    const svc = resources.captureService;
+    if (svc) { svc.viewers = 0; svc._scheduleIdleCheck(); }
+  } catch {}
 }
 
-function resumeVideoCapture(sessionId) {
+async function resumeVideoCapture(sessionId) {
   const resources = sessionResources.get(sessionId);
-  if (!resources || !resources.captureSuspended) return;
+  if (!resources) return;
+  // Idempotente: se já há produtor vivo E consumidores anexados, nada a fazer.
+  // (O suspendido-flag virou "sem demanda"; a demanda atual é a verdade.)
   resources.captureSuspended = false;
 
-  const capture = sessionManager.resumeCapture(sessionId);
-  if (capture && capture.stdout) {
-    // Idêntico ao fluxo de criação: resume antes de assinar (a linha abaixo
-    // mantém stdout pausado dentro do session-manager).
-    try { capture.stdout.resume(); } catch {}
-    // Invalida o lastFrame pré-suspensão: a tela pode ter mudado sem
-    // espectador, e o dedup pularia o primeiro frame (idêntico ao velho) e
-    // o viewer ficaria sem imagem em tela estática.
-    try { resources.streamManager.lastFrame = null; } catch {}
-    resources.streamManager.startCapture(capture.stdout);
+  const svc = resources.captureService;
+  const wasAliveBefore = !!(svc && svc.alive);
+  if (svc && await svc.ensureRunning().catch(() => false)) {
+    // Re-anexa MJPEG (stdout pode ter sido parado no suspend).
+    const out = svc.mjpegStdout;
+    if (out) {
+      try { out.resume(); } catch {}
+      // Invalida o lastFrame pré-suspensão: a tela pode ter mudado sem
+      // espectador, e o dedup pularia o primeiro frame (idêntico ao velho) e
+      // o viewer ficaria sem imagem em tela estática.
+      try { resources.streamManager.lastFrame = null; } catch {}
+      resources.streamManager.startCapture(out);
+    }
+    // Re-anexa WebRTC se há peers. freshSpawn aqui = o produtor nasceu agora
+    // (estava morto) — sem restart; se já rodava, vale a regra do primeiro
+    // attach (ver attachRawToProducer).
+    try {
+      const wrtc = webrtcSessions.get(sessionId);
+      if (wrtc && wrtc.getStats().peers > 0) attachRawToProducer(sessionId, resources, wrtc, !wasAliveBefore);
+    } catch {}
     resources.captureMode = 'ffmpeg';
-    console.log(`[API] Session ${sessionId}: video resumed via ffmpeg x11grab`);
+    console.log(`[API] Session ${sessionId}: video resumed via ffmpeg único (dual-output)`);
     return;
   }
 
@@ -549,22 +578,59 @@ function resumeVideoCapture(sessionId) {
   }
 }
 
+// Anexa o rawFd do produtor ao WebRTCSession, com restart coordenado APENAS no
+// primeiro attach (attach-at-offset-0): o reassembler I420 é markerless —
+// entrar no meio do stream rasga o vídeo permanentemente. Se o produtor já
+// rodava SÓ para MJPEG (nenhum raw anexado ainda), reinicia para realinhar;
+// se nasceu agora OU já tem raw anexado, anexa direto (peers seguintes herdam
+// o fluxo alinhado; o reassembler de cada sessão começa no próximo chunk —
+// documentado: ingressante tardio pode ter 1 frame parcial descartado).
+async function attachRawToProducer(sessionId, resources, wrtc, freshSpawn) {
+  const svc = resources && resources.captureService;
+  if (!svc || !wrtc) return false;
+  if (svc.alive && !svc.rawAttached && !freshSpawn) {
+    // Primeiro attach com produtor vivo (nascido para MJPEG): restart
+    // coordenado (para intencional + re-spawn) para o reassembler começar no
+    // offset 0. Se o produtor nasceu AGORA (freshSpawn) ou já tem raw anexado,
+    // anexa direto — sem churn.
+    try { await svc.restartForRawAttach(); } catch {}
+  }
+  const raw = svc.rawFd;
+  if (!raw) return false;
+  const ok = wrtc.attachRawStream(raw);
+  if (ok) svc.markRawAttached();
+  return ok;
+}
+
 // --- WebRTC (visualização nativa, hook useWebRTC do frontend) ---
 //
 // Contrato esperado pelo hook: POST /offer → {peerId,sdp,type,candidates};
 // POST /answer {peerId,sdp}; POST /ice {peerId,candidate};
 // DELETE /peer/:peerId. Cada VIEWER é um peer (encoder libwebrtc por peer).
-// Captura rawvideo própria, same principle do MJPEG: só COM espectador.
-// Primeiro peer → startCapture; último sai → pauseCapture; sessão morre →
-// stop() via purgeSessionMemory.
+//
+// Veredito B (torneio #3): SEM produtor próprio. O rawvideo I420 vem do pipe:4
+// do CaptureService (ffmpeg único, dual-output). O refcount unificado
+// (viewers MJPEG + peers RTC) mora no CaptureService; aqui só dirigimos:
+// offer → createOffer → ensureRunning + attach (com restart coordenado se o
+// produtor já rodava); DELETE → removePeer + pokeIdle (grace compartilhada).
 const { WebRTCSession } = require('./webrtc-manager');
+const { unifiedDims } = require('./capture-service');
 const webrtcSessions = new Map(); // sessionId → WebRTCSession
 
 function destroyWebRtc(sessionId) {
   const w = webrtcSessions.get(sessionId);
   if (!w) return;
   webrtcSessions.delete(sessionId);
-  try { w.pauseCapture(); } catch {}
+  try {
+    const resources = sessionResources.get(sessionId);
+    const svc = resources && resources.captureService;
+    if (svc) {
+      // Devolve os peers ao refcount antes de fechar (o stop da sessão mata
+      // o produtor de qualquer forma; aqui evitamos grace fantasma).
+      for (let i = 0; i < w.getStats().peers; i++) { try { svc.removePeer('destroy'); } catch {} }
+    }
+  } catch {}
+  try { w.detachRawStream(); } catch {}
   try { w.stop(); } catch {}
 }
 
@@ -573,17 +639,38 @@ app.post('/api/webrtc/:sessionId/offer', authMiddleware, trackActivity, async (r
   if (!session) return;
 
   try {
+    const resources = sessionResources.get(session.sessionId);
+    const svc = resources && resources.captureService;
+    if (!svc) return res.status(409).json({ error: 'Capture unavailable (CDP fallback mode) — WebRTC needs the ffmpeg producer' });
     let wrtc = webrtcSessions.get(session.sessionId);
     if (!wrtc) {
       const raw = sessionManager.getSessionRaw(session.sessionId);
       if (!raw) return res.status(404).json({ error: 'Session not found' });
-      wrtc = new WebRTCSession(session.sessionId, raw.display, { width: session.resolution.width, height: session.resolution.height });
+      const dims = unifiedDims(session.resolution.width, session.resolution.height);
+      wrtc = new WebRTCSession(session.sessionId, raw.display, { width: session.resolution.width, height: session.resolution.height }, dims);
+      // ICE-driven _removePeer (failed/closed/disconnected, sem DELETE explícito)
+      // também alimenta o refcount — sem isso o produtor vazava ligado.
+      wrtc.onPeerCountChanged(() => {
+        try {
+          const s2 = sessionResources.get(session.sessionId);
+          const svc2 = s2 && s2.captureService;
+          if (svc2 && wrtc.getStats().peers === 0) {
+            try { s2.streamManager.pokeIdle(); } catch {}
+          }
+        } catch {}
+      });
       webrtcSessions.set(session.sessionId, wrtc);
     }
     const peerId = uuidv4();
+    // Ordem preservada: sinalização primeiro (sobrevive sem ffmpeg), demanda depois.
     const offer = await wrtc.createOffer(peerId);
-    // Captura começa quando o PRIMEIRO peer entra no jogo.
-    if (wrtc.getStats().peers > 0) wrtc.resumeCapture();
+    try { svc.addPeer(peerId); } catch {}
+    resources.captureSuspended = false;
+    const wasAliveBefore = svc.alive;
+    if (await svc.ensureRunning().catch(() => false)) {
+      // freshSpawn=true: o produtor nasceu AGORA (offset 0) — sem restart.
+      await attachRawToProducer(session.sessionId, resources, wrtc, !wasAliveBefore);
+    }
     res.json({ peerId, ...offer });
   } catch (err) {
     res.status(500).json({ error: 'WebRTC offer failed: ' + err.message });
@@ -622,9 +709,18 @@ app.delete('/api/webrtc/:sessionId/peer/:peerId', authMiddleware, trackActivity,
     const wrtc = webrtcSessions.get(session.sessionId);
     if (wrtc) {
       wrtc.removePeer(req.params.peerId);
-      // Último espectador saiu: derruba a captura rawvideo (o mesmo princípio
-      // do "sem espectador → sem produtor" do MJPEG).
-      if (wrtc.getStats().peers === 0) wrtc.pauseCapture();
+      // Veredito B: devolve ao refcount unificado + reaproveita o grace timer
+      // compartilhado (pokeIdle). O produtor SÓ cai quando demanda total = 0
+      // após o grace — nunca imediatamente, nunca com viewers MJPEG vivos.
+      try {
+        const resources = sessionResources.get(session.sessionId);
+        const svc = resources && resources.captureService;
+        if (svc) svc.removePeer(req.params.peerId);
+        if (wrtc.getStats().peers === 0 && resources) {
+          try { wrtc.detachRawStream(); } catch {}
+          try { resources.streamManager.pokeIdle(); } catch {}
+        }
+      } catch {}
     }
     res.json({ ok: true });
   } catch (err) {
@@ -655,24 +751,21 @@ app.post('/api/session', authMiddleware, async (req, res) => {
 
     // Se ligar stream/input falhar, a sessão (Xvfb+Chrome) NÃO pode vazar: para tudo.
     try {
-      // --- Produtor de VÍDEO ---
-      // Primário: ffmpeg x11grab (30fps). Fallback: CDP screencast (~0.3-20fps,
-      // só emite frame quando a página repinta).
+      // --- Produtor de VÍDEO: CaptureService (ffmpeg único, dual-output) ---
+      // Veredito B: o produtor nasce PARADO (demanda zero). A primeira demanda
+      // (viewer MJPEG via onActive, ou peer WebRTC via offer) liga via
+      // ensureRunning. Fallback: CDP screencast (~0.3-20fps, só em repaint).
       const streamMgr = new StreamManager();
       const screencast = new CDPScreencast(raw.cdpPort, screencastOptions(sessionId, raw));
 
+      const svc = raw.captureService || null;
       let captureMode = 'cdp';
-      if (raw.capture && raw.capture.stdout) {
-        try {
-          raw.capture.stdout.resume();
-          streamMgr.startCapture(raw.capture.stdout);
-          captureMode = 'ffmpeg';
-          console.log(`[API] Session ${sessionId}: video via ffmpeg x11grab`);
-        } catch (e) {
-          console.error(`[API] Session ${sessionId}: ffmpeg startCapture falhou, usando CDP:`, e.message);
-        }
-      }
-      if (captureMode === 'cdp') {
+      if (svc) {
+        // Produtor existe mas parado: registra a demanda MJPEG futura via
+        // hooks (não liga agora — captura consciente desde o nascimento).
+        captureMode = 'ffmpeg';
+        console.log(`[API] Session ${sessionId}: CaptureService dual pronto (produtor sobe na 1ª demanda)`);
+      } else {
         streamMgr.mode = 'cdp';
         screencast.start((frame) => streamMgr.pushFrame(frame));
         console.log(`[API] Session ${sessionId}: video via CDP screencast (fallback)`);
@@ -680,18 +773,16 @@ app.post('/api/session', authMiddleware, async (req, res) => {
 
       const inputHdl = createInputHandler(raw.displayNum);
 
-      // --- Captura consciente de espectadores ---
-      // O produtor primário (ffmpeg x11grab a 30fps) custa ~1 núcleo + ~114MB
-      // por sessão MESMO sem ninguém assistindo. Hooks do StreamManager:
-      // onIdle encerra o ffmpeg; onActive o respawna no display (ou cai no
-      // CDP se Deus recusar o ffmpeg). O modo CDP fica sempre ligado: ele
-      // só emite frame em repaint — em tela parada o custo é próximo de zero.
+      // --- Demanda unificada (viewers MJPEG + peers RTC) ---
+      // Um produtor, um refcount, um grace timer. onIdle/onActive do MJPEG +
+      // addPeer/removePeer do WebRTC alimentam o MESMO CaptureService.
       const resources = {
         streamManager: streamMgr,
         screencast,
         inputHandler: inputHdl,
+        captureService: svc,
         captureMode,
-        captureSuspended: false,
+        captureSuspended: true, // nasce suspenso: sem demanda ainda
       };
 
       streamMgr.setViewerHooks({
@@ -699,6 +790,7 @@ app.post('/api/session', authMiddleware, async (req, res) => {
           pauseVideoCapture(sessionId);
         },
         onActive() {
+          if (svc) { try { svc.addViewer('ws'); } catch {} }
           resumeVideoCapture(sessionId);
         },
       });
@@ -744,6 +836,7 @@ app.delete('/api/session/:sessionId', authMiddleware, async (req, res) => {
 
   const resources = sessionResources.get(sessionId);
   if (resources) {
+    try { resources.captureService && resources.captureService.stop(); } catch {}
     resources.screencast.stop();
     resources.streamManager.stop();
     resources.inputHandler.stop();
@@ -793,6 +886,14 @@ app.get('/api/session/:sessionId', authMiddleware, trackActivity, (req, res) => 
   const resources = sessionResources.get(req.params.sessionId);
   if (resources) {
     session.stream = resources.streamManager.getStats();
+    // Telemetria do produtor único (veredito B): refcount, mortes, dims.
+    try {
+      if (resources.captureService) session.capture = resources.captureService.getStats();
+    } catch {}
+    try {
+      const w = webrtcSessions.get(req.params.sessionId);
+      if (w) session.webrtc = w.getStats();
+    } catch {}
   }
 
   // Adicionar info de timeout
@@ -1922,6 +2023,7 @@ function stopSessionFully(sessionId) {
 
   const resources = sessionResources.get(sessionId);
   if (resources) {
+    try { resources.captureService && resources.captureService.stop(); } catch {}
     resources.screencast.stop();
     resources.streamManager.stop();
     resources.inputHandler.stop();
@@ -2101,9 +2203,16 @@ server.on('upgrade', (req, socket, head) => {
   if (pathname === '/ws/stream') {
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws._socket && ws._socket.setNoDelay(true);
+      // Demanda MJPEG alimenta o refcount unificado (veredito B) EXCLUSIVAMENTE
+      // via onActive/onIdle do StreamManager (addClient/removeClient) — contar
+      // aqui também duplicava cada viewer (2 counts por 1 socket) e atrasava o
+      // grace. No close, pokeIdle reaproveita o grace compartilhado.
       resources.streamManager.addClient(ws);
       activeWsConnections.set(ws, { token, sessionId });
-      ws.on('close', () => activeWsConnections.delete(ws));
+      ws.on('close', () => {
+        activeWsConnections.delete(ws);
+        try { resources.streamManager.pokeIdle(); } catch {}
+      });
     });
   } else if (pathname === '/ws/input') {
     wss.handleUpgrade(req, socket, head, (ws) => {

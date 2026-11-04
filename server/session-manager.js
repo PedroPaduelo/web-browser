@@ -52,25 +52,7 @@ function releaseDisplay(displayNum) {
 }
 
 const XVFB_BIN = process.env.XVFB_BIN || 'Xvfb';
-const FFMPEG_BIN = process.env.FFMPEG_BIN || 'ffmpeg';
-
-// Path absoluto do ffmpeg (cacheado): 'ffmpeg' puro no PATH resolve via shell,
-// mas o spawn precisa de um executável real. Sem isso, o produtor de vídeo
-// simplesmente não sobe e caímos no CDP screencast.
-let ffmpegPathCache; // undefined = ainda não checado, null = ausente
-function resolveFfmpegPath() {
-  if (ffmpegPathCache !== undefined) return ffmpegPathCache;
-  try {
-    const out = execSync(`command -v ${FFMPEG_BIN}`, { encoding: 'utf8' }).trim();
-    ffmpegPathCache = out || null;
-  } catch {
-    ffmpegPathCache = null;
-  }
-  if (!ffmpegPathCache) {
-    console.warn(`[Session] ffmpeg não encontrado no PATH — vídeo usará o fallback CDP screencast`);
-  }
-  return ffmpegPathCache;
-}
+// resolveFfmpegPath vive em ffmpeg-bin.js (compartilhado com capture-service.js).
 
 function stageError(stage, code, message, status) {
   const err = new Error(message);
@@ -148,188 +130,52 @@ function cleanupDisplayArtifacts(displayNum, sessionId = '?') {
   }
 }
 
-// --- Produtor de VÍDEO: ffmpeg x11grab (30fps) ---
+// --- Produtor de VÍDEO: CaptureService (ffmpeg único, dual-output) ---
+//
+// Torneio #3 (veredito B): ANTES havia DOIS ffmpeg x11grab por sessão dual-view
+// (um MJPEG em startFfmpegCapture + um rawvideo no webrtc-manager), capturando
+// o mesmo display 2x. AGORA o CaptureService (server/capture-service.js) é o
+// dono único do produtor: uma saída MJPEG → StreamManager, uma rawvideo I420
+// (pipe:4) → WebRTCSession. Wrapper anti-órfão, detached pgroup, group-kill e
+// fallback CDP preservados byte-idênticos (o texto do wrapper e o resolve do
+// binário vivem em ffmpeg-wrapper.js / ffmpeg-bin.js, movidos daqui).
 //
 // O CDP screencast só emite frame quando a página REPINTA (0.33fps em página
-// estática). O x11grab captura o display X continuamente (30fps medidos).
-//
-// Wrapper anti-órfão: o ffmpeg roda dentro de um `sh` que vigia dois sinais —
-//   (1) EOF no stdin  => o Node pai morreu (exit/SIGTERM) => mata o ffmpeg;
-//   (2) PPID mudou     => o pai morreu por SIGKILL e fomos reparentados => mata.
-// MEDIDO: ffmpeg puro NÃO morre com EOF no stdin — o wrapper é obrigatório.
-// O `exec 3<&0` duplica o stdin real ANTES do fork: em shell não-interativo o
-// stdin de um job em background vira /dev/null e a detecção de EOF nunca
-// dispara (foi exatamente o que quebrou na primeira versão).
-const FFMPEG_WRAPPER_SCRIPT = `
-FFBIN="$1"
-shift
-PARENT_PID="$PPID"
-"$FFBIN" "$@" &
-FF_PID=$!
-cleanup() {
-  kill -TERM "$FF_PID" 2>/dev/null || true
-  # O ffmpeg trata SIGTERM como shutdown gracioso e pode ficar preso na leitura
-  # do display X: por isso o cleanup escala para SIGKILL depois de 2s. Sem isso
-  # o produtor sobrevive à sessão encerrada segurando o socket X do display.
-  ( sleep 2; kill -KILL "$FF_PID" 2>/dev/null || true ) &
-}
-# No TERM/INT o shell precisa SAIR, não só rodar o cleanup: com o trap simples
-# o script continuava no loop, o ffmpeg só recebia o SIGTERM e ninguém
-# escalonava — o wrapper (e o ffmpeg) viviam depois da sessão encerrada.
-trap 'cleanup; exit 0' TERM INT
-trap cleanup EXIT
-exec 3<&0
-( cat <&3 > /dev/null; cleanup ) &
-READER_PID=$!
-while kill -0 "$FF_PID" 2>/dev/null; do
-  if [ "$PPID" != "$PARENT_PID" ]; then
-    cleanup
-    break
-  fi
-  sleep 1
-done
-wait "$FF_PID"
-STATUS=$?
-kill "$READER_PID" 2>/dev/null || true
-wait "$READER_PID" 2>/dev/null || true
-exit "$STATUS"
-`;
+// estática). O x11grab captura o display X continuamente (15fps).
+const { CaptureService, unifiedDims } = require('./capture-service');
 
-// MEDIDO 2026-11 (torneio #1, 🥇): x11grab 30fps/q5 custa ~1 núcleo + ~114MB
-// por sessão ativa. 15fps/q7 corta ~50% do CPU de encode com trade aceitável
-// para UI de browser (texto pequeno perde um pouco de nitidez; scroll/drag
-// ficam menos suaves). Env overrides preservados — quem precisa de 30fps
-// volta com FFMPEG_FRAMERATE=30 FFMPEG_QSCALE=5. Sem -threads 2: o encoder
-// mjpeg nativo é efetivamente single-thread, forçar threads só aumenta
-// contenção com N sessões empacotadas.
-const FFMPEG_FRAMERATE = Math.max(1, Math.min(60, parseInt(process.env.FFMPEG_FRAMERATE || '15') || 15));
-const FFMPEG_QUALITY = Math.max(1, Math.min(31, parseInt(process.env.FFMPEG_QSCALE || '7') || 7));
-
-// Sobe o produtor de vídeo. Retorna { proc, stdout, stdin, stopping } ou null.
-function startFfmpegCapture(sessionId, display, width, height) {
-  const ffmpegBin = resolveFfmpegPath();
-  if (!ffmpegBin) return null;
-
-  // A janela do Chrome em --kiosk ocupa 1279x719 dentro do display 1280x720:
-  // a última linha e a última coluna ficam SEM conteúdo (o último frame do
-  // x11grab mostrava 1px preto em y=719 e x=1279). O usuário lia essa borda
-  // como "tela cortada". O crop remove a faixa não pintada e o scale de volta
-  // para a resolução da sessão entrega o quadro cheio (1280x720) ao usuário.
-  const args = [
-    '-loglevel', 'error',
-    '-f', 'x11grab',
-    '-framerate', String(FFMPEG_FRAMERATE),
-    '-video_size', `${width}x${height}`,
-    '-i', display,
-    '-vf', `crop=${width - 1}:${height - 1}:0:0,scale=${width}:${height}:flags=neighbor`,
-    '-q:v', String(FFMPEG_QUALITY),
-    '-f', 'mjpeg',
-    '-',
-  ];
-
-  let proc;
-  try {
-    proc = spawn('/bin/sh', ['-c', FFMPEG_WRAPPER_SCRIPT, 'serende-ffmpeg', ffmpegBin, ...args], {
-      env: { ...process.env, DISPLAY: display },
-      stdio: ['pipe', 'pipe', 'pipe'],
-      // detached: o produtor de vídeo entra em um NOVO process group.
-      //
-      // Mesmo motivo do Xvfb: o memguard da sandbox mata por grupo de
-      // processos. Com o ffmpeg no grupo do backend, o memguard derrubava o
-      // backend junto quando a captura pesava demais (o ffmpeg sozinho passa
-      // de 350 MB por sessão). Isolado, ele derruba o produtor — que é o alvo
-      // certo — e o backend sobrevive.
-      //
-      // Consequência: o grupo precisa ser morto inteiro, senão o ffmpeg (neto
-      // do wrapper sh) fica órfão segurando o socket X do display.
-      // stopCapture() chama killProcessGroup() por causa disso.
-      detached: true,
-    });
-  } catch (err) {
-    console.error(`[Session:${sessionId}] ffmpeg spawn falhou:`, err.message);
-    return null;
-  }
-
-  const capture = { proc, stdout: proc.stdout, stdin: proc.stdin, stopping: false };
-
-  // Não deixa o pipe encher antes do StreamManager assinar o stdout.
-  proc.stdout.pause();
-
-  let stderrTail = '';
-  proc.stderr.on('data', (d) => {
-    stderrTail = (stderrTail + d.toString()).slice(-500);
-  });
-
-  proc.on('error', (err) => {
-    console.error(`[Session:${sessionId}] ffmpeg erro de processo:`, err.message);
-  });
-
-  proc.on('exit', (code, signal) => {
-    const s = sessions.get(sessionId);
-    // 'stopping' = morte intencional (stopSession) — não é queda.
-    if (capture.stopping) return;
-    const reason = `code=${code} signal=${signal || '-'}${stderrTail.trim() ? ` stderr=${stderrTail.trim().slice(-200)}` : ''}`;
-    console.error(`[Session:${sessionId}] ffmpeg de captura MORREU (${reason})`);
-    if (!s) return; // sessão já encerrada
-    // Sinaliza a queda para o index.js trocar para o fallback CDP screencast.
-    if (onCaptureDiedCallback) {
-      try { onCaptureDiedCallback(sessionId, reason); } catch {}
-    }
-  });
-
-  console.log(`[Session:${sessionId}] ffmpeg x11grab iniciado: ${display} ${width}x${height} @${FFMPEG_FRAMERATE}fps q=${FFMPEG_QUALITY}`);
-  return capture;
-}
-
-// Encerra o produtor de vídeo: fecha o stdin (o wrapper anti-órfão interpreta
-// o EOF e mata o ffmpeg) e depois mata o wrapper por.signal.
-function stopCapture(capture) {
-  if (!capture || capture.stopping) return;
-  capture.stopping = true;
-  try { capture.stdin?.end(); } catch {}
-  try { capture.stdin?.destroy(); } catch {}
-  // Mata o GRUPO, não só o wrapper: o ffmpeg roda como neto do sh e, com o
-  // spawn detached, sobreviveria ao sinal dado só ao wrapper — segurando o
-  // socket X do display e a memória do produtor.
-  killProcessGroup(capture.proc);
-}
-
-// --- Pausa/Retomada do produtor por espectador ---
-//
-// MEDIDO 2026-11: ffmpeg x11grab 30fps custa ~1 núcleo + ~114MB por sessão
-// ainda que NINGUÉM assista e a tela esteja parada. Flow: index.js suspende
-// o produtor quando o StreamManager fica sem espectadores (grace ~15s) e
-// retoma quando o primeiro viewer chega.
-//
-// Não confundir com queda: a morte INTENCIONAL (pause/stop) usa stopCapture,
-// que seta `stopping = true` — o handler de 'exit' ignora e o index.js não
-// dispara o fallback CDP.
+// Compat: startSession ainda guarda `s.capture` (legado, usado pelo health e
+// pelo stopSession abaixo). O objeto agora é { service } — o produtor real
+// mora no CaptureService.
 
 // Suspende o produtor de vídeo da sessão (encerra o ffmpeg com limpeza
 // completa). Idempotente: sessão sem produtor ativo não faz nada.
+// LEGADO (dual-producer): mantido para compat — o index.js agora dirige o
+// CaptureService diretamente; estas funções delegam para ele quando há service.
 function pauseCapture(sessionId) {
   const s = sessions.get(sessionId);
-  if (!s || !s.capture || s.capture.stopping) return false;
-  stopCapture(s.capture);
-  s.capture = null;
-  console.log(`[Session:${sessionId}] Produtor de vídeo SUSPENSO (sem espectadores)`);
-  return true;
+  if (!s) return false;
+  if (s.captureService) {
+    s.captureService.removeViewer('legacy');
+    s.captureService.removePeer('legacy');
+    console.log(`[Session:${sessionId}] Produtor de vídeo SUSPENSO (sem espectadores)`);
+    return true;
+  }
+  return false;
 }
 
-// Retoma o produtor de vídeo da sessão (spawna NOVO ffmpeg no display).
-// Retorna o novo capture, ou null se o ffmpeg não estiver disponível —
-// aí o index.js decide o fallback (CDP screencast).
-function resumeCapture(sessionId) {
+// Retoma o produtor de vídeo da sessão.
+// LEGADO (dual-producer): mantido para compat — delega ao CaptureService.
+async function resumeCapture(sessionId) {
   const s = sessions.get(sessionId);
-  if (!s) return null;
-  // Já existe produtor vivo? nada a fazer.
-  if (s.capture && !s.capture.stopping && s.capture.proc.exitCode === null) return s.capture;
-  const cap = startFfmpegCapture(s.sessionId, s.display, s.resolution.width, s.resolution.height);
-  s.capture = cap || null;
-  if (cap) {
+  if (!s || !s.captureService) return null;
+  s.captureService.addViewer('legacy');
+  const ok = await s.captureService.ensureRunning();
+  if (ok) {
     console.log(`[Session:${sessionId}] Produtor de vídeo RETOMADO (espectador conectou)`);
+    return { service: s.captureService };
   }
-  return cap;
+  return null;
 }
 
 // Saúde síncrona de uma sessão (processos vivos?) — base da detecção/recuperação de mortas.
@@ -409,11 +255,11 @@ async function startSession(sessionId, tenantId, options = {}) {
   // apaga o profile parcial e devolve o display ao pool (sem vazar :100-199).
   let xvfb = null;
   let chrome = null;
-  let capture = null;
+  let captureService = null;
   let displayReleased = false;
   const releaseOnce = () => { if (!displayReleased) { displayReleased = true; releaseDisplay(displayNum); } };
   const fail = async (stage, code, message, status) => {
-    stopCapture(capture);
+    try { captureService && captureService.stop(); } catch {}
     if (chrome) killChromeGroup(chrome);
     if (xvfb) killProcessGroup(xvfb);
     cleanupDisplayArtifacts(displayNum, sessionId);
@@ -660,13 +506,30 @@ async function startSession(sessionId, tenantId, options = {}) {
 
   console.log(`[Session:${sessionId}] CDP pronto em ${cdpAttempts} tentativa(s): ${cdpUrl}`);
 
-  // --- Produtor de VÍDEO ---
-  // ffmpeg x11grab (30fps) é o produtor primário; o CDP screencast é o fallback.
-  // Captura o DISPLAY INTEIRO: com --kiosk o Chrome ocupa 0,0 e o conteúdo do
-  // vídeo casa 1:1 com as coordenadas do viewport (input via CDP).
-  capture = startFfmpegCapture(sessionId, display, width, height);
-  if (capture) {
-    console.log(`[Session:${sessionId}] Produtor de vídeo: ffmpeg x11grab (${width}x${height} @${FFMPEG_FRAMERATE}fps)`);
+  // --- Produtor de VÍDEO: CaptureService (ffmpeg único, dual-output) ---
+  // Um x11grab com DUAS saídas: MJPEG (stdout → StreamManager) + rawvideo I420
+  // (pipe:4 → WebRTCSession). Captura o DISPLAY INTEIRO: com --kiosk o Chrome
+  // ocupa 0,0 e o conteúdo do vídeo casa 1:1 com as coordenadas do viewport
+  // (input via CDP). O serviço nasce PARADO (running=false): a demanda
+  // (viewer MJPEG ou peer WebRTC) liga via ensureRunning no index.js.
+  // Sem ffmpeg: captureService=null → index.js decide o fallback CDP.
+  const { resolveFfmpegPath } = require('./ffmpeg-bin');
+  if (resolveFfmpegPath()) {
+    captureService = new CaptureService({
+      sessionId,
+      display,
+      width,
+      height,
+      killProcessGroup,
+      onDeath: (reason) => {
+        // Morte INESPERADA: sinaliza a queda para o index.js trocar para o
+        // fallback CDP screencast (mesmo contrato do onCaptureDied antigo).
+        if (onCaptureDiedCallback) {
+          try { onCaptureDiedCallback(sessionId, reason); } catch {}
+        }
+      },
+    });
+    console.log(`[Session:${sessionId}] Produtor de vídeo: CaptureService dual (ffmpeg único, MJPEG+rawvideo)`);
   } else {
     console.log(`[Session:${sessionId}] Produtor de vídeo: fallback CDP screencast (ffmpeg indisponível)`);
   }
@@ -731,7 +594,8 @@ async function startSession(sessionId, tenantId, options = {}) {
     chrome,
     cdpUrl,
     cdpPort,
-    capture,
+    capture: captureService ? { service: captureService } : null,
+    captureService: captureService || null,
     resolution: { width, height },
     display,
     displayNum,
@@ -797,7 +661,7 @@ async function stopSession(sessionId, reason = 'manual') {
   // Mata o produtor de vídeo ANTES do Xvfb: o ffmpeg captura o display, e
   // deixar ele vivo segura o socket X. O wrapper anti-órfão garante que o
   // ffmpeg neto também morra.
-  stopCapture(session.capture);
+  try { session.captureService && session.captureService.stop(); } catch {}
 
   setTimeout(() => {
     // Mata o grupo do Xvfb: ele foi spawneado com detached, então o sinal
