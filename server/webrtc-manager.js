@@ -47,6 +47,22 @@ class WebRTCSession {
     this._spawnFfmpeg();
   }
 
+  // Pausa: derruba a captura mantendo os peers vivos. O x11grab rawvideo é
+  // ~83MB/s de memcpy — capturar com NINGUÉM conectado é o mesmo
+  // desperdício do MJPEG sem viewer (aqui a.Flow é invertido: começa no
+  // 1º peer e para quando o último sai).
+  pauseCapture() {
+    this.running = false; // PRIMEIRO: o handler de exit não reagendará spawn
+    if (this.ffmpeg) {
+      try { this.ffmpeg.kill('SIGTERM'); } catch {}
+      this.ffmpeg = null;
+    }
+  }
+
+  resumeCapture() {
+    this.startCapture();
+  }
+
   _spawnFfmpeg() {
     if (!this.running) return;
 

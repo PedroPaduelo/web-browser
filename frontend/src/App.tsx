@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import type { ConnectionState } from './lib/ws-client'
 import { useAuth } from './components/AuthProvider'
 import { useSession } from './hooks/useSession'
 import { useStream } from './hooks/useStream'
 import { usePageInfo } from './hooks/usePageInfo'
-import BrowserViewer from './components/BrowserViewer'
+import BrowserViewer, { type VideoMode } from './components/BrowserViewer'
 import BrowserToolbar from './components/BrowserToolbar'
 import SessionControls from './components/SessionControls'
 import ConnectionStatus from './components/ConnectionStatus'
@@ -14,13 +15,58 @@ import LoginScreen from './components/LoginScreen'
 // rolagem na pagina, e sobra largura util para o agente ver a pagina inteira.
 export const DEFAULT_RESOLUTION = { width: 1440, height: 900 }
 
+// Estado do WS de stream (MJPEG) → vocabulário do ConnectionStatus.
+const STREAM_STATE_LABEL: Record<string, ConnectionState> = {
+  connected: 'connected',
+  connecting: 'connecting',
+  reconnecting: 'reconnecting',
+  disconnected: 'disconnected',
+}
+
+// Estado do peer WebRTC → mesmo vocabulário (o RTC tem 'failed'/'closed'
+// que o WSDiscriminator não conhece; e 'idle' é apenas "desconectado").
+const RTC_STATE_LABEL: Record<string, ConnectionState> = {
+  connected: 'connected',
+  connecting: 'connecting',
+  failed: 'disconnected',
+  closed: 'disconnected',
+  idle: 'disconnected',
+}
+
 export default function App() {
   const { isAuthenticated, loading: authLoading, logout, token } = useAuth()
   const { status, sessionInfo, error, createSession, destroySession } = useSession()
 
   const isActive = status === 'active'
   const sessionId = sessionInfo?.sessionId || null
-  const { isConnected, fps, connectionState, setCanvas } = useStream(isActive, sessionId)
+
+  // --- Modo de vídeo: MJPEG (WS, default) ou WebRTC (opt-in) ---
+  // Persistido por dispositivo: o usuário que prefere a latência do WebRTC
+  // (LAN ~50ms) não precisa reativar a cada visita. MJPEG continua sendo o
+  // default: funciona em qualquer rede sem TURN e é battle-tested aqui.
+  const [videoMode, setVideoMode] = useState<VideoMode>(() => {
+    try {
+      const saved = localStorage.getItem('serende.videoMode')
+      return saved === 'webrtc' || saved === 'mjpeg' ? saved : 'mjpeg'
+    } catch { return 'mjpeg' }
+  })
+  const handleVideoModeChange = useCallback((mode: VideoMode) => {
+    setVideoMode(mode)
+    try { localStorage.setItem('serende.videoMode', mode) } catch {}
+  }, [])
+
+  // Status do peer WebRTC (estado + fps) reportado pelo viewer.
+  const [rtcStatus, setRtcStatus] = useState<{ state: string; fps: number }>({ state: 'idle', fps: 0 })
+  const handleRtcStatus = useCallback((state: string, fps: number) => {
+    setRtcStatus((prev) => (prev.state === state && prev.fps === fps ? prev : { state, fps }))
+  }, [])
+
+  // Em WebRTC o WS de stream fica desligado: um produtor de vídeo por vez
+  // (o MJPEG ativo consumiria banda/CPU para um canvas oculto).
+  const { isConnected, fps, connectionState, setCanvas } = useStream(
+    isActive && videoMode === 'mjpeg',
+    sessionId,
+  )
   const { pageInfo, refetch: refetchPageInfo } = usePageInfo(sessionId)
 
   const resolution = sessionInfo?.resolution || DEFAULT_RESOLUTION
@@ -93,7 +139,33 @@ export default function App() {
         )}
         {isActive && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-            <ConnectionStatus state={connectionState} fps={fps} />
+            <ConnectionStatus
+              state={videoMode === 'mjpeg'
+                ? STREAM_STATE_LABEL[connectionState]
+                : RTC_STATE_LABEL[rtcStatus.state]}
+              fps={videoMode === 'mjpeg' ? fps : rtcStatus.fps}
+            />
+            {/* Toggle do modo de vídeo: WebRTC = menor latência (LAN ~50ms),
+                MJPEG = robusto em qualquer rede. Default MJPEG. */}
+            <button
+              onClick={() => handleVideoModeChange(videoMode === 'mjpeg' ? 'webrtc' : 'mjpeg')}
+              title={videoMode === 'mjpeg'
+                ? 'Mudar para WebRTC (latência menor — ideal em LAN)'
+                : 'Mudar para MJPEG (mais robusto, funciona em qualquer rede)'}
+              style={{
+                padding: '3px 10px',
+                borderRadius: '12px',
+                border: '1px solid rgba(255,255,255,0.15)',
+                background: videoMode === 'webrtc' ? 'rgba(34,197,94,0.15)' : 'transparent',
+                color: videoMode === 'webrtc' ? '#22c55e' : '#9ca3af',
+                fontSize: '11px',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {videoMode === 'webrtc' ? 'WebRTC' : 'MJPEG'}
+            </button>
           </div>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
@@ -122,6 +194,8 @@ export default function App() {
             setCanvas={setCanvas}
             resolution={resolution}
             sessionId={sessionId}
+            videoMode={videoMode}
+            onRtcStatus={handleRtcStatus}
           />
         ) : (
           <div style={{

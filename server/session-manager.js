@@ -287,6 +287,44 @@ function stopCapture(capture) {
   killProcessGroup(capture.proc);
 }
 
+// --- Pausa/Retomada do produtor por espectador ---
+//
+// MEDIDO 2026-11: ffmpeg x11grab 30fps custa ~1 núcleo + ~114MB por sessão
+// ainda que NINGUÉM assista e a tela esteja parada. Flow: index.js suspende
+// o produtor quando o StreamManager fica sem espectadores (grace ~15s) e
+// retoma quando o primeiro viewer chega.
+//
+// Não confundir com queda: a morte INTENCIONAL (pause/stop) usa stopCapture,
+// que seta `stopping = true` — o handler de 'exit' ignora e o index.js não
+// dispara o fallback CDP.
+
+// Suspende o produtor de vídeo da sessão (encerra o ffmpeg com limpeza
+// completa). Idempotente: sessão sem produtor ativo não faz nada.
+function pauseCapture(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s || !s.capture || s.capture.stopping) return false;
+  stopCapture(s.capture);
+  s.capture = null;
+  console.log(`[Session:${sessionId}] Produtor de vídeo SUSPENSO (sem espectadores)`);
+  return true;
+}
+
+// Retoma o produtor de vídeo da sessão (spawna NOVO ffmpeg no display).
+// Retorna o novo capture, ou null se o ffmpeg não estiver disponível —
+// aí o index.js decide o fallback (CDP screencast).
+function resumeCapture(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s) return null;
+  // Já existe produtor vivo? nada a fazer.
+  if (s.capture && !s.capture.stopping && s.capture.proc.exitCode === null) return s.capture;
+  const cap = startFfmpegCapture(s.sessionId, s.display, s.resolution.width, s.resolution.height);
+  s.capture = cap || null;
+  if (cap) {
+    console.log(`[Session:${sessionId}] Produtor de vídeo RETOMADO (espectador conectou)`);
+  }
+  return cap;
+}
+
 // Saúde síncrona de uma sessão (processos vivos?) — base da detecção/recuperação de mortas.
 function getSessionHealth(sessionId) {
   const s = sessions.get(sessionId);
@@ -493,6 +531,10 @@ async function startSession(sessionId, tenantId, options = {}) {
     '--no-sandbox',
     '--disable-setuid-sandbox',
     '--disable-gpu',
+    // Chrome 157: o auto-detect de plataforma do Ozone fica inconstante e às
+    // vezes tenta Wayland (morre com "The platform failed to initialize").
+    // Aqui há sempre um Xvfb (DISPLAY real), então X11 é o destino certo.
+    '--ozone-platform=x11',
     '--disable-dev-shm-usage',
     '--disable-breakpad',
     '--disable-crash-reporter',
@@ -544,7 +586,8 @@ async function startSession(sessionId, tenantId, options = {}) {
     '--disable-infobars',
     '--restore-last-session=false',
     `--remote-debugging-port=${cdpPort}`,
-    '--remote-debugging-address=127.0.0.1',
+    // --remote-debugging-address foi removida no Chrome 157 (escuta sempre
+    // 127.0.0.1). Passar a flag destrói o parse do CDP nesse build.
     `--app=${startUrl}`, // App mode: sem barra de endereço/abas, viewport == screen
   ];
 
@@ -1093,6 +1136,8 @@ module.exports = {
   stopAllSessions,
   onSessionDied,
   onCaptureDied,
+  pauseCapture,
+  resumeCapture,
   startTimeoutTracker,
   updateActivity,
   getSessionTimeout,

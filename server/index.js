@@ -109,6 +109,14 @@ function tenantKeyFromRequest(req) {
   if (!key && req.headers['x-api-key']) {
     key = `tenant:${deriveTenantId(String(req.headers['x-api-key']))}`;
   }
+  // Cota por AGENTE ( OPCIONAL): o MCP manda o connId da conexao em
+  // `x-serende-agent`. Cada sub-agente/agent-turn ganha o proprio balde
+  // dentro da cota do tenant — burst de N agentes nao se autolimita. Sem
+  // o header nada muda (QA e clientes legados continuam por tenant).
+  if (key && req.headers['x-serende-agent']) {
+    const agent = String(req.headers['x-serende-agent']).slice(0, 72).replace(/[^-\w:.@]/g, '');
+    if (agent) key = `${key}|agent:${agent}`;
+  }
   req._rateLimitTenantKey = key;
   return key;
 }
@@ -276,6 +284,46 @@ function screencastOptions(sessionId, raw = {}) {
 
 const sessionResources = new Map();
 
+// --- Limpeza de memória por session-id ---
+//
+// MEDIDO 2026-11: Map caches ligados ao ciclo de vida da sessão sobreviviam à
+// morte dela por caminhos que não passavam pelo stopSessionFully — o caminho
+// comum (DELETE do tenant, timeout, crash → onSessionDied) não limpava
+// thumbCache e networkEvents. Função central: é cara morte é a mesma limpeza.
+function purgeSessionMemory(sessionId) {
+  try { networkEvents.delete(sessionId); } catch {}
+  for (const k of [...thumbCache.keys()]) {
+    if (k.startsWith(`${sessionId}@`)) thumbCache.delete(k);
+  }
+  destroyWebRtc(sessionId);
+}
+
+// Reaper de perfis de sessão órfãos no boot.
+//
+// MEDIDO 2026-11: o profile de uma sessão morta (ex.: crash/restart) ficava em
+// data/tenants/<tenantId>/sessions/<sessionId>/ para sempre (13 MB no caso
+// medido). No boot não há sessão viva — TODOS os diretórios de sessão são
+// restos. O profile persistente do tenant vive em profile-master/ NÃO toca.
+(function cleanupSessionProfiles() {
+  const fs = require('fs');
+  let removed = 0;
+  try {
+    const tenantsRoot = path.resolve(__dirname, '..', 'data', 'tenants');
+    for (const tenantId of fs.readdirSync(tenantsRoot)) {
+      const sessionsDir = path.join(tenantsRoot, tenantId, 'sessions');
+      try {
+        for (const sessionId of fs.readdirSync(sessionsDir)) {
+          // Trava de id: só remove o que casa com o formato do uuidv4
+          if (!/^[0-9a-f-]{36}$/.test(sessionId)) continue;
+          fs.rmSync(path.join(sessionsDir, sessionId), { recursive: true, force: true });
+          removed++;
+        }
+      } catch {}
+    }
+  } catch {}
+  if (removed) console.log(`[Startup] ${removed} perfil(is) de sessão morta removido(s)`);
+})();
+
 // Queda do produtor de vídeo (ffmpeg): troca para o CDP screencast SEM
 // derrubar a sessão — vídeo degrada de 30fps para ~0.3-20fps, mas continua.
 sessionManager.onCaptureDied((sessionId, reason) => {
@@ -299,6 +347,7 @@ sessionManager.onCaptureDied((sessionId, reason) => {
 });
 
 sessionManager.onSessionDied((sessionId) => {
+  purgeSessionMemory(sessionId);
   const resources = sessionResources.get(sessionId);
   if (resources) {
     resources.screencast.stop();
@@ -448,6 +497,141 @@ app.get('/api/health', (req, res) => {
 
 // --- Protected Routes ---
 
+// --- Pausa/Retomada do produtor por espectadores ---
+//
+// onIdle  (StreamManager, grace ~15s sem viewer): mata o ffmpeg x11grab
+//         (stopCapture com stopping=true → sem fallback CDP por engano).
+// onActive (1º viewer): respawna o ffmpeg no display da sessão e religa o
+//         pipe no StreamManager. Sem ffmpeg disponível: CDP screencast.
+//
+// O modo CDP nunca é suspenso: ele só emite frame em repaint — custo ≈ 0
+// em tela parada, e suspender/retomar WS CDP constantemente gera churn.
+function pauseVideoCapture(sessionId) {
+  const resources = sessionResources.get(sessionId);
+  if (!resources || resources.captureSuspended) return;
+  if (resources.captureMode !== 'ffmpeg') return; // CDP: on-repaint, deixa
+  resources.captureSuspended = true;
+  try { resources.streamManager.stopCapture(); } catch {}
+  try { sessionManager.pauseCapture(sessionId); } catch {}
+}
+
+function resumeVideoCapture(sessionId) {
+  const resources = sessionResources.get(sessionId);
+  if (!resources || !resources.captureSuspended) return;
+  resources.captureSuspended = false;
+
+  const capture = sessionManager.resumeCapture(sessionId);
+  if (capture && capture.stdout) {
+    // Idêntico ao fluxo de criação: resume antes de assinar (a linha abaixo
+    // mantém stdout pausado dentro do session-manager).
+    try { capture.stdout.resume(); } catch {}
+    // Invalida o lastFrame pré-suspensão: a tela pode ter mudado sem
+    // espectador, e o dedup pularia o primeiro frame (idêntico ao velho) e
+    // o viewer ficaria sem imagem em tela estática.
+    try { resources.streamManager.lastFrame = null; } catch {}
+    resources.streamManager.startCapture(capture.stdout);
+    resources.captureMode = 'ffmpeg';
+    console.log(`[API] Session ${sessionId}: video resumed via ffmpeg x11grab`);
+    return;
+  }
+
+  // Sem ffmpeg (binário sumiu?): mesmo fallback da criação.
+  resources.captureMode = 'cdp';
+  try {
+    if (!resources.screencast) {
+      resources.screencast = new CDPScreencast(sessionManager.getSession(sessionId)?.cdpPort,
+        screencastOptions(sessionId));
+    }
+    resources.screencast.start((frame) => resources.streamManager.pushFrame(frame));
+    console.warn(`[API] Session ${sessionId}: video resumed via CDP screencast (ffmpeg indisponível)`);
+  } catch (e) {
+    console.error(`[API] Session ${sessionId}: retomada falhou e sem fallback CDP:`, e.message);
+  }
+}
+
+// --- WebRTC (visualização nativa, hook useWebRTC do frontend) ---
+//
+// Contrato esperado pelo hook: POST /offer → {peerId,sdp,type,candidates};
+// POST /answer {peerId,sdp}; POST /ice {peerId,candidate};
+// DELETE /peer/:peerId. Cada VIEWER é um peer (encoder libwebrtc por peer).
+// Captura rawvideo própria, same principle do MJPEG: só COM espectador.
+// Primeiro peer → startCapture; último sai → pauseCapture; sessão morre →
+// stop() via purgeSessionMemory.
+const { WebRTCSession } = require('./webrtc-manager');
+const webrtcSessions = new Map(); // sessionId → WebRTCSession
+
+function destroyWebRtc(sessionId) {
+  const w = webrtcSessions.get(sessionId);
+  if (!w) return;
+  webrtcSessions.delete(sessionId);
+  try { w.pauseCapture(); } catch {}
+  try { w.stop(); } catch {}
+}
+
+app.post('/api/webrtc/:sessionId/offer', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+
+  try {
+    let wrtc = webrtcSessions.get(session.sessionId);
+    if (!wrtc) {
+      const raw = sessionManager.getSessionRaw(session.sessionId);
+      if (!raw) return res.status(404).json({ error: 'Session not found' });
+      wrtc = new WebRTCSession(session.sessionId, raw.display, { width: session.resolution.width, height: session.resolution.height });
+      webrtcSessions.set(session.sessionId, wrtc);
+    }
+    const peerId = uuidv4();
+    const offer = await wrtc.createOffer(peerId);
+    // Captura começa quando o PRIMEIRO peer entra no jogo.
+    if (wrtc.getStats().peers > 0) wrtc.resumeCapture();
+    res.json({ peerId, ...offer });
+  } catch (err) {
+    res.status(500).json({ error: 'WebRTC offer failed: ' + err.message });
+  }
+});
+
+app.post('/api/webrtc/:sessionId/answer', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+  try {
+    const wrtc = webrtcSessions.get(session.sessionId);
+    if (!wrtc) return res.status(404).json({ error: 'No WebRTC session for that id' });
+    await wrtc.setAnswer(req.body.peerId, req.body.sdp);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/webrtc/:sessionId/ice', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+  try {
+    const wrtc = webrtcSessions.get(session.sessionId);
+    if (wrtc) await wrtc.addIceCandidate(req.body.peerId, req.body.candidate);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/webrtc/:sessionId/peer/:peerId', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+  try {
+    const wrtc = webrtcSessions.get(session.sessionId);
+    if (wrtc) {
+      wrtc.removePeer(req.params.peerId);
+      // Último espectador saiu: derruba a captura rawvideo (o mesmo princípio
+      // do "sem espectador → sem produtor" do MJPEG).
+      if (wrtc.getStats().peers === 0) wrtc.pauseCapture();
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/session', authMiddleware, async (req, res) => {
   try {
     const { resolution, startUrl, extensionPath } = req.body || {};
@@ -496,7 +680,30 @@ app.post('/api/session', authMiddleware, async (req, res) => {
 
       const inputHdl = createInputHandler(raw.displayNum);
 
-      sessionResources.set(sessionId, { streamManager: streamMgr, screencast, inputHandler: inputHdl, captureMode });
+      // --- Captura consciente de espectadores ---
+      // O produtor primário (ffmpeg x11grab a 30fps) custa ~1 núcleo + ~114MB
+      // por sessão MESMO sem ninguém assistindo. Hooks do StreamManager:
+      // onIdle encerra o ffmpeg; onActive o respawna no display (ou cai no
+      // CDP se Deus recusar o ffmpeg). O modo CDP fica sempre ligado: ele
+      // só emite frame em repaint — em tela parada o custo é próximo de zero.
+      const resources = {
+        streamManager: streamMgr,
+        screencast,
+        inputHandler: inputHdl,
+        captureMode,
+        captureSuspended: false,
+      };
+
+      streamMgr.setViewerHooks({
+        onIdle() {
+          pauseVideoCapture(sessionId);
+        },
+        onActive() {
+          resumeVideoCapture(sessionId);
+        },
+      });
+
+      sessionResources.set(sessionId, resources);
     } catch (setupErr) {
       try { await sessionManager.stopSession(sessionId, 'resource_setup_failed'); } catch {}
       const wrapped = new Error(`Falha ao ligar stream/input da sessão: ${setupErr.message}`);
@@ -542,6 +749,7 @@ app.delete('/api/session/:sessionId', authMiddleware, async (req, res) => {
     resources.inputHandler.stop();
     sessionResources.delete(sessionId);
   }
+  purgeSessionMemory(sessionId);
 
   // Espera o Chrome fechar antes de responder: "Session stopped" passa a
   // significar que RAM, display e porta já voltaram.
@@ -818,6 +1026,23 @@ app.get('/api/screenshot/:sessionId', authMiddleware, trackActivity, async (req,
   const session = getSessionAndValidate(req, res);
   if (!session) return;
 
+  // --- Atalho do frame do stream ---
+  // O stream mantém o último frame JPEG do display (o MESMO que os espectadores
+  // veem). Se está fresco, serve o AGORA sem tocar o Chrome: economia de ~
+  // 100-300ms de CPU de renderer por chamada — e o agente chama screenshot a
+  // cada ação. Frescor: produtor ativo + idade < 2,5s (produtor suspenso por
+  // ausência de espectadores NÃO serve frame velho).
+  const resources = sessionResources.get(session.sessionId);
+  const stream = resources && resources.streamManager;
+  if (stream && stream.mode !== 'none' && !resources.captureSuspended) {
+    const freshMs = 2500;
+    if (stream.lastFrame && stream.lastFrameAt && (Date.now() - stream.lastFrameAt) < freshMs) {
+      res.set('Content-Type', 'image/jpeg');
+      res.set('X-Frame-Source', 'stream');
+      return res.send(stream.lastFrame);
+    }
+  }
+
   try {
     const pageUrl = await getPageTargetWsUrl(session.cdpPort);
     if (!pageUrl) return res.status(500).json({ error: 'CDP not available' });
@@ -894,98 +1119,57 @@ app.get('/api/screenshotWithInfo/:sessionId', authMiddleware, trackActivity, asy
   if (!session) return;
 
   try {
-    const pageUrl = await getPageTargetWsUrl(session.cdpPort);
-    if (!pageUrl) return res.status(500).json({ error: 'CDP not available' });
+    const resources = sessionResources.get(session.sessionId);
+    const stream = resources && resources.streamManager;
+    const suspended = resources && resources.captureSuspended;
 
-    const ws = await import('./node_modules/ws/index.js');
-    const result = await new Promise((resolve, reject) => {
-      const client = new ws.default(pageUrl);
-      let infoData = null;
-      let viewport = null;
-      let done = false;
+    // --- Versão POOL ---
+    // Antes: 1 WebSocket CDP NOVO por chamada + 5 roundtrips (Page.enable →
+    // measure → clearDeviceMetricsOverride → re-measure → capture). O agente
+    // chama isto a cada ação: rajada de WS + renderer carcado em dobro.
+    // Agora: pool CDP persistente (cdpRequest) e frame do stream quando
+    // fresco. Semântica preservada: imagem 1:1 com o viewport (sem
+    // device-metrics override) => coordenada da imagem == coordenada do DOM.
+    const MEASURE = '({ url: location.href, title: document.title, scrollHeight: Math.max(document.body && document.body.scrollHeight || 0, document.documentElement.scrollHeight), width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio })';
 
-      const MEASURE = '({ url: location.href, title: document.title, scrollHeight: Math.max(document.body && document.body.scrollHeight || 0, document.documentElement.scrollHeight), width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio })';
+    // Limpa qualquer override de device metrics sobrevivente de uma captura
+    // antiga (sessão envenenada por captura 1920-wide). Tolerante: o comando
+    // pode não existir e a captura não depende dele. A re-medida com 150ms
+    // do fluxo antigo só era precisada ali (one-shot); aqui o clear acontece
+    // ANTES da medida única.
+    try { await cdpRequest(session.cdpPort, 'Emulation.clearDeviceMetricsOverride', {}); } catch {}
 
-      client.on('open', () => {
-        client.send(JSON.stringify({ id: 1, method: 'Page.enable', params: {} }));
-      });
-
-      client.on('message', (data) => {
-        if (done) return;
-        const msg = JSON.parse(data);
-        if (msg.error) {
-          // clearDeviceMetricsOverride é tolerante: se o Chrome não souber
-          // o comando, segue medindo e capturando (a captura não depende dele).
-          if (msg.id === 3) {
-            client.send(JSON.stringify({ id: 4, method: 'Runtime.evaluate', params: { expression: MEASURE, returnByValue: true } }));
-            return;
-          }
-          done = true; client.close(); reject(new Error(msg.error.message)); return;
-        }
-
-        // 1 -> 2: mede a página (url/title/viewport).
-        if (msg.id === 1 && msg.result) {
-          client.send(JSON.stringify({ id: 2, method: 'Runtime.evaluate', params: { expression: MEASURE, returnByValue: true } }));
-          return;
-        }
-
-        // 2 -> 3: o CDP aninha o valor em result.result.value (mesmo path do
-        // cdp-input-handler). Ler msg.result?.value nunca achava nada.
-        if (msg.id === 2 && msg.result) {
-          const value = msg.result?.result?.value;
-          if (value) infoData = value;
-          if (value && value.width > 0 && value.height > 0) viewport = { width: value.width, height: value.height };
-          // Limpa qualquer override de device metrics (sessão envenenada por
-          // uma captura 1920-wide anterior) e volta a medir o viewport real.
-          client.send(JSON.stringify({ id: 3, method: 'Emulation.clearDeviceMetricsOverride', params: {} }));
-          return;
-        }
-
-        // 3 -> 4: depois do clear o renderer pode levar um tick para
-          // re-layoutar; mede de novo (é esta a medida que vale).
-        if (msg.id === 3 && msg.result) {
-          setTimeout(() => {
-            if (done) return;
-            client.send(JSON.stringify({ id: 4, method: 'Runtime.evaluate', params: { expression: MEASURE, returnByValue: true } }));
-          }, 150);
-          return;
-        }
-
-        // 4 -> 5: viewport final + captura do viewport (sem override).
-        if (msg.id === 4 && msg.result) {
-          const value = msg.result?.result?.value;
-          if (value) {
-            infoData = value;
-            if (value.width > 0 && value.height > 0) viewport = { width: value.width, height: value.height };
-          }
-          client.send(JSON.stringify({
-            id: 5,
-            method: 'Page.captureScreenshot',
-            params: { format: 'jpeg', quality: 80, captureBeyondViewport: false, fromSurface: true },
-          }));
-          return;
-        }
-
-        // 5: imagem capturada.
-        if (msg.id === 5 && msg.result && msg.result.data) {
-          done = true;
-          client.close();
-          resolve({ screenshot: msg.result.data, info: infoData || {}, viewport });
-        }
-      });
-      client.on('error', reject);
-      setTimeout(() => { if (!done) { done = true; client.close(); reject(new Error('Screenshot timeout')); } }, 15000);
+    const measured = await cdpRequest(session.cdpPort, 'Runtime.evaluate', {
+      expression: MEASURE,
+      returnByValue: true,
     });
+    const value = measured?.result?.value || {};
+    const viewport = (value.width > 0 && value.height > 0)
+      ? { width: value.width, height: value.height } : null;
 
-    const image = jpegSize(Buffer.from(result.screenshot, 'base64'));
+    // Imagem: frame do stream se fresco (o MESMO que o viewer vê, 0 custo de
+    // compositor); senão o CDP monta um frame novo da superfície.
+    let screenshotB64;
+    if (stream && stream.mode !== 'none' && !suspended && stream.lastFrame
+        && stream.lastFrameAt && (Date.now() - stream.lastFrameAt) < 2500) {
+      screenshotB64 = stream.lastFrame.toString('base64');
+    } else {
+      const shot = await cdpRequest(session.cdpPort, 'Page.captureScreenshot', {
+        format: 'jpeg', quality: 80, captureBeyondViewport: false, fromSurface: true,
+      });
+      if (!shot?.data) throw new Error('captureScreenshot sem data');
+      screenshotB64 = shot.data;
+    }
+
+    const image = jpegSize(Buffer.from(screenshotB64, 'base64'));
     res.json({
-      screenshot: result.screenshot,
+      screenshot: screenshotB64,
       info: {
-        ...(result.info || {}),
+        ...value,
         timestamp: Date.now(),
         // Viewport real da sessão e o tamanho da imagem capturada: é o que
         // permite conferir "a coordenada lida na imagem = a do find_element".
-        viewport: result.viewport || null,
+        viewport: viewport || null,
         image: image || null,
       },
     });
@@ -1222,6 +1406,11 @@ function networkEventHandler(sid) {
       entry.durationMs = elapsedMs(entry, p.timestamp, now);
       entry.finished = true;
       entry.state = 'finished';
+      // byRequestId existe timing só para requests EM VOO (dataReceived chega
+      // depois). Sem delete aqui o Map cresce infinito (medido: 0.3-0.6KB
+      // por request vivos para sempre). A entrada continua acessível pela
+      // lista `requests` com estado final.
+      ev.byRequestId.delete(p.requestId);
       return;
     }
 
@@ -1232,6 +1421,7 @@ function networkEventHandler(sid) {
       entry.state = 'failed';
       entry.errorText = p.errorText || 'request failed';
       entry.durationMs = elapsedMs(entry, p.timestamp, now);
+      ev.byRequestId.delete(p.requestId);
     }
   };
 }
@@ -1632,6 +1822,14 @@ app.delete('/api/admin/keys/:id', adminAuth, (req, res) => {
   }
 });
 
+// Cache de url/título por sessão para o painel admin.
+// O painel pola a cada 5s e a leitura custa 2 roundtrips CDP POR SESSÃO —
+// com 10-100 sessões isso competia com a API dos agentes. TTL de 15s: o
+// "o que a pessoa está vendo" do painel tolera esse atraso, as sessões
+// ganham fôlego. Entradas de sessão morta são podadas a cada refresh.
+const adminPageInfoCache = new Map(); // sessionId → { url, title, at }
+const ADMIN_INFO_TTL_MS = 15_000;
+
 app.get('/api/admin/sessions', adminAuth, async (req, res) => {
   try {
     const allSessions = sessionManager.getAllSessions();
@@ -1639,24 +1837,37 @@ app.get('/api/admin/sessions', adminAuth, async (req, res) => {
     const keyMap = {};
     for (const k of keys) keyMap[k.id] = k.name;
 
+    // Podar entradas de sessões que não existem mais.
+    for (const sid of [...adminPageInfoCache.keys()]) {
+      if (!allSessions.some((s) => s.sessionId === sid)) adminPageInfoCache.delete(sid);
+    }
+
     // URL e titulo de cada sessao: o painel precisa mostrar O QUE a pessoa
     // esta vendo, nao so que existe uma sessao. A leitura vai ao CDP, que
     // pode estar ocupado: uma sessao morta nao pode derrubar a lista toda,
     // entao a falha fica em null e a sessao continua na lista.
+    const now = Date.now();
     const sessions = await Promise.all(allSessions.map(async (s) => {
       const sess = sessionManager.getSession(s.sessionId);
       let url = null;
       let title = null;
-      try {
-        if (sess) {
-          url = await getCurrentPageUrl(sess.cdpPort);
-          const t = await cdpRequest(sess.cdpPort, 'Runtime.evaluate', {
-            expression: 'document.title', returnByValue: true,
-          });
-          title = t?.result?.value || null;
+      const cached = adminPageInfoCache.get(s.sessionId);
+      if (cached && sess && (now - cached.at) < ADMIN_INFO_TTL_MS) {
+        url = cached.url;
+        title = cached.title;
+      } else {
+        try {
+          if (sess) {
+            url = await getCurrentPageUrl(sess.cdpPort);
+            const t = await cdpRequest(sess.cdpPort, 'Runtime.evaluate', {
+              expression: 'document.title', returnByValue: true,
+            });
+            title = t?.result?.value || null;
+            adminPageInfoCache.set(s.sessionId, { url, title, at: now });
+          }
+        } catch {
+          // Sessao sem CDP vivo: segue sem url/titulo.
         }
-      } catch {
-        // Sessao sem CDP vivo: segue sem url/titulo.
       }
       return {
         ...s,
@@ -1705,11 +1916,9 @@ function stopSessionFully(sessionId) {
   const session = sessionManager.getSession(sessionId);
   if (!session) return false;
 
-  // A miniatura em cache e da sessao que esta morrendo: sai junto. A chave
-  // tem a largura, entao apaga todas as larguras daquela sessao.
-  for (const k of [...thumbCache.keys()]) {
-    if (k.startsWith(`${sessionId}@`)) thumbCache.delete(k);
-  }
+  // Miniaturas em cache e rastro de rede da sessão que está morrendo: saem
+  // junto (chave do thumbCache inclui a largura: apaga todas as larguras).
+  purgeSessionMemory(sessionId);
 
   const resources = sessionResources.get(sessionId);
   if (resources) {

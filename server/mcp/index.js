@@ -144,6 +144,13 @@ async function api(method, path, body) {
       'Authorization': `Bearer ${token}`,
     },
   };
+  // Identidade da conexão MCP (agente): o backend separa o balde de rate
+  // limit por agente em vez de um só por tenant (evita que N sub-agentes do
+  // mesmo tenant se estrangulem mutuamente — lição do 429 em cascata).
+  try {
+    const connId = getCurrentConnId();
+    if (connId) opts.headers['x-serende-agent'] = connId;
+  } catch {}
   if (body) opts.body = JSON.stringify(body);
 
   let res = await fetch(`${SERENDE_API}${path}`, opts);

@@ -13,34 +13,89 @@ class StreamManager {
     this.lastFpsTime = Date.now();
     this.fps = 0;
     this.lastFrame = null;
+    // Idade do lastFrame: screenshot endpoints usam para decidir se o frame
+    // serve como captura do AGORA (novo espectador/limiar de frescor).
+    this.lastFrameAt = 0;
+    this.staticFrames = 0; // frames idênticos ao anterior (tela parada)
     this.mode = 'none'; // 'ffmpeg' | 'cdp'
     // Teto de backpressure por cliente (default 1MB — 4MB enfileirava ~2s de
     // vídeo e atrasava o stream; quem passa disso recebe o próximo lastFrame).
     this.maxBuffered = Math.max(64 * 1024, +opts.maxBufferedBytes || 1024 * 1024);
     this.dropped = 0;
     this.sendErrors = 0;
+
+    // --- Captura consciente de espectadores ---
+    // MEDIDO 2026-11: o ffmpeg x11grab gastava ~1 núcleo + ~114MB por sessão
+    // 30fps mesmo SEM ninguém assistindo e com a tela 100% parada (frames
+    // byte-idênticos). Com hooks, o dono da sessão suspende o produtor quando
+    // não há espectadores e o retoma no primeiro viewer. Ver index.js.
+    this.viewerHooks = null; // { onIdle, onActive, idleMs }
+    this._idleTimer = null;
+    if (this.viewerHooks) this._scheduleIdleCheck();
+  }
+
+  // Registra callbacks de espectador: onActive() no 1º viewer; onIdle() após
+  // `idleMs` sem nenhum viewer (inclui sessão nunca assistida). Idempotente.
+  setViewerHooks(hooks = {}) {
+    const idleMs = Math.max(2000, parseInt(process.env.STREAM_IDLE_GRACE_MS || '15000') || 15000);
+    this.viewerHooks = {
+      onActive: typeof hooks.onActive === 'function' ? hooks.onActive : null,
+      onIdle: typeof hooks.onIdle === 'function' ? hooks.onIdle : null,
+      idleMs,
+    };
+    // Sessão criada e ninguém conectou: agenda o primeiro idle.
+    this._scheduleIdleCheck();
+  }
+
+  _scheduleIdleCheck() {
+    if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
+    if (!this.viewerHooks || !this.viewerHooks.onIdle) return;
+    this._idleTimer = setTimeout(() => {
+      this._idleTimer = null;
+      if (this.clients.size > 0) return;
+      try { this.viewerHooks.onIdle(); } catch {}
+    }, this.viewerHooks.idleMs);
+    if (this._idleTimer.unref) this._idleTimer.unref();
   }
 
   // Injetar frame diretamente (CDP screencast mode). Retorna nº de clientes
   // que realmente receberam (0 = só guardado como lastFrame).
   pushFrame(frameBuffer) {
     this.lastFrame = frameBuffer;
+    this.lastFrameAt = Date.now();
     if (this.clients.size === 0) return 0;
     return this.broadcastFrame(frameBuffer);
   }
 
   addClient(ws) {
+    const wasEmpty = this.clients.size === 0;
     this.clients.add(ws);
     if (ws._socket) {
       ws._socket.setNoDelay(true);
     }
 
-    if (this.lastFrame) {
+    // Primeiro espectador: produtor volta antes de qualquer envio, para o
+    // viewer não esperar em tel preta mais tempo que o necessário.
+    if (wasEmpty && this.viewerHooks && this.viewerHooks.onActive) {
+      try { this.viewerHooks.onActive(); } catch {}
+    }
+
+    // lastFrame serve com produtor ATIVO mesmo se "velho": o dedup garante
+    // que não houve mudança desde o frame — ele É a imagem corrente. Com o
+    // produtor parado (suspended/stopped) o lastFrame pode estar ATRASADO
+    // (o agente pode ter navegado sem ninguém assistindo): não enviar.
+    const stale = this.mode === 'none';
+    if (this.lastFrame && !stale) {
       try { ws.send(this.lastFrame, { binary: true }); } catch {}
     }
 
-    ws.on('close', () => this.clients.delete(ws));
-    ws.on('error', () => this.clients.delete(ws));
+    ws.on('close', () => this.removeClient(ws));
+    ws.on('error', () => this.removeClient(ws));
+  }
+
+  removeClient(ws) {
+    this.clients.delete(ws);
+    if (this.clients.size === 0) this._scheduleIdleCheck();
   }
 
   startCapture(ffmpegStdout) {
@@ -77,6 +132,9 @@ class StreamManager {
     this.ffmpegStream = null;
     this.bufLen = 0;
     this.mode = 'none';
+    // lastFrame vira "congelado" (modo none). Quem decide a validade dele é a
+    // checagem de frescor nos endpoints/consumidores.
+    if (this._idleTimer) { clearTimeout(this._idleTimer); this._idleTimer = null; }
   }
 
   extractAndBroadcast() {
@@ -102,11 +160,32 @@ class StreamManager {
       if (eoiIdx === -1) break; // frame incompleto, aguardar mais dados
 
       const frameEnd = eoiIdx + 2;
-      const frame = Buffer.allocUnsafe(frameEnd - soiIdx);
+      const frameLen = frameEnd - soiIdx;
+
+      // --- Dedup de tela parada ---
+      // MEDIDO: em sessão ociosa o frame é BYTE-IDÊNTO ao anterior (o ffmpeg
+      // retorna o mesmo JPEG). Comparar ANTES de alocar: sem cópia (subarray é
+      // view) e sem envio (o viewer já tem este exato frame). Elimina o
+      // reenvio de ~31KB×30/s por viewer e o churn de 30 allocs/s.
+      if (this.lastFrame && this.lastFrame.length === frameLen) {
+        const candidate = this.buf.subarray(soiIdx, frameEnd);
+        if (candidate.equals(this.lastFrame)) {
+          this.staticFrames++;
+          this._countFrame(); // fps conta frames CAPTURADOS (sensor vivo)
+          // lastFrameAt atualiza: o frame repetido É a imagem atual —
+          // consumidores (screenshots/addClient) precisam vê-lo como fresco.
+          this.lastFrameAt = Date.now();
+          offset = frameEnd;
+          continue;
+        }
+      }
+
+      const frame = Buffer.allocUnsafe(frameLen);
       this.buf.copy(frame, 0, soiIdx, frameEnd);
 
       this.lastFrame = frame;
-      this.broadcastFrame(frame);
+      this.lastFrameAt = Date.now();
+      if (this.clients.size > 0) this.broadcastFrame(frame);
 
       offset = frameEnd;
     }
@@ -120,7 +199,7 @@ class StreamManager {
     }
   }
 
-  broadcastFrame(frame) {
+  _countFrame() {
     this.frameCount++;
     const now = Date.now();
     if (now - this.lastFpsTime >= 1000) {
@@ -128,6 +207,10 @@ class StreamManager {
       this.frameCount = 0;
       this.lastFpsTime = now;
     }
+  }
+
+  broadcastFrame(frame) {
+    this._countFrame();
 
     let sent = 0;
     for (const ws of this.clients) {
@@ -171,6 +254,9 @@ class StreamManager {
       dropped: this.dropped,
       sendErrors: this.sendErrors,
       maxBufferedBytes: this.maxBuffered,
+      staticFrames: this.staticFrames,
+      lastFrameAgeMs: this.lastFrame ? (Date.now() - this.lastFrameAt) : null,
+      idleWatch: !!this.viewerHooks,
     };
   }
 }

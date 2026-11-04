@@ -1,11 +1,16 @@
 import { useRef, useEffect, useCallback, useMemo, useState, memo } from 'react'
 import { useInputRelay } from '../hooks/useInputRelay'
+import { useWebRTC } from '../hooks/useWebRTC'
 import { getRenderedRect } from '../lib/input-mapper'
+
+export type VideoMode = 'mjpeg' | 'webrtc'
 
 interface Props {
   setCanvas: (canvas: HTMLCanvasElement | null) => void
   resolution?: { width: number; height: number }
   sessionId: string | null
+  videoMode?: VideoMode
+  onRtcStatus?: (state: string, fps: number) => void
 }
 
 function isEditableTarget(t: EventTarget | null): boolean {
@@ -34,7 +39,7 @@ interface RectCache {
 // tela de 1920x1080 sem rolagem, e sobra largura util para ver a pagina.
 const DEFAULT_RESOLUTION = { width: 1440, height: 900 }
 
-function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }: Props) {
+function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId, videoMode = 'mjpeg', onRtcStatus }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   // Cursor overlay: posicionado por style direto (sem setState por mousemove).
@@ -51,6 +56,31 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }
     () => ({ width: resolution.width, height: resolution.height }),
     [resolution.width, resolution.height],
   )
+
+  // Modo de vídeo. WebRTC: o hook conecta por itself (offer/answer/ICE) e
+  // entrega videoRef + fps. MJPEG segue pelo useStream do App.
+  const isRtc = videoMode === 'webrtc'
+  const rtc = useWebRTC(isRtc && !!sessionId, sessionId)
+
+  useEffect(() => {
+    if (onRtcStatus) onRtcStatus(rtc.state, rtc.fps)
+  }, [rtc.state, rtc.fps, onRtcStatus])
+
+  // Em modo WebRTC o canvas vira META-DADOS de mapeamento: attributes
+  // forçadas na resolução nominal (o track de video chega no <video>).
+  // O useInputRelay calcula a rect do input POR canvas.width/height —
+  // com os atributos = resolução da sessão, as coordenadas do viewer
+  // batem 1:1 com as do vídeo (mesma caixa, mesmo contain).
+  useEffect(() => {
+    const c = canvasRef.current
+    if (!c) return
+    if (videoMode === 'webrtc') {
+      if (c.width !== resolution.width) c.width = resolution.width
+      if (c.height !== resolution.height) c.height = resolution.height
+      recomputeFit()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoMode, resolution.width, resolution.height])
 
   useInputRelay(canvasRef, containerRef, true, stableResolution, sessionId)
 
@@ -237,18 +267,60 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }
         overflow: 'hidden',
       }}
     >
-      {/* Canvas do frame. O tamanho e o retangulo CALCULADO (contain dentro
-          do container): a imagem entra inteira, com a proporcao do frame, sem
-          esticar. O resto da caixa fica preto. */}
+      {/* Canvas do frame (MJPEG). O tamanho e o retangulo CALCULADO (contain
+          dentro do container): a imagem entra inteira, com a proporcao do
+          frame, sem esticar. O resto da caixa fica preto.
+          Em WebRTC o canvas fica oculto (mas montado): o relay de input
+          calcula a rect POR ELE — os attributes são forçados na resolução
+          nominal pela effect acima, então o mapeamento continua 1:1. */}
       <canvas
         ref={canvasRef}
         style={{
           width: fit.width ? `${fit.width}px` : '100%',
           height: fit.height ? `${fit.height}px` : '100%',
           objectFit: 'contain',
-          display: 'block',
+          display: videoMode === 'webrtc' ? 'none' : 'block',
         }}
       />
+
+      {/* Vídeo WebRTC (mesma caixa/contain do canvas — o track chega no
+          tamanho da sessão, então o fit coincide com o do canvas). */}
+      {videoMode === 'webrtc' && (
+        <>
+          <video
+            ref={rtc.videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{
+              width: fit.width ? `${fit.width}px` : '100%',
+              height: fit.height ? `${fit.height}px` : '100%',
+              objectFit: 'contain',
+              display: 'block',
+              background: '#000',
+            }}
+          />
+          {rtc.state !== 'connected' && fit.width > 0 && (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#9ca3af',
+              fontSize: 13,
+              fontFamily: 'system-ui, sans-serif',
+              pointerEvents: 'none',
+            }}>
+              {rtc.state === 'connecting'
+                ? 'conectando via WebRTC…'
+                : rtc.state === 'failed'
+                  ? 'WebRTC falhou — volte ao modo MJPEG'
+                  : ''}
+            </div>
+          )}
+        </>
+      )}
 
       {/* Software cursor overlay — resposta visual instantânea, sem re-render.
           Posição via transform (compositor) e borda em vez de drop-shadow
@@ -280,14 +352,16 @@ function BrowserViewer({ setCanvas, resolution = DEFAULT_RESOLUTION, sessionId }
   )
 }
 
-// memo: as props do viewer (setCanvas, resolution, sessionId) são estáveis,
-// então re-render do App (fps/URL) não precisa repintar o viewer.
+// memo: as props do viewer (setCanvas, resolution, sessionId, videoMode) são
+// estáveis, então re-render do App (fps/URL) não precisa repintar o viewer.
 // O comparator compara a resolução por VALOR: o App cria um objeto novo
 // (`sessionInfo?.resolution || { width, height }`) a cada render, e a
 // comparação por referência do memo deixaria o viewer sempre reprocessado.
+// videoMode troca o render (canvas ↔ video): precisa reprocessar.
 function arePropsEqual(prev: Props, next: Props): boolean {
   if (prev.setCanvas !== next.setCanvas) return false
   if (prev.sessionId !== next.sessionId) return false
+  if (prev.videoMode !== next.videoMode) return false
   const a = prev.resolution ?? DEFAULT_RESOLUTION
   const b = next.resolution ?? DEFAULT_RESOLUTION
   return a.width === b.width && a.height === b.height

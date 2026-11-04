@@ -169,7 +169,11 @@ function createInputHandler(displayNum, opts = {}) {
   const DISPLAY_MIN = 100;
   const cdpPort = opts.cdpPort || (CDP_BASE_PORT + (displayNum - DISPLAY_MIN));
   // Reconsulta periódica do viewport (resize/navegação mudam clientWidth/Height).
-  const LAYOUT_REFRESH_MS = 3000;
+  // 3s → 15s: o intervalo antigo acordava o renderer do Chrome 20×/min SEM
+  // input nenhum (anti-throttling mantém CPU). A precisão do clique depende
+  // do viewport: nada muda o viewport com frequência maior que isso exceto
+  // navegação — e navegar já regenera o frame (o scale é conferido por frame).
+  const LAYOUT_REFRESH_MS = 15000;
 
   const tag = () => `[input display=:${displayNum} session=${sessionId || '-'}]`;
 
