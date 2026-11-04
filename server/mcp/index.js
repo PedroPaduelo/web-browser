@@ -276,7 +276,7 @@ function reactToggleCheckbox(el, checked) {
 // isolamento continua sendo por tenantId — o mesmo hash que o backend usa
 // (server/auth.js deriveTenantId), então dois tenants NUNCA se encontram aqui.
 const sessionCache = new Map(); // tenantId → { sessions: Map<sessionId, meta>, current: sessionId }
-const SESSION_META_MAX = 50;    // teto de sessões lembradas por tenant (o backend limita por maxSessions)
+const SESSION_META_MAX = Math.max(50, parseInt(process.env.MCP_SESSION_META_MAX || '150', 10) || 150); // teto de sessões lembradas por tenant (testes com 100 sessões precisam de folga)
 
 // Timestamp da última validação de sessão bem-sucedida POR (tenant, sessão).
 // Sem isso, CADA tool call gastava uma requisição extra só para conferir se a
