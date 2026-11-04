@@ -355,17 +355,18 @@ sessionManager.onCaptureDied((sessionId, reason) => {
 });
 
 sessionManager.onSessionDied((sessionId) => {
-  purgeSessionMemory(sessionId);
-  const resources = sessionResources.get(sessionId);
-  if (resources) {
-    resources.screencast.stop();
-    resources.streamManager.stop();
-    resources.inputHandler.stop();
-    sessionResources.delete(sessionId);
-    console.log(`[API] Cleaned up resources for orphaned session ${sessionId}`);
+  // Teardown UNIFICADO (núcleo do #crash-safe): timeout, crash (health/crash
+  // handlers) e watchdog caem aqui. stopSessionFully faz purge + resources +
+  // stopSession (Chrome com flush + merge) + CDP — o callback antigo só
+  // limpava resources e VAZAVA Xvfb/Chrome/sessão no timeout. É idempotente
+  // (retorna false se a sessão já morreu — DELETE concorrente seguro).
+  try {
+    if (stopSessionFully(sessionId)) {
+      console.log(`[API] Cleaned up dead session ${sessionId} (full teardown)`);
+    }
+  } catch (e) {
+    console.error(`[API] stopSessionFully falhou para ${sessionId}:`, e.message);
   }
-  const session = sessionManager.getSession(sessionId);
-  if (session) closeCdpClient(session.cdpPort);
 });
 
 const distPath = path.join(__dirname, '..', 'frontend', 'dist');
@@ -492,6 +493,17 @@ app.get('/api/health', (req, res) => {
   } catch {}
   const max = parseInt(process.env.MAX_SESSIONS) || 10;
   const active = sessionManager.getSessionCount();
+  // Wedged-awareness (#wedged-aware): sessões vivas mas com CDP travado
+  // aparecem aqui — operador decide (sem reapar automático).
+  let wedged = [];
+  try {
+    if (sessionManager.getAllSessions) {
+      for (const s of sessionManager.getAllSessions()) {
+        const raw = sessionManager.getSessionRaw(s.sessionId);
+        if (raw && raw.cdpWedged) wedged.push({ sessionId: s.sessionId, since: raw.cdpWedgedSince || null, consecFails: raw.cdpConsecFails || 0 });
+      }
+    }
+  } catch {}
   res.json({
     status: drainMode ? 'draining' : 'ok',
     // Identidade + capacidade para LBs espertos (torneio): rotear por slots
@@ -506,6 +518,8 @@ app.get('/api/health', (req, res) => {
       max,
       availableSlots: Math.max(0, max - active),
       dead: deadCount,
+      wedged,
+      wedgedCount: wedged.length,
     },
     memory: {
       rss: Math.round(memUsage.rss / 1024 / 1024),
@@ -875,6 +889,10 @@ app.delete('/api/session/:sessionId', authMiddleware, async (req, res) => {
     return res.status(403).json({ error: 'Not your session' });
   }
 
+  // Guarda anti-dupla-morte (#crash-safe): timeout/health/crash concorrentes
+  // desistem ao ver `stopping` (o teardown deles vira no-op via callback).
+  // getSession devolve CÓPIA — a guarda precisa do objeto vivo (getSessionRaw).
+  try { const raw = sessionManager.getSessionRaw(sessionId); if (raw) raw.stopping = true; } catch {}
   const resources = sessionResources.get(sessionId);
   if (resources) {
     try { resources.captureService && resources.captureService.stop(); } catch {}
@@ -934,6 +952,11 @@ app.get('/api/session/:sessionId', authMiddleware, trackActivity, (req, res) => 
     try {
       const w = webrtcSessions.get(req.params.sessionId);
       if (w) session.webrtc = w.getStats();
+    } catch {}
+    // Wedge no stats individual (#wedged-aware): operador vê sem abrir health.
+    try {
+      const raw = sessionManager.getSessionRaw(req.params.sessionId);
+      if (raw && raw.cdpWedged) session.cdpWedged = { since: raw.cdpWedgedSince || null, consecFails: raw.cdpConsecFails || 0 };
     } catch {}
   }
 

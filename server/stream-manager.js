@@ -24,7 +24,11 @@ class StreamManager {
     this.mode = 'none'; // 'ffmpeg' | 'cdp'
     // Teto de backpressure por cliente (default 1MB — 4MB enfileirava ~2s de
     // vídeo e atrasava o stream; quem passa disso recebe o próximo lastFrame).
-    this.maxBuffered = Math.max(64 * 1024, +opts.maxBufferedBytes || 1024 * 1024);
+    // Env knob (menção honrosa do torneio): STREAM_MAX_BUFFERED_BYTES permite
+    // apertar para 256KB em links lentos (~0.75s de lag a menos por cliente
+    // lento). O drop já acontece inline no broadcastFrame — o knob só muda o
+    // ponto de corte, sem mudar comportamento.
+    this.maxBuffered = Math.max(64 * 1024, +opts.maxBufferedBytes || parseInt(process.env.STREAM_MAX_BUFFERED_BYTES || '') || 1024 * 1024);
     this.dropped = 0;
     this.sendErrors = 0;
 

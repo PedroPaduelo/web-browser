@@ -190,7 +190,46 @@ function getSessionHealth(sessionId) {
   if (!s) return { alive: false, reason: 'not_found' };
   if (s.xvfb && (s.xvfb.exitCode !== null || s.xvfb.killed)) return { alive: false, reason: 'xvfb_died' };
   if (s.chrome && (s.chrome.exitCode !== null || s.chrome.killed)) return { alive: false, reason: 'chrome_died' };
-  return { alive: true };
+  const out = { alive: true };
+  // Wedged-awareness NÃO-destrutiva (#wedged-aware, núcleo seguro): se o poller
+  // de CDP marcou a sessão como travada, o health carrega o sinal — sem reapar
+  // (um timeout isolado sob carga legítima não pode matar sessão ocupada).
+  if (s.cdpWedged) { out.cdpWedged = true; out.wedgedSince = s.cdpWedgedSince || null; out.consecFails = s.cdpConsecFails || 0; }
+  return out;
+}
+
+// Poller de CDP-wedge: 1 ping /json/version com timeout curto por ciclo do
+// health-check (30s). 3 falhas CONSECUTIVAS marcam cdpWedged (histerese contra
+// falso-positivo sob carga); 1 sucesso limpa. Só marca — quem decide o que
+// fazer é o operador (ver /api/health e stats da sessão). Sem timer próprio:
+// pega carona no intervalo existente (sem dobrar wakeups, sem reap races).
+async function pollCdpWedge(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s || s.stopping) return;
+  const port = s.cdpPort;
+  if (!port) return;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 2000);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`CDP HTTP ${res.status}`);
+    await res.json();
+    if (s.cdpConsecFails || s.cdpWedged) {
+      s.cdpConsecFails = 0;
+      if (s.cdpWedged) {
+        s.cdpWedged = false; s.cdpWedgedSince = null;
+        console.log(`[Session:${sessionId}] CDP recuperado (wedge limpo)`);
+      }
+    }
+  } catch {
+    s.cdpConsecFails = (s.cdpConsecFails || 0) + 1;
+    if (s.cdpConsecFails >= 3 && !s.cdpWedged) {
+      s.cdpWedged = true; s.cdpWedgedSince = new Date().toISOString();
+      console.warn(`[Session:${sessionId}] CDP wedged (3 falhas consecutivas de /json/version) — sessão viva, sem reapar automático`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function getDeadSessions() {
@@ -580,44 +619,46 @@ async function startSession(sessionId, tenantId, options = {}) {
     const xvfbDead = xvfb.exitCode !== null || xvfb.killed;
     const chromeDead = chrome.exitCode !== null || chrome.killed;
 
-    if (xvfbDead) {
-      console.error(`[Session:${sessionId}] Health check FAILED: Xvfb dead`);
+    // Núcleo do #crash-safe: delega o teardown COMPLETO ao onSessionDiedCallback
+    // (stopSessionFully no index.js). O padrão antigo (stopSession + callback
+    // manual) causava duplo teardown concorrente e vazava sessionResources.
+    const die = (reason) => {
+      const s = sessions.get(sessionId);
+      if (!s || s.stopping) return;
+      s.stopping = true;
+      console.error(`[Session:${sessionId}] Health check FAILED: ${reason}`);
       clearInterval(healthCheckInterval);
-      if (sessions.has(sessionId)) {
-        killChromeGroup(chrome);
-        stopSession(sessionId, 'xvfb_died').catch(() => {});
-        if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
-      }
-      return;
-    }
+      if (reason === 'xvfb_died') killChromeGroup(chrome);
+      if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
+    };
 
-    if (chromeDead) {
-      console.error(`[Session:${sessionId}] Health check FAILED: Chrome dead`);
-      clearInterval(healthCheckInterval);
-      if (sessions.has(sessionId)) {
-        stopSession(sessionId, 'chrome_died').catch(() => {});
-        if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
-      }
-      return;
-    }
+    if (xvfbDead) { die('xvfb_died'); return; }
+    if (chromeDead) { die('chrome_died'); return; }
+    // Wedge poll de carona (sem timer próprio): só marca, nunca reapa.
+    pollCdpWedge(sessionId).catch(() => {});
   }, 30000);
 
-  chrome.on('exit', (code, signal) => {
+  // Núcleo do #crash-safe: crash handlers também delegam ao callback unificado
+  // (stopSessionFully). Guarda `stopping` contra health-check/timeout/DELETE
+  // concorrentes; `sessions.has` sozinho não bastava (sessão presente mas já
+  // em teardown por outro caminho).
+  const crashDie = (reason, detail) => {
     clearInterval(healthCheckInterval);
-    if (!sessions.has(sessionId)) return; // já foi parado via stopSession
-    console.log(`[Session:${sessionId}] Chrome CRASHED (code=${code}, signal=${signal})`);
-    stopSession(sessionId, 'chrome_crash').catch(() => {});
+    const s = sessions.get(sessionId);
+    if (!s || s.stopping) return; // já parado ou em teardown via stopSession
+    s.stopping = true;
+    console.log(`[Session:${sessionId}] ${detail}`);
+    if (reason === 'xvfb_died') killChromeGroup(chrome);
     if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
+  };
+
+  chrome.on('exit', (code, signal) => {
+    crashDie('chrome_crash', `Chrome CRASHED (code=${code}, signal=${signal})`);
   });
 
   // Xvfb exit handler — se Xvfb morrer, matar Chrome também
   xvfb.on('exit', (code, signal) => {
-    clearInterval(healthCheckInterval);
-    if (!sessions.has(sessionId)) return;
-    console.log(`[Session:${sessionId}] Xvfb CRASHED (code=${code}, signal=${signal})`);
-    killChromeGroup(chrome);
-    stopSession(sessionId, 'xvfb_died').catch(() => {});
-    if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
+    crashDie('xvfb_died', `Xvfb CRASHED (code=${code}, signal=${signal})`);
   });
 
   const sessionData = {
@@ -974,12 +1015,19 @@ function startTimeoutTracker(sessionId) {
 
     if (inactive >= SESSION_TIMEOUT_MS) {
       console.log(`[Session:${sessionId}] Timeout after ${Math.round(inactive / 60000)}min inactivity`);
-      if (s.tenantId) {
-        try { tenantManager.mergeProfileFromSession(s.tenantId, sessionId); } catch {}
-      }
-      profileManager.saveSessionState(s.tenantId, s.displayNum).catch(() => {});
-      stopSession(sessionId, 'timeout');
-      if (onSessionDiedCallback) onSessionDiedCallback(sessionId);
+      // Núcleo seguro do #crash-safe (torneio): o caminho antigo chamava
+      // stopSession + onSessionDiedCallback manual — stopSession NÃO limpa
+      // sessionResources (stream/screencast/input vazavam) e o callback SEMPRE
+      // disparava mesmo com sessão já morta (dupla-morte com DELETE
+      // concorrente). Agora: marca `stopping` (guarda contra DELETE/timeout
+      // concorrentes) e delega o teardown COMPLETO ao onSessionDiedCallback —
+      // o index.js roteia para stopSessionFully (resources + manager + CDP).
+      // O merge do profile acontece dentro do stopSession (Chrome fechado
+      // antes — cookie store com flush correto).
+      if (s.stopping) return;
+      s.stopping = true;
+      try { if (s.timeoutId) { clearTimeout(s.timeoutId); s.timeoutId = null; } } catch {}
+      if (onSessionDiedCallback) { try { onSessionDiedCallback(sessionId); } catch {} }
       return;
     }
 

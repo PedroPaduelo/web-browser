@@ -99,6 +99,18 @@ class Supervised {
     this.healthFails = 0;
     this.stopping = false;
     this.timer = null;
+    // Breaker anti-crash-loop (#wedged-aware, núcleo seguro): restarts decaem
+    // após 5min CONTÍNUOS de saúde (ver checkHealth). Sem isso, falha
+    // persistente hot-loopava com backoff saturado para sempre, sem teto.
+    this.healthySince = Date.now();
+    this.crashLoopWarned = false;
+  }
+
+  // Teto de segurança: N restarts sem nenhum período saudável = crash-loop
+  // persistente. Para de reiniciar e ALERTA (operador investiga) em vez de
+  // hot-loopar eternamente.
+  get maxRestarts() {
+    return Math.max(5, parseInt(process.env.WATCHDOG_MAX_RESTARTS || '20', 10) || 20);
   }
 
   start() {
@@ -119,6 +131,15 @@ class Supervised {
         return;
       }
       this.restarts += 1;
+      // Breaker: além do teto SEM 5min contínuos de saúde = crash-loop
+      // persistente. Para e alerta em vez de hot-loopar: operador investiga.
+      if (this.restarts >= this.maxRestarts && Date.now() - this.healthySince > 5 * 60_000) {
+        if (!this.crashLoopWarned) {
+          this.crashLoopWarned = true;
+          log(this.name, `CRASH-LOOP: ${this.restarts} restarts sem 5min contínuos de saúde — PAREI de reiniciar (WATCHDOG_MAX_RESTARTS=${this.maxRestarts}). Investigue o serviço.`);
+        }
+        return;
+      }
       const delay = Math.min(
         RESTART_MAX_MS,
         RESTART_BASE_MS * Math.pow(2, Math.min(this.restarts - 1, 5))
@@ -146,8 +167,17 @@ class Supervised {
         log(this.name, `health OK após ${this.healthFails} falha(s) — normalizado`);
       }
       this.healthFails = 0;
+      // Decay do breaker: 5min CONTÍNUOS de saúde zeram a contagem (falha
+      // isolada que se recupera não assombra para sempre) e re-armam o alerta.
+      // Qualquer falha de health quebra a continuidade (ver else abaixo).
+      if (Date.now() - this.healthySince > 5 * 60_000) {
+        if (this.restarts > 0) this.restarts = 0;
+        this.crashLoopWarned = false;
+      }
       return true;
     }
+    // Health falhou: continuidade quebrada — recomeça a janela de 5min.
+    this.healthySince = Date.now();
     this.healthFails += 1;
     log(this.name, `health FALHOU (${this.healthFails}/${HEALTH_FAIL_THRESHOLD}) em :${this.port}${this.healthPath}`);
     if (this.healthFails >= HEALTH_FAIL_THRESHOLD) {
