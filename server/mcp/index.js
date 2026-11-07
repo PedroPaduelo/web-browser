@@ -2460,6 +2460,73 @@ function createServer() {
     return ok(lines.join('\n'));
   });
 
+  // ========== HUMAN-IN-THE-LOOP (handoff) ==========
+
+  registerTool('handoff_request', {
+    description: 'Ask a human operator to take over the browser (login, MFA, CAPTCHA, credentials you must not touch). Returns a liveViewUrl to share with the human plus a handoffId. The handoff stays active until the human marks done or it times out. Do NOT claim the task is complete: poll handoff_status until active:false.',
+    inputSchema: z.object({
+      instructions: z.string().describe('What the human must do (e.g. "Log in with the company SSO"). Max 500 chars.'),
+      timeoutMs: z.number().optional().describe('Max wait in ms (default 10min, clamped 60s-30min server-side).'),
+    }),
+  }, async ({ instructions, timeoutMs }) => {
+    const sid = await requireSession();
+    const text = String(instructions || '').trim();
+    if (!text) return toolError('instructions required (non-empty, max 500 chars)', { tool: 'handoff_request' });
+    if (text.length > 500) return toolError('instructions max 500 chars', { tool: 'handoff_request' });
+    const body = { instructions: text };
+    if (timeoutMs != null && Number.isFinite(Number(timeoutMs))) body.timeoutMs = Number(timeoutMs);
+    try {
+      const data = await api('POST', `/api/session/${sid}/handoff`, body);
+      return ok(JSON.stringify({
+        handoffId: data.handoffId,
+        liveViewUrl: data.liveViewUrl,
+        expiresInMs: data.expiresInMs,
+        instructions: text,
+        next: 'Share liveViewUrl with the human operator, then poll handoff_status until active:false. Do not proceed with the blocked step meanwhile.',
+      }, null, 2));
+    } catch (e) {
+      if (e.status === 409) {
+        const cur = await api('GET', `/api/session/${sid}/handoff`).catch(() => null);
+        return ok(JSON.stringify({
+          active: true,
+          handoffId: (cur && cur.handoffId) || null,
+          note: 'A handoff is already active for this session; use it instead of opening another. Poll handoff_status.',
+        }, null, 2));
+      }
+      return toolError(e.message || String(e), { tool: 'handoff_request' });
+    }
+  });
+
+  registerTool('handoff_status', {
+    description: 'Check whether the human handoff for the session is still active. Poll this after handoff_request. Returns active:true (keep waiting) or active:false with reason (done/timeout — resume automation).',
+    inputSchema: z.object({
+      handoffId: z.string().optional().describe('If given and it does not match the active handoff, the answer says so.'),
+    }),
+  }, async ({ handoffId }) => {
+    const sid = await requireSession();
+    const data = await api('GET', `/api/session/${sid}/handoff`);
+    if (handoffId && data.active && data.handoffId !== handoffId) {
+      return ok(JSON.stringify({ ...data, warning: `handoffId mismatch: asked ${handoffId}, active is ${data.handoffId}` }, null, 2));
+    }
+    return ok(JSON.stringify(data, null, 2));
+  });
+
+  registerTool('handoff_done', {
+    description: 'Mark the handoff finished (call this when the HUMAN confirms they are done, or when giving up waiting). success=true resumes automation; success=false reports failure with reason.',
+    inputSchema: z.object({
+      handoffId: z.string().describe('The handoffId returned by handoff_request.'),
+      success: z.boolean().describe('true = human completed the task, false = failed/abandoned.'),
+      reason: z.string().optional().describe('Why it failed (when success=false).'),
+    }),
+  }, async ({ handoffId, success, reason }) => {
+    const sid = await requireSession();
+    if (!handoffId) return toolError('handoffId required (from handoff_request)', { tool: 'handoff_done' });
+    const body = { success: !!success };
+    if (reason) body.reason = String(reason).slice(0, 250);
+    const data = await api('POST', `/api/session/${sid}/handoff/${handoffId}/done`, body);
+    return ok(JSON.stringify(data, null, 2));
+  });
+
   // ========== UTILITY TOOLS ==========
 
   registerTool('health', {
