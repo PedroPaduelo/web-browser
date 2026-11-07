@@ -43,6 +43,24 @@ if (AUTH_API_KEY) {
   console.log('[Serende] AUTH_API_KEY not set — using SQLite key store only');
 }
 
+// --- Handoffs (Human-in-the-Loop, mínimo — padrão Cloudflare handoff) ---
+// Um handoff ativo por sessão. Guarda só em memória: se o processo reinicia,
+// o handoff some junto (a sessão também é in-memory, então os dois morrem juntos).
+const handoffs = new Map(); // sessionId → { handoffId, instructions, startedAt, timeoutMs, timer, active, success, reason }
+
+const HANDOFF_TIMEOUT_DEFAULT_MS = 10 * 60 * 1000; // 10 min
+const HANDOFF_TIMEOUT_MIN_MS = 60 * 1000;          // 60s
+const HANDOFF_TIMEOUT_MAX_MS = 30 * 60 * 1000;     // 30 min
+const HANDOFF_INSTRUCTIONS_MAX = 500;
+
+function clearHandoff(sessionId) {
+  const h = handoffs.get(sessionId);
+  if (h) {
+    try { if (h.timer) clearTimeout(h.timer); } catch {}
+    handoffs.delete(sessionId);
+  }
+}
+
 function trackActivity(req, res, next) {
   const { sessionId } = req.params || {};
   if (sessionId) {
@@ -291,6 +309,17 @@ function screencastOptions(sessionId, raw = {}) {
 
 const sessionResources = new Map();
 
+// Captura STATELESS (Quick Action): sessão efêmera por chamada, sem sessionId
+// prévio. Cada uma sobe Xvfb+Chrome (~1 core): o cap de 4 evita uma rajada
+// estourar a VM (lição Cloudflare: toda sessão vazada é cobrança). O contador é
+// de processo (por instância), e TODA captura passa por stopSessionFully no
+// finally — não existe órfão Chrome/Xvfb por desenho.
+let statelessInFlight = 0;
+const STATELESS_MAX_CONCURRENT = 4;
+// FullPage: altura máxima do clip (página longa/infinita geraria bitmap
+// gigante no renderer — corta e sinaliza X-Frame-Truncated).
+const FULLPAGE_MAX_HEIGHT = 8000;
+
 // --- Limpeza de memória por session-id ---
 //
 // MEDIDO 2026-11: Map caches ligados ao ciclo de vida da sessão sobreviviam à
@@ -303,6 +332,19 @@ function purgeSessionMemory(sessionId) {
     if (k.startsWith(`${sessionId}@`)) thumbCache.delete(k);
   }
   destroyWebRtc(sessionId);
+  clearHandoff(sessionId); // handoff ativo morre junto com a sessão (timer cancelado)
+}
+
+// Sweep com purge: sweepDeadSessions chama stopSession direto (sem
+// onSessionDied → sem stopSessionFully), então a memória/handoff da sessão
+// varrida precisa de purge explícito aqui.
+async function sweepDeadSessionsFully(origin) {
+  try {
+    const reclaimed = await sessionManager.sweepDeadSessions();
+    for (const r of reclaimed || []) purgeSessionMemory(r && r.sessionId);
+  } catch (e) {
+    console.warn(`[${origin || 'sweep'}] sweep falhou:`, e.message);
+  }
 }
 
 // Reaper de perfis de sessão órfãos no boot.
@@ -359,14 +401,14 @@ sessionManager.onCaptureDied((sessionId, reason) => {
   console.warn(`[API] Session ${sessionId}: ffmpeg caiu (${reason}) — usando CDP screencast (peers WebRTC fechados)`);
 });
 
-sessionManager.onSessionDied((sessionId) => {
+sessionManager.onSessionDied(async (sessionId) => {
   // Teardown UNIFICADO (núcleo do #crash-safe): timeout, crash (health/crash
   // handlers) e watchdog caem aqui. stopSessionFully faz purge + resources +
   // stopSession (Chrome com flush + merge) + CDP — o callback antigo só
   // limpava resources e VAZAVA Xvfb/Chrome/sessão no timeout. É idempotente
   // (retorna false se a sessão já morreu — DELETE concorrente seguro).
   try {
-    if (stopSessionFully(sessionId)) {
+    if (await stopSessionFully(sessionId)) {
       console.log(`[API] Cleaned up dead session ${sessionId} (full teardown)`);
     }
   } catch (e) {
@@ -493,7 +535,7 @@ app.get('/api/health', (req, res) => {
     const dead = sessionManager.getDeadSessions ? sessionManager.getDeadSessions() : [];
     deadCount = dead.length;
     if (deadCount && sessionManager.sweepDeadSessions) {
-      sessionManager.sweepDeadSessions().catch((e) => console.warn('[Health] sweep falhou:', e.message));
+      sweepDeadSessionsFully('health');
     }
   } catch {}
   const max = parseInt(process.env.MAX_SESSIONS) || 10;
@@ -853,6 +895,7 @@ app.post('/api/session', authMiddleware, async (req, res) => {
       sessionResources.set(sessionId, resources);
     } catch (setupErr) {
       try { await sessionManager.stopSession(sessionId, 'resource_setup_failed'); } catch {}
+      clearHandoff(sessionId); // stopSession direto não passa pelo purge (sem handoff pendurado)
       const wrapped = new Error(`Falha ao ligar stream/input da sessão: ${setupErr.message}`);
       wrapped.stage = 'resources';
       wrapped.code = 'resource_setup_failed';
@@ -906,6 +949,7 @@ app.delete('/api/session/:sessionId', authMiddleware, async (req, res) => {
     resources.inputHandler.stop();
     sessionResources.delete(sessionId);
   }
+  clearHandoff(sessionId);
   purgeSessionMemory(sessionId);
 
   // Espera o Chrome fechar antes de responder: "Session stopped" passa a
@@ -917,6 +961,110 @@ app.delete('/api/session/:sessionId', authMiddleware, async (req, res) => {
   }
   closeCdpClient(session.cdpPort);
   res.json({ message: 'Session stopped' });
+});
+
+// --- Human-in-the-Loop (handoff mínimo) ---
+//
+// O agente transfere o controle para um humano: devolve uma liveViewUrl (o
+// viewer já existente, MJPEG/WebRTC) e fica aguardando. O humano interage no
+// browser e o dono do handoff chama done quando terminar (ou o timeout fecha
+// sozinho). Um handoff ativo por sessão; a memória morre com a sessão
+// (clearHandoff entra no purgeSessionMemory — mesmo caminho de toda morte).
+
+const SESSION_NOT_FOUND = { error: 'Session not found', code: 'session_not_found' };
+
+// Sessão existe e é do tenant? Responde 404/403 e devolve null, ou a sessão.
+function handoffSession(req, res) {
+  const session = sessionManager.getSession(req.params.sessionId);
+  if (!session) { res.status(404).json(SESSION_NOT_FOUND); return null; }
+  if (session.tenantId !== req.tenant.tenantId) {
+    res.status(403).json({ error: 'Not your session' });
+    return null;
+  }
+  return session;
+}
+
+app.post('/api/session/:sessionId/handoff', authMiddleware, trackActivity, (req, res) => {
+  const session = handoffSession(req, res);
+  if (!session) return;
+
+  const instructions = String(req.body?.instructions || '').trim();
+  if (!instructions) {
+    return res.status(400).json({ error: 'instructions required (non-empty, max 500 chars)', code: 'invalid_instructions' });
+  }
+  if (instructions.length > HANDOFF_INSTRUCTIONS_MAX) {
+    return res.status(400).json({ error: `instructions max ${HANDOFF_INSTRUCTIONS_MAX} chars`, code: 'invalid_instructions' });
+  }
+  const timeoutMs = Math.max(HANDOFF_TIMEOUT_MIN_MS,
+    Math.min(HANDOFF_TIMEOUT_MAX_MS, Number(req.body?.timeoutMs) || HANDOFF_TIMEOUT_DEFAULT_MS));
+
+  const existing = handoffs.get(session.sessionId);
+  if (existing && existing.active) {
+    return res.status(409).json({ error: 'Handoff already active for this session', code: 'handoff_active', handoffId: existing.handoffId });
+  }
+  if (existing) clearHandoff(session.sessionId); // handoff velho encerrado: substitui
+
+  const handoffId = uuidv4();
+  const startedAt = Date.now();
+  const entry = {
+    handoffId, instructions, startedAt, timeoutMs,
+    active: true, success: null, reason: null,
+    timer: setTimeout(() => {
+      const h = handoffs.get(session.sessionId);
+      if (h && h.handoffId === handoffId) {
+        h.active = false;
+        h.success = false;
+        h.reason = 'timeout';
+        h.timer = null;
+      }
+    }, timeoutMs),
+  };
+  if (entry.timer.unref) entry.timer.unref();
+  handoffs.set(session.sessionId, entry);
+
+  // Mesma geração de URL do viewer que o MCP usa (?session=<id>); prefere a
+  // URL pública quando configurada, senão o host da própria requisição.
+  const base = process.env.SERENDE_PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  const liveViewUrl = `${base}?session=${session.sessionId}&mode=tab`;
+  res.status(201).json({ handoffId, liveViewUrl, expiresInMs: timeoutMs });
+});
+
+app.get('/api/session/:sessionId/handoff', authMiddleware, trackActivity, (req, res) => {
+  const session = handoffSession(req, res);
+  if (!session) return;
+
+  const h = handoffs.get(session.sessionId);
+  if (!h) return res.json({ active: false });
+  if (!h.active) return res.json({ active: false, reason: h.reason || 'done' });
+  const elapsedMs = Date.now() - h.startedAt;
+  res.json({
+    active: true,
+    handoffId: h.handoffId,
+    instructions: h.instructions,
+    elapsedMs,
+    remainingMs: Math.max(0, h.timeoutMs - elapsedMs),
+  });
+});
+
+app.post('/api/session/:sessionId/handoff/:handoffId/done', authMiddleware, trackActivity, (req, res) => {
+  const session = handoffSession(req, res);
+  if (!session) return;
+
+  const h = handoffs.get(session.sessionId);
+  if (!h || h.handoffId !== req.params.handoffId) {
+    return res.status(404).json({ error: 'Handoff not found', code: 'handoff_not_found' });
+  }
+  // Mesmo id, chamada dupla (ou depois do timeout): contrato 410 estável.
+  if (!h.active) {
+    return res.status(410).json({ error: `Handoff already finished (${h.reason || 'done'})`, code: 'handoff_expired' });
+  }
+  const success = !!req.body?.success;
+  h.active = false;
+  h.success = success;
+  h.reason = (req.body?.reason ? String(req.body.reason).slice(0, 250) : null) || (success ? 'done' : 'done_failed');
+  try { if (h.timer) clearTimeout(h.timer); } catch {}
+  h.timer = null;
+  res.json({ ok: true, success });
 });
 
 app.get('/api/session', authMiddleware, (req, res) => {
@@ -937,7 +1085,7 @@ app.get('/api/session/:sessionId', authMiddleware, trackActivity, (req, res) => 
   try {
     const health = sessionManager.getSessionHealth ? sessionManager.getSessionHealth(req.params.sessionId) : { alive: true };
     if (health && !health.alive) {
-      if (sessionManager.sweepDeadSessions) sessionManager.sweepDeadSessions().catch(() => {});
+      if (sessionManager.sweepDeadSessions) sweepDeadSessionsFully('health-410');
       return res.status(410).json({
         error: `Session dead (${health.reason}). Crie uma nova sessão.`,
         stage: 'health',
@@ -1191,6 +1339,183 @@ function getSessionAndValidate(req, res) {
 
   return session;
 }
+
+// POST /api/screenshot — Quick Action stateless (sem sessão prévia).
+// Abre uma sessão EFÊMERA, navega, captura JPEG e devolve a imagem (a mesma
+// convenção do GET /api/screenshot/:sessionId — image/jpeg cru). A sessão
+// efêmera NÃO entra no fluxo de stream/input: só Chrome para o CDP renderizar.
+app.post('/api/screenshot', authMiddleware, async (req, res) => {
+  const { url, width, height, fullPage = false } = req.body || {};
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'Missing url', code: 'missing_url', stage: 'validate' });
+  }
+  try {
+    const v = await validateUrl(String(url)).catch((e) => ({ ok: false, reason: String(e.message || e) }));
+    if (!v.ok) {
+      return res.status(403).json({ error: `url bloqueado: ${v.reason}`, code: 'url_blocked', stage: 'url-guard' });
+    }
+  } catch (e) {
+    return res.status(403).json({ error: `url bloqueado: ${e.message}`, code: 'url_blocked', stage: 'url-guard' });
+  }
+
+  // 15s (menor que os 30s do start de sessão: slot efêmero libera rápido).
+  if (statelessInFlight >= STATELESS_MAX_CONCURRENT) {
+    res.set('Retry-After', '15');
+    return res.status(429).json({ error: 'Too many concurrent stateless captures', code: 'stateless_saturated', stage: 'resources' });
+  }
+
+  // Viewport: mínimo aceito pelo startSession (320x200), teto 1920 por eixo —
+  // uma captura gigante custaria RAM de renderer por pixel.
+  const vw = Math.max(320, Math.min(1920, Number(width) || 1280));
+  const vh = Math.max(200, Math.min(1920, Number(height) || 800));
+
+  statelessInFlight++;
+  const sessionId = uuidv4();
+  try {
+    await sessionManager.startSession(sessionId, req.tenant.tenantId, {
+      resolution: `${vw}x${vh}`,
+      startUrl: String(url),
+      maxSessions: req.tenant.maxSessions,
+    });
+    const raw = sessionManager.getSessionRaw(sessionId);
+    if (!raw) {
+      const e = new Error('Sessão efêmera não abriu');
+      e.stage = 'resources'; e.code = 'session_vanished'; e.status = 502;
+      throw e;
+    }
+    const cdpPort = raw.cdpPort;
+
+    // Navegação e pintura são assíncronas ao --app do launch: dá uma pequena
+    // janela (sem feromônios do CDP screencast, que não existe neste caminho).
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // Page.enable para os comandos seguintes serem aceitos sem negociação.
+    try { await cdpRequest(cdpPort, 'Page.enable', {}); } catch {}
+
+    const params = { format: 'jpeg', quality: 80, captureBeyondViewport: fullPage ? true : false, fromSurface: true };
+    if (fullPage) {
+      // Full Page: o clip cobre o documento (medido no renderer), cortado no
+      // teto anti-DoS (FULLPAGE_MAX_HEIGHT) com sinalização no header.
+      const metrics = await cdpRequest(cdpPort, 'Page.getLayoutMetrics', {});
+      const content = metrics && (metrics.contentSize || metrics.cssContentSize);
+      if (content && content.width > 0 && content.height > 0) {
+        const cw = Math.min(1920, Math.ceil(content.width));
+        const ch = Math.min(FULLPAGE_MAX_HEIGHT, Math.ceil(content.height));
+        if (Math.ceil(content.height) > FULLPAGE_MAX_HEIGHT) res.set('X-Frame-Truncated', '1');
+        params.clip = { x: 0, y: 0, width: cw, height: ch, scale: 1 };
+      }
+    }
+    const shot = await cdpRequest(cdpPort, 'Page.captureScreenshot', params);
+    if (!shot?.data) {
+      const e = new Error('captureScreenshot sem data');
+      e.stage = 'cdp'; e.code = 'capture_empty'; e.status = 502;
+      throw e;
+    }
+    res.set('Content-Type', 'image/jpeg');
+    res.set('X-Frame-Source', 'stateless');
+    res.send(Buffer.from(shot.data, 'base64'));
+  } catch (err) {
+    // Convenção do POST /api/session: stage/code/status estáveis (429 limit,
+    // 502 resources/cdp, 503 missing_binary, senão 500).
+    const msg = String(err.message || '');
+    const status = err.status
+      || (err.code === 'limit_reached' || err.code === 'no_display' || msg.includes('limit') ? 429
+      : err.code === 'bad_resolution' ? 400
+      : err.code === 'missing_binary' ? 503
+      : err.stage === 'cdp' || err.stage === 'chrome' || err.stage === 'xvfb' || err.stage === 'resources' ? 502
+      : 500);
+    if (status === 429) res.set('Retry-After', '30');
+    console.error('[API] Stateless screenshot error:', `stage=${err.stage || 'unknown'}`, `code=${err.code || 'capture_failed'}`, msg);
+    res.status(status).json({ error: err.message, stage: err.stage || 'unknown', code: err.code || 'capture_failed' });
+  } finally {
+    // SEMPRE derruba a sessão efêmera (Chrome + Xvfb + porta CDP + purge):
+    // captura sem cleanup é exatamente o vazamento de billing que a
+    // Cloudflare documenta. stopSessionFully é o teardown unificado (cobre
+    // resources, purge/handoff e CDP); aqui não há demanda de stream. O await
+    // segura o slot até o Chrome morrer (cap conta browser vivo+morrendo).
+    try { await stopSessionFully(sessionId); } catch {}
+    statelessInFlight = Math.max(0, statelessInFlight - 1);
+  }
+});
+
+// POST /api/accessibility/:sessionId — snapshot da árvore AX (para o MCP).
+// Um roundtrip CDP pelo pool persistente. O MCP NÃO abre conexão CDP direta:
+// passa por esta rota como todos os irmãos. Em caso de AX indisponível, o
+// chamador cai para DOM.getDocument (também via evaluate/broker desta API).
+app.post('/api/accessibility/:sessionId', authMiddleware, trackActivity, async (req, res) => {
+  const session = getSessionAndValidate(req, res);
+  if (!session) return;
+  try {
+    const result = await cdpRequest(session.cdpPort, 'Accessibility.getFullAXTree', {});
+    // {:nodeId, role:{value}, name:{value}, ignored, properties, childIds...}
+    const rawNodes = (result && result.nodes) || [];
+    // Cap server-side (DoS): chamador HTTP direto não passa pelo clamp do
+    // MCP (maxNodes 10-200). total segue sendo o tamanho real da árvore.
+    const axMax = Math.max(50, Math.min(1000, Number(req.body?.maxNodes ?? req.query?.maxNodes) || 400));
+    const scoped = rawNodes.filter((n) => !n.ignored).slice(0, axMax);
+
+    // O AX tree às vezes diz onde o nó está: DOM.getBoxModel não vem incluído,
+    // então a geometria vem de um evaluate único com getBoundingClientRect via
+    // backendNodeId→RemoteObject. Mapear backendNodeId→rect em UM só script
+    // evita N roundtrips de DOM.resolveNode/DOM.getBoxModel (1 por nó).
+    const backendIds = scoped.map((n) => n.backendDOMNodeId).filter((x) => Number.isFinite(x) && x > 0);
+    let rectMap = {};
+    if (backendIds.length) {
+      try {
+        // DOM.pushNodesByBackendIdsToFront transforma backendNodeId → nodeId de
+        // frente para resolveNode; é 1 chamada para TODOS os ids. Se falhar,
+        // os nós saem sem geometria em vez de 502 (o fallback é do MCP).
+        let nodeIds = [];
+        try {
+          const pushed = await cdpRequest(session.cdpPort, 'DOM.pushNodesByBackendIdsToFront', { backendNodeIds: backendIds });
+          nodeIds = (pushed && pushed.nodeIds) || [];
+        } catch {}
+        // Geometria resolveNode→callFunctionOn por nó, em PARALELO, com cap
+        // duro: a rota já fatiou em scoped (não-ignorados, até axMax) e o que
+        // fica sem rect sai sem geometria (melhor que 200 RTTs sequenciais).
+        const cap = Math.min(nodeIds.length, 40);
+        const jobs = [];
+        for (let i = 0; i < cap; i++) {
+          const backendId = backendIds[i];
+          const nodeId = nodeIds[i];
+          jobs.push((async () => {
+            try {
+              const ro = await cdpRequest(session.cdpPort, 'DOM.resolveNode', { nodeId });
+              const objectId = ro && ro.object && ro.object.objectId;
+              if (!objectId) return;
+              const val = await cdpRequest(session.cdpPort, 'Runtime.callFunctionOn', {
+                objectId,
+                functionDeclaration: 'function() { const r = this.getBoundingClientRect(); return { x: Math.round(r.x + r.width/2), y: Math.round(r.y + r.height/2), w: Math.round(r.width), h: Math.round(r.height) }; }',
+                returnByValue: true,
+              });
+              const rect = val && val.result && val.result.value;
+              if (rect) rectMap[String(backendId)] = rect;
+            } catch {}
+          })());
+        }
+        await Promise.all(jobs);
+      } catch {}
+    }
+
+    const nodes = scoped.map((n) => {
+      const role = (n.role && n.role.value) || 'unknown';
+      const name = (n.name && n.name.value != null) ? String(n.name.value) : '';
+      const rect = rectMap[String(n.backendDOMNodeId)] || null;
+      return {
+        role,
+        name,
+        ignored: !!n.ignored,
+        backendDOMNodeId: n.backendDOMNodeId || 0,
+        x: rect ? rect.x : null, y: rect ? rect.y : null,
+        w: rect ? rect.w : null, h: rect ? rect.h : null,
+      };
+    });
+    res.json({ total: rawNodes.length, nodes });
+  } catch (err) {
+    // AX indisponível: o chamador decide o fallback para DOM.getDocument.
+    res.status(502).json({ error: `Accessibility snapshot failed: ${err.message}`, code: 'ax_unavailable', stage: 'cdp' });
+  }
+});
 
 app.get('/api/screenshot/:sessionId', authMiddleware, trackActivity, async (req, res) => {
   const session = getSessionAndValidate(req, res);
@@ -2089,7 +2414,9 @@ const THUMB_TTL_MS = 1500;
 
 // Derruba uma sessao: para o stream, o input, o gerenciador e o cliente CDP.
 // Extraido para ser reusado pelo DELETE individual e pelo DELETE em lote.
-function stopSessionFully(sessionId) {
+// É async: o await no stopSession segura o chamador até o Chrome morrer —
+// o cap do stateless conta browser vivo+morrendo, não só handler HTTP.
+async function stopSessionFully(sessionId) {
   const session = sessionManager.getSession(sessionId);
   if (!session) return false;
 
@@ -2106,15 +2433,15 @@ function stopSessionFully(sessionId) {
     sessionResources.delete(sessionId);
   }
 
-  sessionManager.stopSession(sessionId);
+  await sessionManager.stopSession(sessionId);
   closeCdpClient(session.cdpPort);
   return true;
 }
 
-app.delete('/api/admin/sessions/:sessionId', adminAuth, (req, res) => {
+app.delete('/api/admin/sessions/:sessionId', adminAuth, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    if (!stopSessionFully(sessionId)) {
+    if (!(await stopSessionFully(sessionId))) {
       return res.status(404).json({ error: 'Session not found' });
     }
     audit(req, 'admin.session_kill', sessionId, {});
@@ -2169,7 +2496,7 @@ app.get('/api/admin/sessions/:sessionId/thumbnail', adminAuth, async (req, res) 
 
 // DELETE em lote: fecha todas as sessoes de uma key (ou todas, sem tenantId).
 // O painel precisa disso para limpar o servidor sem abrir sessao por sessao.
-app.delete('/api/admin/sessions', adminAuth, (req, res) => {
+app.delete('/api/admin/sessions', adminAuth, async (req, res) => {
   try {
     const tenantId = req.query.tenantId ? String(req.query.tenantId) : null;
     const all = sessionManager.getAllSessions();
@@ -2178,7 +2505,7 @@ app.delete('/api/admin/sessions', adminAuth, (req, res) => {
     const failed = [];
     for (const s of targets) {
       try {
-        if (stopSessionFully(s.sessionId)) closed.push(s.sessionId);
+        if (await stopSessionFully(s.sessionId)) closed.push(s.sessionId);
         else failed.push(s.sessionId);
       } catch (e) {
         failed.push(s.sessionId);

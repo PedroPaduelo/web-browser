@@ -86,7 +86,15 @@ async function ensureAuth(apiKey) {
 // A assinatura usa um segredo ALEATÓRIO por processo: as URLs morrem junto
 // com o processo, como as capturas. É o padrão de URL pré-assinada: quem tem
 // a URL vê a imagem até o prazo; fora do prazo, 410.
-const CAPTURE_TTL_MS = 10 * 60 * 1000; // 10 minutos
+//
+// Regra de expiração (padrão Cloudflare Live View): prazo CURTO por padrão
+// (5 min) e TETO de 1h imposto pelo servidor — a URL é credencial, então
+// quanto menor a janela, menor o estrago se ela vazar. O `exp` da query vem
+// do cliente mas é amarrado pelo HMAC (não forjável); o prazo efetivo é o
+// `expiresAt` carimbado aqui no servidor, sempre dentro de [MIN, MAX].
+const LINK_TTL_DEFAULT_MS = 5 * 60 * 1000;  // 5 minutos (padrão)
+const LINK_TTL_MIN_MS = 60 * 1000;          // 60s (piso)
+const LINK_TTL_MAX_MS = 60 * 60 * 1000;     // 1h (teto, imposto pelo servidor)
 const CAPTURE_MAX = 60;                // capturas guardadas ao mesmo tempo
 const captureSecret = crypto.randomBytes(32);
 const captureStore = new Map(); // captureId → { buf, mime, expiresAt, tenantId, sessionId }
@@ -95,15 +103,18 @@ function captureToken(captureId, expiresAt) {
   return crypto.createHmac('sha256', captureSecret).update(`${captureId}.${expiresAt}`).digest('hex');
 }
 
-function storeCapture(buf, mime, tenantId, sessionId) {
+function storeCapture(buf, mime, tenantId, sessionId, expiresInMs = LINK_TTL_DEFAULT_MS) {
   const now = Date.now();
   for (const [id, c] of captureStore) if (c.expiresAt <= now) captureStore.delete(id);
   while (captureStore.size >= CAPTURE_MAX) {
     const oldest = captureStore.keys().next().value;
     captureStore.delete(oldest);
   }
+  // Clamp server-side: chamador pode pedir, mas nunca abaixo do piso nem
+  // acima do teto.
+  const ttl = Math.min(LINK_TTL_MAX_MS, Math.max(LINK_TTL_MIN_MS, Number(expiresInMs) || LINK_TTL_DEFAULT_MS));
   const captureId = crypto.randomBytes(16).toString('hex');
-  const expiresAt = now + CAPTURE_TTL_MS;
+  const expiresAt = now + ttl;
   captureStore.set(captureId, { buf, mime, expiresAt, tenantId, sessionId });
   return { captureId, expiresAt };
 }
@@ -170,6 +181,7 @@ async function api(method, path, body) {
   if (!res.ok) {
     const err = new Error(`API ${method} ${path} → ${res.status}: ${data.error || JSON.stringify(data)}`);
     err.status = res.status; // p/ erros de rede (TypeError) fica undefined
+    err.code = data.code; // p/ tripwires de fallback (ex.: ax_unavailable)
     throw err;
   }
   return data;
@@ -1065,7 +1077,7 @@ function createServer() {
   }
 
   registerTool('screenshot', {
-    description: 'Take a screenshot of the current browser screen. Returns the JPEG image, plus a text block with the image size, byte count, sha256 prefix and an image link (valid ~10 minutes, no API key needed) for downloading the capture with curl or fetch. If your client drops image blocks, download the link: the file bytes must match the sha256 in the text. Use this to see what is on screen before interacting.',
+    description: 'Take a screenshot of the current browser screen. Returns the JPEG image, plus a text block with the image size, byte count, sha256 prefix and an image link (valid ~5 minutes, no API key needed) for downloading the capture with curl or fetch. If your client drops image blocks, download the link: the file bytes must match the sha256 in the text. Use this to see what is on screen before interacting.',
     inputSchema: z.object({}),
   }, async () => {
     const sid = await requireSession();
@@ -2364,7 +2376,7 @@ function createServer() {
   // ========== NEW: SCREENSHOT WITH DELAY ==========
 
   registerTool('screenshot_after', {
-    description: 'Take a screenshot after waiting a specified delay. Useful for capturing after animations, transitions, or async renders. Returns the JPEG image plus a text block with the image size, byte count, sha256 prefix and an image link (valid ~10 minutes, no API key needed) — same as screenshot.',
+    description: 'Take a screenshot after waiting a specified delay. Useful for capturing after animations, transitions, or async renders. Returns the JPEG image plus a text block with the image size, byte count, sha256 prefix and an image link (valid ~5 minutes, no API key needed) — same as screenshot.',
     inputSchema: z.object({
       delayMs: z.number().default(1000).describe('Delay before screenshot (ms)'),
     }),
@@ -2373,6 +2385,79 @@ function createServer() {
     await new Promise(r => setTimeout(r, delayMs));
     const data = await api('GET', `/api/screenshotWithInfo/${sid}`);
     return screenshotResult(data, sid);
+  });
+
+  // ========== NEW: ACCESSIBILITY SNAPSHOT ==========
+
+  registerTool('accessibility_snapshot', {
+    description: 'Get a compact accessibility-tree snapshot of the page: one line per node with role, accessible name, and center coordinates + size. Prefer this over screenshots to LOCATE elements (cheaper and precise); use screenshot only for VISUAL state (colors, layout, images, canvas).',
+    inputSchema: z.object({
+      maxNodes: z.number().default(80).describe('Max nodes to return (default 80, clamped 10-200)'),
+    }),
+  }, async ({ maxNodes }) => {
+    const sid = await requireSession();
+    const max = Math.max(10, Math.min(200, Number(maxNodes) || 80));
+
+    // Caminho dominante dos irmãos: tudo passa pelo backend HTTP (api()), o
+    // MCP NUNCA abre conexão CDP direta — o CDP vive no backend, no pool
+    // persistente da rota /api/accessibility/:sessionId.
+    let nodes = null;
+    let total = 0;
+    try {
+      const data = await api('POST', `/api/accessibility/${sid}`, { maxNodes: max });
+      total = data.total || 0;
+      nodes = (data.nodes || [])
+        .filter((n) => !n.ignored)
+        .slice(0, max)
+        .map((n) => ({
+          role: n.role || 'unknown',
+          name: String(n.name || '').replace(/\s+/g, ' ').substring(0, 80),
+          x: n.x, y: n.y, w: n.w, h: n.h,
+        }));
+    } catch (e) {
+      // AX indisponível no Chrome (code ax_unavailable): fallback para DOM via
+      // /api/evaluate — mesma travessia que find_all_elements faz, com papel
+      // ARIA aproximado pelo tag/type. Erro de transporte (rede/429) propaga.
+      if (e.code !== 'ax_unavailable' && !String(e.message || '').includes('ax_unavailable')) throw e;
+      let dom;
+      try {
+        dom = await evalPage(sid, `(() => {
+          const out = [];
+          const tagRole = { a: 'link', button: 'button', select: 'combobox', textarea: 'textbox', img: 'img', h1: 'heading', h2: 'heading', h3: 'heading', h4: 'heading', h5: 'heading', h6: 'heading', nav: 'navigation', main: 'main', header: 'banner', footer: 'contentinfo', form: 'form', table: 'table', ul: 'list', ol: 'list', li: 'listitem' };
+          const inputRole = { checkbox: 'checkbox', radio: 'radio', submit: 'button', button: 'button', image: 'button' };
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+          let el;
+          while ((el = walker.nextNode())) {
+            if (out.length >= ${max}) break;
+            const tag = el.tagName.toLowerCase();
+            if (tag === 'script' || tag === 'style' || tag === 'noscript' || tag === 'template') continue;
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) continue;
+            let role = el.getAttribute('role');
+            if (!role) role = tag === 'input' ? (inputRole[el.type] || 'textbox') : (tagRole[tag] || tag);
+            const name = ((el.getAttribute('aria-label') || el.innerText || el.value || el.placeholder || el.title || '').trim().replace(/\\s+/g, ' ')).substring(0, 80);
+            if (!name && role !== 'button' && role !== 'link' && role !== 'textbox' && role !== 'img' && role !== 'checkbox' && role !== 'radio' && role !== 'combobox') continue;
+            out.push({ role, name, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), w: Math.round(r.width), h: Math.round(r.height) });
+          }
+          return { total: out.length, truncated: out.length >= ${max}, nodes: out };
+        })()`);
+      } catch (e2) {
+        return toolError(`Accessibility snapshot failed (AX unavailable, DOM fallback failed): ${e2.message}`, { fallback: 'dom' });
+      }
+      total = (dom && dom.total) || 0;
+      nodes = (dom && dom.nodes) || [];
+      nodes = nodes.map((n) => ({ ...n, fallback: true }));
+      var domTruncated = !!(dom && dom.truncated);
+    }
+
+    const lines = nodes.map((n, i) => {
+      const geo = (n.x !== null && n.x !== undefined) ? ` @ (${n.x}, ${n.y}) ${n.w}x${n.h}` : '';
+      return `[${i}] ${n.role} "${n.name}"${geo}`;
+    });
+    const via = nodes.length && nodes[0].fallback ? ' (DOM fallback — AX unavailable)' : '';
+    const trunc = (typeof domTruncated !== 'undefined' && domTruncated) ? ', list truncated' : '';
+    lines.push(`total: ${total} nodes, showing ${nodes.length}${via}${trunc}. Prefer accessibility_snapshot over screenshots to locate elements; screenshot remains for visual state.`);
+    return ok(lines.join('\n'));
   });
 
   // ========== UTILITY TOOLS ==========
@@ -2655,7 +2740,7 @@ app.get('/mcp/screenshot/:captureId', (req, res) => {
     return res.status(400).json({ error: 'Invalid image link' });
   }
   if (exp <= Date.now()) {
-    return res.status(410).json({ error: 'This image link has expired. Take a new screenshot.' });
+    return res.status(410).json({ error: 'This image link has expired. Take a new screenshot.', code: 'link_expired' });
   }
 
   // Comparação em tempo constante: o token é a credencial.
@@ -2667,11 +2752,11 @@ app.get('/mcp/screenshot/:captureId', (req, res) => {
 
   const cap = captureStore.get(captureId);
   if (!cap) {
-    return res.status(410).json({ error: 'Image no longer available (expired, or the MCP restarted). Take a new screenshot.' });
+    return res.status(410).json({ error: 'Image no longer available (expired, or the MCP restarted). Take a new screenshot.', code: 'link_expired' });
   }
   if (cap.expiresAt <= Date.now()) {
     captureStore.delete(captureId);
-    return res.status(410).json({ error: 'Image expired. Take a new screenshot.' });
+    return res.status(410).json({ error: 'Image expired. Take a new screenshot.', code: 'link_expired' });
   }
 
   // Se o cliente mandar a chave de API junto, ela tem que ser a MESMA que
